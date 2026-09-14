@@ -5,3 +5,7 @@ compatibility_flags = ["python_workers"]
 
 [vars]
 ENVIRONMENT = "production"
+
+# Forcer l'inclusion des dépendances Python
+[build]
+command = "pip install -t .python_packages -r requirements.txt"
