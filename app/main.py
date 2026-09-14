@@ -22,3 +22,8 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+# Exposition du handler pour Cloudflare Workers
+async def on_fetch(request, env):
+    import asgi
+    return await asgi.fetch(app, request, env)
