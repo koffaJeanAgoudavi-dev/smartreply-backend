@@ -1,0 +1,7 @@
+name = "smartreply-backend"
+main = "app/main.py"
+compatibility_date = "2026-09-14"
+compatibility_flags = ["python_workers"]
+
+[vars]
+ENVIRONMENT = "production"
