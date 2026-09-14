@@ -5,10 +5,3 @@ compatibility_flags = ["python_workers"]
 
 [vars]
 ENVIRONMENT = "production"
-
-[build]
-command = ""
-
-# Spécifie à Cloudflare d'inclure les modules Python
-[site]
-bucket = ""
