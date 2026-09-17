@@ -1,4 +1,5 @@
 import httpx
+import traceback
 from datetime import datetime, timezone
 from app.core.config import settings
 from app.db.sheets_client import get_central_workbook
@@ -81,7 +82,6 @@ async def process_telegram_update(update: dict):
 
 async def handle_connection_code(chat_id: int, message: dict, code: str):
     """Vérifie et valide le code de connexion dans Google Sheets."""
-    wb = None
     try:
         wb = get_central_workbook()
         sheet = wb.worksheet("telegram_connection_codes")
@@ -110,7 +110,7 @@ async def handle_connection_code(chat_id: int, message: dict, code: str):
         # 3. Code expiré (statut OU date dépassée)
         if status in ("expired", "cancelled") or _is_expired(target_record):
             if status not in ("expired", "cancelled"):
-                sheet.update_cell(row_idx, 4, "expired")  # marquer comme expiré
+                sheet.update_cell(row_idx, 4, "expired")
             await send_telegram_message(chat_id, "⏳ *Code expiré.*\nRetournez dans SmartReply pour générer un nouveau code.")
             return
 
@@ -132,7 +132,6 @@ async def handle_connection_code(chat_id: int, message: dict, code: str):
         sheet_integrations = wb.worksheet("Integrations")
         integ_row = _find_user_integration_row(sheet_integrations, user_id)
         if integ_row:
-            # Colonnes (ordre figé §8.3) : 7 = Telegram_Chat_ID, 8 = Telegram_Statut
             sheet_integrations.update_cell(integ_row, 7, str(chat_id))
             sheet_integrations.update_cell(integ_row, 8, "connecté")
 
@@ -143,6 +142,8 @@ async def handle_connection_code(chat_id: int, message: dict, code: str):
         )
 
     except Exception:
+        # L'erreur réelle est affichée dans les logs Render pour diagnostic
+        traceback.print_exc()
         await send_telegram_message(chat_id, "⚠️ Une erreur est survenue lors de la vérification du code.")
 
 
@@ -160,4 +161,5 @@ async def check_user_status(chat_id: int):
         else:
             await send_telegram_message(chat_id, "📊 *Statut :* ⚪ Non connecté. Envoyez votre code `SR-XXXXX`.")
     except Exception:
+        traceback.print_exc()
         await send_telegram_message(chat_id, "📊 *Statut :* Impossible de récupérer le statut pour le moment.")
