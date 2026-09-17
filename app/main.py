@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
 from app.modules.telegram.router import router as telegram_router
+from app.modules.ai.router import router as ai_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -8,8 +9,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Inclusion des routes du module Telegram
+# Modules actifs
 app.include_router(telegram_router)
+app.include_router(ai_router)
+
 
 @app.get("/")
 def read_root():
@@ -19,11 +22,7 @@ def read_root():
         "environment": settings.ENVIRONMENT
     }
 
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
-
-# Exposition du handler pour Cloudflare Workers
-async def on_fetch(request, env):
-    import asgi
-    return await asgi.fetch(app, request, env)
