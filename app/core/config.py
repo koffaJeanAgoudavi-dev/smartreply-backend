@@ -1,18 +1,24 @@
 import os
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     APP_NAME: str = "SmartReply Agent API"
-    ENVIRONMENT: str = "development"
-    
-    # Telegram Configuration
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+
+    # Telegram
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
-    
-    # Google Sheets Configuration
+    # URL publique du service (ex : https://smartreply-backend.onrender.com)
+    BASE_URL: str = os.getenv("BASE_URL", "")
+
+    # Google Sheets
     GOOGLE_SHEET_ID: str = os.getenv("GOOGLE_SHEET_ID", "")
+    # JSON complet du compte de service (Render) ; local = fichier credentials.json
+    GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 
     class Config:
         env_file = ".env"
+
 
 settings = Settings()
