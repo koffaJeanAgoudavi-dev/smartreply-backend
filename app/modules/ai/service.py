@@ -1,23 +1,22 @@
 """
-SmartReply Agent — MODULE 3 : Analyse IA (Groq)
-================================================
+SmartReply Agent — MODULE 3 : Analyse IA (Gemini)
+=================================================
 Analyse un email entrant et produit les 4 sorties validées (§5.1) :
   - urgence (haute / moyenne / basse)
   - categorie (devis, support, facturation, partenariat, spam, newsletter, autre)
   - resume
   - brouillon de réponse
 
-Mode JSON forcé : la réponse de Groq est du JSON structuré, fiable à parser.
-Le modèle est configurable via la variable d'environnement GROQ_MODEL
-(les modèles Groq changent au fil du temps — liste via GET /openai/v1/models).
+Sortie JSON forcée via responseMimeType (fiable à parser).
+Modèle configurable via GEMINI_MODEL (défaut : gemini-2.5-flash).
 """
 import json
 import os
 import httpx
 from app.core.config import settings
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 SYSTEM_PROMPT = """Tu es l'analyseur d'emails de SmartReply Agent, un assistant
 pour entrepreneurs et petites entreprises.
@@ -40,11 +39,11 @@ Règles :
 
 async def analyze_email(expediteur: str, objet: str, corps: str) -> dict:
     """
-    Envoie l'email à Groq et retourne l'analyse structurée.
-    Lève une exception avec le détail si l'API Groq échoue.
+    Envoie l'email à Gemini et retourne l'analyse structurée.
+    Lève une exception avec le détail si l'API échoue.
     """
-    if not settings.GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY non configurée sur Render")
+    if not settings.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY non configurée sur Render")
 
     user_content = (
         f"Expéditeur : {expediteur}\n"
@@ -52,26 +51,22 @@ async def analyze_email(expediteur: str, objet: str, corps: str) -> dict:
         f"Corps du message :\n{corps}"
     )
 
-    headers = {
-        "Authorization": f"Bearer {settings.GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent"
     payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.3,
+        "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": user_content}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.3,
+        },
     }
+    params = {"key": settings.GEMINI_API_KEY}
 
     async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(GROQ_API_URL, headers=headers, json=payload)
+        resp = await client.post(url, params=params, json=payload)
         if resp.status_code != 200:
-            # Le corps de l'erreur Groq apparaît dans les logs Render
-            raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text}")
+            raise RuntimeError(f"Gemini HTTP {resp.status_code}: {resp.text}")
         data = resp.json()
 
-    content = data["choices"][0]["message"]["content"]
+    content = data["candidates"][0]["content"]["parts"][0]["text"]
     return json.loads(content)
