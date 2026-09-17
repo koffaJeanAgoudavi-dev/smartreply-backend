@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # JSON complet du compte de service (Render) ; local = fichier credentials.json
     GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 
+    # Analyse IA (Module 3)
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+
     class Config:
         env_file = ".env"
 
