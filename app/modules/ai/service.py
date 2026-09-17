@@ -8,13 +8,16 @@ Analyse un email entrant et produit les 4 sorties validées (§5.1) :
   - brouillon de réponse
 
 Mode JSON forcé : la réponse de Groq est du JSON structuré, fiable à parser.
+Le modèle est configurable via la variable d'environnement GROQ_MODEL
+(les modèles Groq changent au fil du temps — liste via GET /openai/v1/models).
 """
 import json
+import os
 import httpx
 from app.core.config import settings
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 SYSTEM_PROMPT = """Tu es l'analyseur d'emails de SmartReply Agent, un assistant
 pour entrepreneurs et petites entreprises.
@@ -38,8 +41,11 @@ Règles :
 async def analyze_email(expediteur: str, objet: str, corps: str) -> dict:
     """
     Envoie l'email à Groq et retourne l'analyse structurée.
-    Lève une exception si l'API Groq échoue (le caller gère le fallback).
+    Lève une exception avec le détail si l'API Groq échoue.
     """
+    if not settings.GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY non configurée sur Render")
+
     user_content = (
         f"Expéditeur : {expediteur}\n"
         f"Objet : {objet}\n\n"
@@ -62,7 +68,9 @@ async def analyze_email(expediteur: str, objet: str, corps: str) -> dict:
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(GROQ_API_URL, headers=headers, json=payload)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            # Le corps de l'erreur Groq apparaît dans les logs Render
+            raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text}")
         data = resp.json()
 
     content = data["choices"][0]["message"]["content"]
