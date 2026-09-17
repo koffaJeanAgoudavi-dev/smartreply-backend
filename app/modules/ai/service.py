@@ -14,7 +14,7 @@ import httpx
 from app.core.config import settings
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "openai/gpt-oss-120b"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """Tu es l'analyseur d'emails de SmartReply Agent, un assistant
 pour entrepreneurs et petites entreprises.
