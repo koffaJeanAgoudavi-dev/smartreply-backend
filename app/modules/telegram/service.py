@@ -5,6 +5,7 @@ from app.db.sheets_client import get_central_workbook
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 
+
 async def send_telegram_message(chat_id: int, text: str):
     url = f"{TELEGRAM_API_URL}/sendMessage"
     payload = {
@@ -14,6 +15,29 @@ async def send_telegram_message(chat_id: int, text: str):
     }
     async with httpx.AsyncClient() as client:
         await client.post(url, json=payload)
+
+
+def _parse_dt(value: str) -> datetime | None:
+    """Parse une date 'YYYY-MM-DD HH:MM:SS' en UTC. None si invalide."""
+    try:
+        return datetime.strptime(str(value).strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+def _is_expired(record: dict) -> bool:
+    exp = _parse_dt(record.get("expires_at", ""))
+    return exp is not None and datetime.now(timezone.utc) > exp
+
+
+def _find_user_integration_row(sheet_integrations, user_id) -> int | None:
+    """Retourne le n° de ligne (base 1) de la ligne Integrations de l'utilisateur."""
+    records = sheet_integrations.get_all_records()
+    for idx, record in enumerate(records, start=2):
+        if str(record.get("user_id")) == str(user_id):
+            return idx
+    return None
+
 
 async def process_telegram_update(update: dict):
     if "message" not in update:
@@ -54,18 +78,20 @@ async def process_telegram_update(update: dict):
         msg = "🤖 Commande non reconnue. Envoyez un code valide (ex: `SR-82941`) ou `/help`."
         await send_telegram_message(chat_id, msg)
 
+
 async def handle_connection_code(chat_id: int, message: dict, code: str):
     """Vérifie et valide le code de connexion dans Google Sheets."""
+    wb = None
     try:
         wb = get_central_workbook()
         sheet = wb.worksheet("telegram_connection_codes")
         records = sheet.get_all_records()
 
-        # Recherche du code
+        # 1. Recherche du code
         row_idx = None
         target_record = None
-        for idx, record in enumerate(records, start=2):  # Les données commencent à la ligne 2
-            if record.get("connection_code") == code:
+        for idx, record in enumerate(records, start=2):
+            if str(record.get("connection_code", "")).strip() == code.strip():
                 row_idx = idx
                 target_record = record
                 break
@@ -74,26 +100,41 @@ async def handle_connection_code(chat_id: int, message: dict, code: str):
             await send_telegram_message(chat_id, "❌ *Code invalide.*\nVérifiez votre code et réessayez.")
             return
 
-        status = target_record.get("status")
-        expires_at_str = target_record.get("expires_at")
+        status = str(target_record.get("status", "")).strip().lower()
 
+        # 2. Code déjà utilisé
         if status == "used":
             await send_telegram_message(chat_id, "⚠️ *Code déjà utilisé.*\nVeuillez générer un nouveau code depuis SmartReply.")
             return
 
-        if status in ["expired", "cancelled"]:
+        # 3. Code expiré (statut OU date dépassée)
+        if status in ("expired", "cancelled") or _is_expired(target_record):
+            if status not in ("expired", "cancelled"):
+                sheet.update_cell(row_idx, 4, "expired")  # marquer comme expiré
             await send_telegram_message(chat_id, "⏳ *Code expiré.*\nRetournez dans SmartReply pour générer un nouveau code.")
             return
 
-        # Mise à jour des informations de connexion
+        # 4. Seul un code 'pending' peut être validé
+        if status != "pending":
+            await send_telegram_message(chat_id, "❌ *Code invalide.*\nVérifiez votre code et réessayez.")
+            return
+
+        # 5. Validation : mise à jour de telegram_connection_codes
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         telegram_user_id = message["from"]["id"]
-        
-        # Mettre à jour la ligne dans Google Sheets (status, used_at, telegram_user_id, telegram_chat_id)
-        sheet.update_cell(row_idx, 4, "used")               # Col 4 : status
-        sheet.update_cell(row_idx, 7, now_str)              # Col 7 : used_at
-        sheet.update_cell(row_idx, 8, str(telegram_user_id))# Col 8 : telegram_user_id
-        sheet.update_cell(row_idx, 9, str(chat_id))         # Col 9 : telegram_chat_id
+        sheet.update_cell(row_idx, 4, "used")                # status
+        sheet.update_cell(row_idx, 7, now_str)               # used_at
+        sheet.update_cell(row_idx, 8, str(telegram_user_id)) # telegram_user_id
+        sheet.update_cell(row_idx, 9, str(chat_id))          # telegram_chat_id
+
+        # 6. Synchronisation de l'onglet Integrations (§8.3 du cadrage)
+        user_id = target_record.get("user_id")
+        sheet_integrations = wb.worksheet("Integrations")
+        integ_row = _find_user_integration_row(sheet_integrations, user_id)
+        if integ_row:
+            # Colonnes (ordre figé §8.3) : 7 = Telegram_Chat_ID, 8 = Telegram_Statut
+            sheet_integrations.update_cell(integ_row, 7, str(chat_id))
+            sheet_integrations.update_cell(integ_row, 8, "connecté")
 
         await send_telegram_message(
             chat_id,
@@ -101,8 +142,9 @@ async def handle_connection_code(chat_id: int, message: dict, code: str):
             "Vous recevrez ici les notifications de vos emails professionnels."
         )
 
-    except Exception as e:
+    except Exception:
         await send_telegram_message(chat_id, "⚠️ Une erreur est survenue lors de la vérification du code.")
+
 
 async def check_user_status(chat_id: int):
     """Vérifie si le chat_id est présent dans la base."""
@@ -119,4 +161,3 @@ async def check_user_status(chat_id: int):
             await send_telegram_message(chat_id, "📊 *Statut :* ⚪ Non connecté. Envoyez votre code `SR-XXXXX`.")
     except Exception:
         await send_telegram_message(chat_id, "📊 *Statut :* Impossible de récupérer le statut pour le moment.")
-        
