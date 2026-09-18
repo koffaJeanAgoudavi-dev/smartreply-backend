@@ -8,6 +8,7 @@ from app.modules.sheets.router import router as sheets_router
 from app.modules.drafts.router import router as drafts_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.actions.router import router as actions_router
+from app.modules.pipeline.router import router as pipeline_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -24,6 +25,7 @@ app.include_router(sheets_router)
 app.include_router(drafts_router)
 app.include_router(notifications_router)
 app.include_router(actions_router)
+app.include_router(pipeline_router)
 
 
 @app.get("/")
