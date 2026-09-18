@@ -4,6 +4,7 @@ from app.modules.telegram.router import router as telegram_router
 from app.modules.ai.router import router as ai_router
 from app.modules.gmail.router import router as gmail_router
 from app.modules.filtering.router import router as filtering_router
+from app.modules.sheets.router import router as sheets_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -16,6 +17,7 @@ app.include_router(telegram_router)
 app.include_router(ai_router)
 app.include_router(gmail_router)
 app.include_router(filtering_router)
+app.include_router(sheets_router)
 
 
 @app.get("/")
