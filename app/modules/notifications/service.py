@@ -20,6 +20,7 @@ async def send_email_notification(
     resume: str,
     categorie: str,
     priorite: str,
+    email_id: str,
     draft_id: str,
 ) -> dict:
     """
@@ -42,9 +43,11 @@ async def send_email_notification(
         "text": texte,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True,
-        "reply_markup": {
+                "reply_markup": {
             "inline_keyboard": [[
-                {"text": "👁 Voir le brouillon", "url": DRAFT_LINK.format(draft_id=draft_id)}
+                {"text": "👁 Voir", "url": DRAFT_LINK.format(draft_id=draft_id)},
+                {"text": "✅ Envoyer", "callback_data": f"send:{email_id}:{draft_id}"},
+                {"text": "🗑 Ignorer", "callback_data": f"ignore:{email_id}:{draft_id}"},
             ]]
         },
     }
