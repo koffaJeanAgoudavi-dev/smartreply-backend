@@ -34,4 +34,4 @@ async def test_stockage():
     return {
         "message": "Ligne écrite dans l'onglet Emails ✅",
         **result,
-    }router.py
+    }
