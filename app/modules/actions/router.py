@@ -14,7 +14,7 @@ from app.modules.drafts.service import create_gmail_draft, record_draft_in_sheet
 router = APIRouter(prefix="/api/v1/actions", tags=["Actions"])
 
 # ← MODIFIEZ : votre PROPRE adresse Gmail (vous recevrez le test dans votre boîte)
-DESTINATAIRE_TEST = "votre-email@gmail.com"
+DESTINATAIRE_TEST = "okabejohnny@gmail.com"
 
 
 @router.post("/test-ignore")
