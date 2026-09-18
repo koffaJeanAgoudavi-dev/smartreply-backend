@@ -8,6 +8,7 @@ Authentification : OAuth2 refresh token -> access token (flux standard Google).
 Aucune librairie Google nécessaire : httpx uniquement (déjà dans requirements).
 """
 import base64
+import re
 import time
 import httpx
 from app.core.config import settings
@@ -37,23 +38,33 @@ async def _get_access_token() -> str:
         data = resp.json()
 
     _token_cache["access_token"] = data["access_token"]
-    # Marge de sécurité : on considère le token expiré 60s avant l'heure réelle
     _token_cache["expires_at"] = time.time() + data.get("expires_in", 3600) - 60
     return _token_cache["access_token"]
 
 
+def _strip_html(html: str) -> str:
+    """Supprime les balises HTML et compresse les espaces (texte lisible)."""
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 def _extract_text(payload: dict) -> str:
-    """Extrait le texte brut d'un message (body direct ou partie text/plain)."""
+    """Extrait le texte brut d'un message (text/plain prioritaire, HTML nettoyé en secours)."""
     if payload.get("mimeType", "").startswith("multipart"):
         for part in payload.get("parts", []):
             if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
-                return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
-        # Pas de text/plain ? On essaie text/html en secours minimal
+                return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace").strip()
         for part in payload.get("parts", []):
             if part.get("mimeType") == "text/html" and part.get("body", {}).get("data"):
-                return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
+                html = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
+                return _strip_html(html)
     elif payload.get("body", {}).get("data"):
-        return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
+        raw = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
+        if payload.get("mimeType") == "text/html":
+            return _strip_html(raw)
+        return raw.strip()
     return ""
 
 
