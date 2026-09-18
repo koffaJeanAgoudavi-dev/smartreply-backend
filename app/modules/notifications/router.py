@@ -21,7 +21,8 @@ ANALYSE_FACTICE = {
     "objet": "Demande de devis — refonte site web",
     "resume": "Cliente souhaitant un devis pour refonte de site vitrine avant mi-novembre.",
     "categorie": "devis",
-    "priorite": "haute",
+        "priorite": "haute",
+    "email_id": "EM-TEST-001",
     "draft_id": "r-1234567890",  # fictif pour le test ; réel en production (Module 5)
 }
 
