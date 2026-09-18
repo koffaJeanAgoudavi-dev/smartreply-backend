@@ -39,9 +39,12 @@ async def send_draft(draft_id: str):
     access_token = await _get_access_token()
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
-            f"https://gmail.googleapis.com/gmail/v1/users/me/drafts/{draft_id}/send",
+            "https://gmail.googleapis.com/gmail/v1/users/me/drafts/send",
             headers={"Authorization": f"Bearer {access_token}"},
+            json={"id": draft_id},
         )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Envoi brouillon échoué (HTTP {resp.status_code}): {resp.text}")
         if resp.status_code != 200:
             raise RuntimeError(f"Envoi brouillon échoué (HTTP {resp.status_code}): {resp.text}")
 
