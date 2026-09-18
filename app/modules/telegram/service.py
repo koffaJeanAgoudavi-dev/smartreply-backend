@@ -41,6 +41,11 @@ def _find_user_integration_row(sheet_integrations, user_id) -> int | None:
 
 
 async def process_telegram_update(update: dict):
+    if "callback_query" in update:
+        from app.modules.actions.service import handle_callback_query
+        await handle_callback_query(update["callback_query"])
+        return
+
     if "message" not in update:
         return
 
