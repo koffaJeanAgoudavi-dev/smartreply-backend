@@ -3,6 +3,7 @@ from app.core.config import settings
 from app.modules.telegram.router import router as telegram_router
 from app.modules.ai.router import router as ai_router
 from app.modules.gmail.router import router as gmail_router
+from app.modules.filtering.router import router as filtering_router
 
 app = FastAPI(
     title=settings.APP_NAME,
