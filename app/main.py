@@ -15,6 +15,7 @@ app = FastAPI(
 app.include_router(telegram_router)
 app.include_router(ai_router)
 app.include_router(gmail_router)
+app.include_router(filtering_router)
 
 
 @app.get("/")
