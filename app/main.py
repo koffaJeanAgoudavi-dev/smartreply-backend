@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.modules.telegram.router import router as telegram_router
 from app.modules.ai.router import router as ai_router
+from app.modules.gmail.router import router as gmail_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -12,6 +13,7 @@ app = FastAPI(
 # Modules actifs
 app.include_router(telegram_router)
 app.include_router(ai_router)
+app.include_router(gmail_router)
 
 
 @app.get("/")
