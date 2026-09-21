@@ -5,6 +5,10 @@ Reproduit fidèlement le flux validé en V1.5 :
   Gmail → filtrage → analyse Gemini → Sheet Emails → brouillon Gmail
   → Sheet Brouillons + maj Statut → notification Telegram (3 boutons)
 
+Garde-fou IA : si Gemini classe l'email en newsletter/spam malgré le
+filtre, il est ignoré après analyse (statut « Ignoré », pas de brouillon
+ni de notification).
+
 Étape 1 : compte unique en dur (chat_id fixe).
 """
 import re
@@ -53,8 +57,12 @@ async def process_one(email: dict) -> dict:
     """Traite un email unique à travers les modules 2→6."""
     result = {"id_gmail": email["id_gmail"], "objet": email["objet"]}
 
-    # MODULE 2 — Filtrage
-    decision = should_process(email["expediteur"], email["corps"] or email["snippet"])
+    # MODULE 2 — Filtrage (en-tête List-Unsubscribe inclus)
+    decision = should_process(
+        email["expediteur"],
+        email["corps"] or email["snippet"],
+        email.get("list_unsubscribe", ""),
+    )
     result["filtrage"] = decision
     if decision["decision"] == "ignorer":
         result["statut_final"] = "ignoré (filtré)"
@@ -63,6 +71,20 @@ async def process_one(email: dict) -> dict:
     # MODULE 3 — Analyse IA
     analyse = await analyze_email(email["expediteur"], email["objet"], email["corps"][:4000])
     result["analyse"] = analyse
+
+    # GARDE-FOU IA : newsletter/spam détecté par Gemini -> ignoré
+    if analyse.get("categorie") in ("newsletter", "spam"):
+        append_analyzed_email(
+            expediteur=email["expediteur"],
+            objet=email["objet"],
+            resume=analyse.get("resume", ""),
+            categorie=analyse.get("categorie", "autre"),
+            priorite=analyse.get("urgence", "moyenne"),
+            statut="Ignoré",
+        )
+        await _mark_as_read(email["id_gmail"])
+        result["statut_final"] = f"ignoré ({analyse.get('categorie')} confirmé par l'IA)"
+        return result
 
     # MODULE 4 — Stockage (Statut : Analysé)
     stored = append_analyzed_email(
