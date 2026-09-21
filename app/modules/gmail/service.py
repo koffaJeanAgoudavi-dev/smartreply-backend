@@ -106,6 +106,7 @@ async def list_unread_emails(max_results: int = 5) -> list[dict]:
                 "expediteur": headers_map.get("from", ""),
                 "objet": headers_map.get("subject", "(sans objet)"),
                 "date": headers_map.get("date", ""),
+                "list_unsubscribe": headers_map.get("list-unsubscribe", ""),
                 "snippet": msg.get("snippet", ""),
                 "corps": _extract_text(msg["payload"]),
             })
