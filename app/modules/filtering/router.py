@@ -26,7 +26,7 @@ async def test_filtrage():
 
     resultats = []
     for e in emails:
-       decision = should_process(e["expediteur"], e["corps"] or e["snippet"], e.get("list_unsubscribe", ""))
+               decision = should_process(e["expediteur"], e["corps"] or e["snippet"], e.get("list_unsubscribe", ""))
         resultats.append({
             "id_gmail": e["id_gmail"],
             "expediteur": e["expediteur"],
