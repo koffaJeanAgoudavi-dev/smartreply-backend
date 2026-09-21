@@ -1,15 +1,14 @@
 """
 SmartReply Agent — MODULE 2 : Filtrage (anti-spam / anti-newsletter)
 ====================================================================
-Règles heuristiques calquées sur la V1.5 (Make) :
-  - en-tête List-Unsubscribe présent
+  - en-tête List-Unsubscribe présent  ← SIGNAL PRINCIPAL (Zapier,
+    newsletters, tous les expéditeurs en masse l'envoient)
   - expéditeur type no-reply / noreply / newsletter / notifications
-  - corps contenant "unsubscribe" / "se désinscrire" / lien de désabonnement
+  - corps contenant un lien de désabonnement (toutes variantes)
   - mots-clés spam classiques
 
-Décision : "traiter" (l'email entre dans le pipeline) ou "ignorer" (newsletter/spam).
-L'analyse IA (Module 3) confirmera ensuite la catégorie — ce filtre est un
-pré-filtre rapide et gratuit (aucun appel API).
+Garde-fou en amont du pipeline : si Gemini classe quand même en
+newsletter/spam, l'email est ignoré après analyse (voir pipeline).
 """
 
 EXPEDITEURS_BLOQUES = (
@@ -19,31 +18,39 @@ EXPEDITEURS_BLOQUES = (
 )
 
 MOTS_CORPS_BLOQUES = (
-    "unsubscribe", "se désinscrire", "se désabonner", "désabonnement",
-    "cliquez ici pour vous désabonner", "click here to unsubscribe",
-    "if you no longer wish to receive", "pour ne plus recevoir",
+    "unsubscribe",
+    "désinscrire",      # couvre "me / se / nous désinscrire"
+    "désabonner",       # couvre "se / Me désabonner"
+    "désabonnement",
+    "pour ne plus recevoir",
+    "if you no longer wish to receive",
+    "click here to unsubscribe",
+    "email preferences",
+    "préférences de communication",
+    "manage your preferences",
+    "update your preferences",
+    "view in browser",
+    "voir en ligne",
 )
 
 MOTS_SPAM = (
     "vous avez gagné", "claim your prize", "loterie", "lottery winner",
     "héritage", "inheritance claim", "gagnez de l'argent rapidement",
-    "crypto giveaway", "prince", "viagra", "pilules",
+    "crypto giveaway", "viagra", "pilules",
 )
 
 
-def should_process(expediteur: str, corps: str, headers_raw: dict | None = None) -> dict:
+def should_process(expediteur: str, corps: str, list_unsubscribe: str = "") -> dict:
     """
     Retourne {"decision": "traiter"|"ignorer", "raison": str}.
-    headers_raw : en-têtes bruts du message si disponibles (pour List-Unsubscribe).
+    list_unsubscribe : valeur de l'en-tête (chaîne vide si absent).
     """
     exp = (expediteur or "").lower()
     body = (corps or "").lower()
 
-    # 1. En-tête List-Unsubscribe (signature typique des newsletters)
-    if headers_raw:
-        for name, value in headers_raw.items():
-            if name.lower() == "list-unsubscribe":
-                return {"decision": "ignorer", "raison": "newsletter (en-tête List-Unsubscribe)"}
+    # 1. En-tête List-Unsubscribe — signal fiable des emails en masse
+    if list_unsubscribe:
+        return {"decision": "ignorer", "raison": "newsletter (en-tête List-Unsubscribe)"}
 
     # 2. Expéditeur automatique / marketing
     for motif in EXPEDITEURS_BLOQUES:
