@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # Sheet Data Entreprise (Module 4)
     GOOGLE_DATA_SHEET_ID: str = os.getenv("GOOGLE_DATA_SHEET_ID", "")
 
+    # PostgreSQL (Neon) — Étape 2 : couche multi-utilisateur (auth)
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+
+    # Authentification JWT (Étape 2) — secret de signature + validité du token
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 h
+
     class Config:
         env_file = ".env"
 
