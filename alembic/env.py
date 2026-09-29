@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings  # noqa: E402
 from app.db.database import Base, _normalize_url  # noqa: E402
 from app.modules.auth import models  # noqa: E402, F401 — table users dans Base.metadata
+from app.modules.gmail_oauth import models as gmail_oauth_models  # noqa: E402, F401 — table gmail_connections
 
 config = context.config
 
