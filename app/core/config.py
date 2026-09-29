@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 h
 
+    # Gmail OAuth par utilisateur (Étape 3) — chiffrement des refresh tokens (Fernet)
+    TOKEN_ENCRYPTION_KEY: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")
+
     class Config:
         env_file = ".env"
 

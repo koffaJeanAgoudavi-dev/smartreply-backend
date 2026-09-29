@@ -10,6 +10,7 @@ from app.modules.notifications.router import router as notifications_router
 from app.modules.actions.router import router as actions_router
 from app.modules.pipeline.router import router as pipeline_router
 from app.modules.auth.router import router as auth_router
+from app.modules.gmail_oauth.router import router as gmail_oauth_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -28,6 +29,7 @@ app.include_router(notifications_router)
 app.include_router(actions_router)
 app.include_router(pipeline_router)
 app.include_router(auth_router)
+app.include_router(gmail_oauth_router)
 
 
 @app.get("/")
