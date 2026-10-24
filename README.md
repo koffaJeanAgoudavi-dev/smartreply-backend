@@ -7,7 +7,7 @@ stockage Google Sheets → brouillon Gmail → notification Telegram avec action
 
 > Moins de temps dans votre boîte mail. Plus de temps pour votre activité.
 
-**Statut : MVP V1 — Étape 1 complétée ✅, Étape 2 en cours** (authentification,
+**Statut : MVP V1 — Étapes 1 et 2 complétées ✅** (authentification,
 OAuth Gmail et entreprise avec Sheet dédié)
 
 ---
@@ -134,10 +134,10 @@ scripts/
 ## 🗺️ Roadmap
 
 - [x] **Étape 1** — Pipeline en code, mono-utilisateur (compte en dur) ✅
-- [ ] **Étape 2** — Couche multi-utilisateur
+- [x] **Étape 2** — Couche multi-utilisateur ✅
   - [x] comptes utilisateurs et JWT
   - [x] OAuth2 Gmail par utilisateur
-  - [ ] entreprise unique et Sheet dynamique (validation Drive réelle en cours)
+  - [x] entreprise unique et Sheet dynamique
 - [ ] **Étape 3** — Branchement du pipeline sur la couche multi-utilisateur
 - [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard web,
       fallback multi-modèles
