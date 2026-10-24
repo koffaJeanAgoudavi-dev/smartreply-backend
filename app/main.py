@@ -1,21 +1,23 @@
 from fastapi import FastAPI
+
 from app.core.config import settings
-from app.modules.telegram.router import router as telegram_router
-from app.modules.ai.router import router as ai_router
-from app.modules.gmail.router import router as gmail_router
-from app.modules.filtering.router import router as filtering_router
-from app.modules.sheets.router import router as sheets_router
-from app.modules.drafts.router import router as drafts_router
-from app.modules.notifications.router import router as notifications_router
 from app.modules.actions.router import router as actions_router
-from app.modules.pipeline.router import router as pipeline_router
+from app.modules.ai.router import router as ai_router
 from app.modules.auth.router import router as auth_router
+from app.modules.companies.router import router as companies_router
+from app.modules.drafts.router import router as drafts_router
+from app.modules.filtering.router import router as filtering_router
+from app.modules.gmail.router import router as gmail_router
 from app.modules.gmail_oauth.router import router as gmail_oauth_router
+from app.modules.notifications.router import router as notifications_router
+from app.modules.pipeline.router import router as pipeline_router
+from app.modules.sheets.router import router as sheets_router
+from app.modules.telegram.router import router as telegram_router
 
 app = FastAPI(
     title=settings.APP_NAME,
     description="Backend API pour SmartReply Agent SaaS",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Modules actifs
@@ -30,6 +32,7 @@ app.include_router(actions_router)
 app.include_router(pipeline_router)
 app.include_router(auth_router)
 app.include_router(gmail_oauth_router)
+app.include_router(companies_router)
 
 
 @app.get("/")
@@ -37,7 +40,7 @@ def read_root():
     return {
         "status": "online",
         "app": settings.APP_NAME,
-        "environment": settings.ENVIRONMENT
+        "environment": settings.ENVIRONMENT,
     }
 
 

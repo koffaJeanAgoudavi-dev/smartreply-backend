@@ -7,8 +7,8 @@ stockage Google Sheets → brouillon Gmail → notification Telegram avec action
 
 > Moins de temps dans votre boîte mail. Plus de temps pour votre activité.
 
-**Statut : MVP V1 — Étape 1 complétée ✅** (pipeline mono-utilisateur,
-déployé et autonome)
+**Statut : MVP V1 — Étape 1 complétée ✅, Étape 2 en cours** (authentification,
+OAuth Gmail et entreprise avec Sheet dédié)
 
 ---
 
@@ -42,8 +42,11 @@ Gmail ──→ Module 1 (Réception) ──→ Module 2 (Filtrage)
 - **Google Sheets API** — stockage (compte de service + `gspread`)
 - **Telegram Bot API** — notifications + callbacks (webhook sécurisé par secret token)
 - **Google Gemini** — analyse IA des emails (sortie JSON structurée)
+- **PostgreSQL / Neon** — utilisateurs, connexions Gmail et entreprises
+- **SQLAlchemy / Alembic** — accès aux données et migrations versionnées
 
-Aucune base de données : le stockage repose sur Google Sheets (cadrage MVP).
+Le pipeline historique conserve ses données métier dans Google Sheets. La couche
+multi-utilisateur est stockée dans PostgreSQL sur Neon.
 
 ## 📁 Structure du projet
 
@@ -53,8 +56,12 @@ app/
 ├── core/
 │   └── config.py            # Configuration (variables d'environnement)
 ├── db/
-│   └── sheets_client.py     # Client gspread (compte de service)
+│   ├── database.py          # Connexion SQLAlchemy vers Neon
+│   └── sheets_client.py     # Client gspread (pipeline historique)
 └── modules/
+    ├── auth/                # Comptes utilisateurs + JWT
+    ├── gmail_oauth/         # Connexion Gmail chiffrée par utilisateur
+    ├── companies/           # Entreprise unique + copie Google Sheet dédiée
     ├── telegram/            # Module 0 : connexion par codes SR-XXXXX (webhook)
     ├── gmail/               # Module 1 : réception des emails
     ├── filtering/           # Module 2 : anti-spam / anti-newsletter
@@ -64,9 +71,9 @@ app/
     ├── notifications/       # Module 6 : notifications Telegram
     ├── actions/             # Module 7 : callbacks Envoyer / Ignorer
     └── pipeline/            # Orchestrateur (chaîne complète 1→6)
+alembic/                     # Migrations PostgreSQL versionnées
 scripts/
-├── setup_webhook.py         # Pointe le webhook Telegram vers ce service
-└── test_sheets_connection.py # Diagnostic connexion Google Sheets
+└── setup_webhook.py         # Pointe le webhook Telegram vers ce service
 ```
 
 ## 🚀 Déploiement (Render)
@@ -82,20 +89,33 @@ scripts/
 | `BASE_URL` | URL publique du service (ex. `https://xxx.onrender.com`) |
 | `GOOGLE_SHEET_ID` | ID du Google Sheet central |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON complet du compte de service Google |
-| `GOOGLE_DATA_SHEET_ID` | ID du Google Sheet Data Entreprise |
+| `GOOGLE_DATA_SHEET_ID` | ID du Google Sheet Data Entreprise historique |
+| `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` | Client OAuth du compte propriétaire des copies d'entreprise |
+| `GOOGLE_DRIVE_REFRESH_TOKEN` | Refresh token OAuth Drive du compte propriétaire |
+| `GOOGLE_DRIVE_TEMPLATE_ID` | (Optionnel) ID du template à copier ; une valeur dédiée est fournie par défaut |
 | `GEMINI_API_KEY` | Clé API Google AI Studio |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` | OAuth2 Gmail (compte unique, Étape 1) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Client OAuth Gmail par utilisateur |
+| `GOOGLE_REFRESH_TOKEN` | Refresh token historique du pipeline mono-utilisateur |
+| `DATABASE_URL` | URL PostgreSQL Neon |
+| `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
+| `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
 | `CRON_SECRET` | (Optionnel) Sécurise `POST /api/v1/pipeline/run` via l'en-tête `X-CRON-SECRET` |
 
 3. **Webhook Telegram** : `python scripts/setup_webhook.py`
 4. **Cron externe** (ex. cron-job.org) : `POST /api/v1/pipeline/run`
    toutes les 5 min avec l'en-tête `X-CRON-SECRET`
 
-## 🧪 Endpoints de test (validation module par module)
+## 🧪 Endpoints API et de validation
 
 | Endpoint | Module | Description |
 |---|---|---|
 | `GET /health` | — | Santé du service |
+| `POST /api/v1/auth/register` | Auth | Crée un utilisateur et renvoie son JWT |
+| `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
+| `GET /api/v1/gmail/connect` | Gmail OAuth | Démarre la connexion Gmail utilisateur |
+| `GET /api/v1/gmail/status` | Gmail OAuth | Retourne le statut de connexion Gmail |
+| `POST /api/v1/companies` | Companies | Crée l'entreprise et sa copie de Sheet dédiée |
+| `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
 | `POST /api/v1/ai/test` | 3 | Analyse Gemini d'un email factice |
 | `GET /api/v1/gmail/test` | 1 | Liste les emails non lus |
 | `GET /api/v1/filter/test` | 1+2 | Filtre les emails non lus (traiter/ignorer) |
@@ -114,8 +134,10 @@ scripts/
 ## 🗺️ Roadmap
 
 - [x] **Étape 1** — Pipeline en code, mono-utilisateur (compte en dur) ✅
-- [ ] **Étape 2** — Couche multi-utilisateur : comptes, OAuth2 Gmail réel
-      par utilisateur, Sheets dynamiques par entreprise
+- [ ] **Étape 2** — Couche multi-utilisateur
+  - [x] comptes utilisateurs et JWT
+  - [x] OAuth2 Gmail par utilisateur
+  - [ ] entreprise unique et Sheet dynamique (validation Drive réelle en cours)
 - [ ] **Étape 3** — Branchement du pipeline sur la couche multi-utilisateur
 - [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard web,
       fallback multi-modèles
