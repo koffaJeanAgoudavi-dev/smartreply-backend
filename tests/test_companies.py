@@ -29,9 +29,18 @@ class FakeResponse:
 
 
 class FakeDriveClient:
-    def __init__(self, post_results: list[FakeResponse | Exception]):
-        self.post_results = list(post_results)
+    def __init__(
+        self,
+        post_results: list[FakeResponse | Exception] | None = None,
+        get_results: list[FakeResponse | Exception] | None = None,
+        patch_results: list[FakeResponse | Exception] | None = None,
+    ):
+        self.post_results = list(post_results or [])
+        self.get_results = list(get_results or [])
+        self.patch_results = list(patch_results or [])
         self.posts: list[dict] = []
+        self.gets: list[dict] = []
+        self.patches: list[dict] = []
         self.deletes: list[dict] = []
 
     def __enter__(self):
@@ -47,17 +56,41 @@ class FakeDriveClient:
             raise result
         return result
 
+    def get(self, url: str, **kwargs):
+        self.gets.append({"url": url, **kwargs})
+        result = self.get_results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def patch(self, url: str, **kwargs):
+        self.patches.append({"url": url, **kwargs})
+        result = self.patch_results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
     def delete(self, url: str, **kwargs):
         self.deletes.append({"url": url, **kwargs})
         return FakeResponse(204)
 
 
 class DriveServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.original_service_account_json = settings.GOOGLE_SERVICE_ACCOUNT_JSON
+        settings.GOOGLE_SERVICE_ACCOUNT_JSON = (
+            '{"client_email":"pipeline-sa@example.iam.gserviceaccount.com"}'
+        )
+
+    def tearDown(self):
+        settings.GOOGLE_SERVICE_ACCOUNT_JSON = self.original_service_account_json
+
     def test_copy_and_share_returns_a_new_sheet_id(self):
         client = FakeDriveClient(
             [
                 FakeResponse(200, {"id": "sheet-new"}),
-                FakeResponse(200, {"id": "permission"}),
+                FakeResponse(200, {"id": "user-permission"}),
+                FakeResponse(200, {"id": "service-account-permission"}),
             ]
         )
         with (
@@ -69,11 +102,18 @@ class DriveServiceTests(unittest.TestCase):
             result = service.duplicate_and_share_sheet("Acme", "owner@example.com")
 
         self.assertEqual(result, "sheet-new")
-        self.assertEqual(len(client.posts), 2)
+        self.assertEqual(len(client.posts), 3)
         self.assertIn(settings.GOOGLE_DRIVE_TEMPLATE_ID, client.posts[0]["url"])
         self.assertEqual(client.posts[0]["json"]["name"], "SmartReply Data - Acme")
         self.assertEqual(client.posts[1]["json"]["role"], "writer")
         self.assertEqual(client.posts[1]["json"]["emailAddress"], "owner@example.com")
+        self.assertEqual(client.posts[1]["params"]["sendNotificationEmail"], "true")
+        self.assertEqual(
+            client.posts[2]["json"]["emailAddress"],
+            "pipeline-sa@example.iam.gserviceaccount.com",
+        )
+        self.assertEqual(client.posts[2]["json"]["role"], "writer")
+        self.assertEqual(client.posts[2]["params"]["sendNotificationEmail"], "false")
         self.assertEqual(client.deletes, [])
 
     def test_owner_already_has_access_without_extra_permission(self):
@@ -85,7 +125,8 @@ class DriveServiceTests(unittest.TestCase):
                         "id": "sheet-owner",
                         "owners": [{"emailAddress": "owner@example.com"}],
                     },
-                )
+                ),
+                FakeResponse(200, {"id": "service-account-permission"}),
             ]
         )
         with (
@@ -99,7 +140,11 @@ class DriveServiceTests(unittest.TestCase):
             result = service.duplicate_and_share_sheet("Acme", "OWNER@example.com")
 
         self.assertEqual(result, "sheet-owner")
-        self.assertEqual(len(client.posts), 1)
+        self.assertEqual(len(client.posts), 2)
+        self.assertEqual(
+            client.posts[1]["json"]["emailAddress"],
+            "pipeline-sa@example.iam.gserviceaccount.com",
+        )
         self.assertEqual(client.deletes, [])
 
     def test_permission_http_error_deletes_the_copy(self):
@@ -135,6 +180,46 @@ class DriveServiceTests(unittest.TestCase):
             service.duplicate_and_share_sheet("Acme", "owner@example.com")
 
         self.assertEqual(len(client.deletes), 1)
+
+    def test_service_account_share_failure_deletes_the_copy(self):
+        client = FakeDriveClient(
+            [
+                FakeResponse(200, {"id": "sheet-orphan"}),
+                FakeResponse(200, {"id": "user-permission"}),
+                FakeResponse(403),
+            ]
+        )
+        with (
+            patch.object(
+                service, "_get_drive_access_token", return_value="access-token"
+            ),
+            patch.object(service.httpx, "Client", return_value=client),
+            self.assertRaises(service.DriveOperationError),
+        ):
+            service.duplicate_and_share_sheet("Acme", "owner@example.com")
+
+        self.assertEqual(len(client.posts), 3)
+        self.assertEqual(
+            client.posts[2]["json"]["emailAddress"],
+            "pipeline-sa@example.iam.gserviceaccount.com",
+        )
+        self.assertEqual(len(client.deletes), 1)
+        self.assertTrue(client.deletes[0]["url"].endswith("/files/sheet-orphan"))
+
+    def test_service_account_email_comes_from_json_configuration(self):
+        self.assertEqual(
+            service.get_service_account_email(),
+            "pipeline-sa@example.iam.gserviceaccount.com",
+        )
+
+    def test_invalid_service_account_json_is_rejected_before_copy(self):
+        settings.GOOGLE_SERVICE_ACCOUNT_JSON = "not-json"
+        with (
+            patch.object(service, "_get_drive_access_token") as get_token,
+            self.assertRaises(service.DriveConfigurationError),
+        ):
+            service.duplicate_and_share_sheet("Acme", "owner@example.com")
+        get_token.assert_not_called()
 
     def test_missing_owner_oauth_configuration_is_rejected(self):
         original_values = (
@@ -191,6 +276,111 @@ class DriveServiceTests(unittest.TestCase):
             scopes=[service.DRIVE_SCOPE],
         )
         credentials.refresh.assert_called_once()
+
+    def test_catch_up_skips_existing_writer_permission(self):
+        client = FakeDriveClient(
+            get_results=[
+                FakeResponse(
+                    200,
+                    {
+                        "permissions": [
+                            {
+                                "id": "permission-id",
+                                "type": "user",
+                                "role": "writer",
+                                "emailAddress": (
+                                    "pipeline-sa@example.iam.gserviceaccount.com"
+                                ),
+                            }
+                        ]
+                    },
+                )
+            ]
+        )
+        with (
+            patch.object(
+                service, "_get_drive_access_token", return_value="access-token"
+            ),
+            patch.object(service.httpx, "Client", return_value=client),
+        ):
+            changed = service.ensure_service_account_writer("existing-sheet")
+
+        self.assertFalse(changed)
+        self.assertEqual(len(client.gets), 1)
+        self.assertEqual(client.posts, [])
+        self.assertEqual(client.patches, [])
+
+    def test_catch_up_creates_missing_writer_permission(self):
+        client = FakeDriveClient(
+            post_results=[FakeResponse(200, {"id": "new-permission"})],
+            get_results=[FakeResponse(200, {"permissions": []})],
+        )
+        with (
+            patch.object(
+                service, "_get_drive_access_token", return_value="access-token"
+            ),
+            patch.object(service.httpx, "Client", return_value=client),
+        ):
+            changed = service.ensure_service_account_writer("existing-sheet")
+
+        self.assertTrue(changed)
+        self.assertEqual(len(client.posts), 1)
+        self.assertEqual(
+            client.posts[0]["json"]["emailAddress"],
+            "pipeline-sa@example.iam.gserviceaccount.com",
+        )
+        self.assertEqual(client.posts[0]["params"]["sendNotificationEmail"], "false")
+        self.assertEqual(client.deletes, [])
+
+    def test_catch_up_upgrades_existing_reader_permission(self):
+        client = FakeDriveClient(
+            get_results=[
+                FakeResponse(
+                    200,
+                    {
+                        "permissions": [
+                            {
+                                "id": "reader-permission",
+                                "type": "user",
+                                "role": "reader",
+                                "emailAddress": (
+                                    "pipeline-sa@example.iam.gserviceaccount.com"
+                                ),
+                            }
+                        ]
+                    },
+                )
+            ],
+            patch_results=[FakeResponse(200, {"id": "reader-permission"})],
+        )
+        with (
+            patch.object(
+                service, "_get_drive_access_token", return_value="access-token"
+            ),
+            patch.object(service.httpx, "Client", return_value=client),
+        ):
+            changed = service.ensure_service_account_writer("existing-sheet")
+
+        self.assertTrue(changed)
+        self.assertEqual(len(client.patches), 1)
+        self.assertEqual(client.patches[0]["json"], {"role": "writer"})
+        self.assertEqual(client.deletes, [])
+
+    def test_catch_up_failure_never_deletes_existing_sheet(self):
+        client = FakeDriveClient(
+            post_results=[FakeResponse(403)],
+            get_results=[FakeResponse(200, {"permissions": []})],
+        )
+        with (
+            patch.object(
+                service, "_get_drive_access_token", return_value="access-token"
+            ),
+            patch.object(service.httpx, "Client", return_value=client),
+            self.assertRaises(service.DriveOperationError),
+        ):
+            service.ensure_service_account_writer("existing-sheet")
+
+        self.assertEqual(client.deletes, [])
 
     def test_database_race_deletes_the_losing_copy(self):
         db = MagicMock()

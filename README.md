@@ -88,7 +88,7 @@ scripts/
 | `TELEGRAM_WEBHOOK_SECRET` | Secret du webhook (vérifié à chaque update) |
 | `BASE_URL` | URL publique du service (ex. `https://xxx.onrender.com`) |
 | `GOOGLE_SHEET_ID` | ID du Google Sheet central |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON complet du compte de service Google |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON du compte de service ; son `client_email` reçoit l'accès writer à chaque Sheet d'entreprise |
 | `GOOGLE_DATA_SHEET_ID` | ID du Google Sheet Data Entreprise historique |
 | `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` | Client OAuth du compte propriétaire des copies d'entreprise |
 | `GOOGLE_DRIVE_REFRESH_TOKEN` | Refresh token OAuth Drive du compte propriétaire |
@@ -104,6 +104,34 @@ scripts/
 3. **Webhook Telegram** : `python scripts/setup_webhook.py`
 4. **Cron externe** (ex. cron-job.org) : `POST /api/v1/pipeline/run`
    toutes les 5 min avec l'en-tête `X-CRON-SECRET`
+
+### Accès du pipeline aux Sheets d'entreprise
+
+Chaque copie créée par `POST /api/v1/companies` reçoit deux accès `writer` :
+
+- l'adresse de l'utilisateur SmartReply ;
+- le `client_email` extrait de `GOOGLE_SERVICE_ACCOUNT_JSON`, utilisé par
+  `gspread` dans le pipeline.
+
+Si l'un des partages échoue, la nouvelle copie est supprimée et aucune ligne
+`companies` n'est créée.
+
+Pour ajouter ou corriger cet accès sur les Sheets déjà enregistrés dans Neon,
+lancer depuis un **Render Shell** :
+
+```bash
+python scripts/share_company_sheets_with_service_account.py
+```
+
+Le script traite toutes les entreprises de façon idempotente : il conserve une
+permission `writer` déjà correcte, élève une permission de lecture existante et
+ajoute la permission lorsqu'elle manque. Il ne supprime aucun Sheet et ne
+modifie aucune ligne PostgreSQL.
+
+Pour un rattrapage manuel ponctuel : copier l'adresse du compte concerné depuis
+**Google Cloud → IAM et administration → Comptes de service**, ouvrir le Sheet,
+cliquer sur **Partager**, ajouter cette adresse avec le rôle **Éditeur**. Cette
+adresse doit correspondre au champ `client_email` du JSON configuré sur Render.
 
 ## 🧪 Endpoints API et de validation
 
