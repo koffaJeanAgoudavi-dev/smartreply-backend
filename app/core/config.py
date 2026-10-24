@@ -1,4 +1,5 @@
 import os
+
 from pydantic_settings import BaseSettings
 
 
@@ -17,6 +18,15 @@ class Settings(BaseSettings):
     # JSON complet du compte de service (Render) ; local = fichier credentials.json
     GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 
+    # Google Drive — compte propriétaire des copies de Sheets d'entreprise (OAuth)
+    GOOGLE_DRIVE_CLIENT_ID: str = os.getenv("GOOGLE_DRIVE_CLIENT_ID", "")
+    GOOGLE_DRIVE_CLIENT_SECRET: str = os.getenv("GOOGLE_DRIVE_CLIENT_SECRET", "")
+    GOOGLE_DRIVE_REFRESH_TOKEN: str = os.getenv("GOOGLE_DRIVE_REFRESH_TOKEN", "")
+    GOOGLE_DRIVE_TEMPLATE_ID: str = os.getenv(
+        "GOOGLE_DRIVE_TEMPLATE_ID",
+        "1nmfyipaN32gsmesH6IdUAa0LqP0uG-zN6BNBy2WtUzE",
+    )
+
     # Analyse IA (Module 3) — Gemini
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
@@ -24,7 +34,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REFRESH_TOKEN: str = os.getenv("GOOGLE_REFRESH_TOKEN", "")
-    
+
     # Sheet Data Entreprise (Module 4)
     GOOGLE_DATA_SHEET_ID: str = os.getenv("GOOGLE_DATA_SHEET_ID", "")
 
@@ -33,7 +43,9 @@ class Settings(BaseSettings):
 
     # Authentification JWT (Étape 2) — secret de signature + validité du token
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 h
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
+        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")
+    )  # 24 h
 
     # Gmail OAuth par utilisateur (Étape 3) — chiffrement des refresh tokens (Fernet)
     TOKEN_ENCRYPTION_KEY: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")

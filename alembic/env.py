@@ -5,6 +5,7 @@ Migrations de la couche multi-utilisateur (table users) dans la base Neon
 pointée par la variable d'environnement DATABASE_URL (déjà configurée sur
 Render). Exécution : alembic upgrade head (le procfile le fait au démarrage).
 """
+
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings  # noqa: E402
 from app.db.database import Base, _normalize_url  # noqa: E402
 from app.modules.auth import models  # noqa: E402, F401 — table users dans Base.metadata
+from app.modules.companies import models as companies_models  # noqa: E402, F401 — table companies
 from app.modules.gmail_oauth import models as gmail_oauth_models  # noqa: E402, F401 — table gmail_connections
 
 config = context.config
