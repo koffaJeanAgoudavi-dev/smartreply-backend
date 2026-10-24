@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - arena/01a0f41b-smartreply-backend
+      - "arena/**"
 
 permissions:
   contents: read
@@ -36,10 +36,11 @@ jobs:
           app/main.py
           alembic/env.py
           alembic/versions/4f19b1a03c2d_add_companies_table.py
+          scripts/share_company_sheets_with_service_account.py
           tests
 
       - name: Compile Python sources
-        run: python -m compileall -q app alembic tests
+        run: python -m compileall -q app alembic scripts tests
 
       - name: Run tests
         run: python -m unittest discover -s tests -v
