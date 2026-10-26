@@ -52,7 +52,8 @@ multi-utilisateur est stockée dans PostgreSQL sur Neon.
 
 ```
 app/
-├── main.py                  # Point d'entrée FastAPI + routeurs
+├── main.py                  # Point d'entrée FastAPI + routeurs + montage /dashboard
+├── dashboard/               # Phase A : HTML/CSS/JS statiques, sans build
 ├── core/
 │   └── config.py            # Configuration (variables d'environnement)
 ├── db/
@@ -167,11 +168,54 @@ sont **dépréciés** pour la liaison Telegram : ils restent présents pour
 historique, mais le nouveau webhook ne les lit et ne les met plus à jour. La
 branche existante des callbacks **Envoyer/Ignorer** reste inchangée.
 
+### Dashboard Phase A
+
+FastAPI sert directement le dashboard à l'adresse `/dashboard` sur la même
+origine que l'API. L'interface utilise uniquement HTML, CSS et JavaScript
+natifs : aucune dépendance front-end, police distante ou étape de build.
+
+La Phase A comprend :
+
+- inscription, connexion et déconnexion avec JWT conservé dans
+  `localStorage` ;
+- création de l'entreprise et accès à son Google Sheet ;
+- accueil sans données fictives, avec le nombre réel d'intégrations connectées ;
+- connexion Gmail, suivi Telegram par code temporaire et statuts réels ;
+- navigation mobile repliable et écrans Phase B explicitement marqués
+  « Bientôt ».
+
+Après le consentement Google, `/api/v1/gmail/callback` enregistre toujours le
+refresh token chiffré côté serveur, puis redirige le navigateur vers
+`/dashboard/?gmail=connected#integrations`. Le dashboard recharge ensuite le
+statut Gmail ; aucun token Google n'est envoyé au navigateur.
+
+#### Checklist de test manuel Phase A
+
+- [ ] Ouvrir `/dashboard` sur ordinateur puis sur un écran mobile étroit ;
+      vérifier le menu repliable et l'absence de débordement horizontal.
+- [ ] Créer un compte avec une adresse inédite et un mot de passe d'au moins
+      huit caractères ; vérifier l'arrivée sur la création d'entreprise.
+- [ ] Créer l'entreprise avec son nom et son secteur ; vérifier les messages
+      français en cas de réponse Google `502` ou `503`.
+- [ ] Vérifier le nom d'entreprise dans la barre latérale et ouvrir le Sheet
+      réel depuis la carte Google Sheets.
+- [ ] Cliquer sur « Connecter Gmail », accepter le consentement Google et
+      vérifier le retour automatique sur Intégrations avec Gmail connecté.
+- [ ] Générer un code Telegram, envoyer la commande `/start …` au bot sans
+      partager le code, puis vérifier le passage automatique à « Connecté ».
+- [ ] Vérifier l'indicateur `3/3` et le bandeau annonçant que le traitement
+      des emails peut démarrer.
+- [ ] Se déconnecter, se reconnecter et vérifier qu'un JWT invalide ou expiré
+      renvoie vers la connexion.
+- [ ] Vérifier que l'accueil n'affiche ni statistiques, ni emails, ni activité
+      factices avant le démarrage réel du traitement.
+
 ## 🧪 Endpoints API et de validation
 
 | Endpoint | Module | Description |
 |---|---|---|
 | `GET /health` | — | Santé du service |
+| `GET /dashboard` | Dashboard | Ouvre l'interface Phase A (redirection vers `/dashboard/`) |
 | `POST /api/v1/auth/register` | Auth | Crée un utilisateur et renvoie son JWT |
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
 | `GET /api/v1/gmail/connect` | Gmail OAuth | Démarre la connexion Gmail utilisateur |
@@ -204,8 +248,9 @@ branche existante des callbacks **Envoyer/Ignorer** reste inchangée.
   - [x] comptes utilisateurs et JWT
   - [x] OAuth2 Gmail par utilisateur
   - [x] entreprise unique et Sheet dynamique
+  - [x] dashboard Phase A : onboarding et intégrations
 - [ ] **Étape 3** — Branchement du pipeline sur la couche multi-utilisateur
-- [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard web,
+- [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard avancé,
       fallback multi-modèles
 
 ## 🔒 Sécurité
