@@ -32,10 +32,12 @@ jobs:
         run: >-
           ruff check --select E,F,I
           app/modules/companies
+          app/modules/telegram
           app/core/config.py
           app/main.py
           alembic/env.py
           alembic/versions/4f19b1a03c2d_add_companies_table.py
+          alembic/versions/c8d4e2f7a1b9_add_telegram_link_tables.py
           scripts/share_company_sheets_with_service_account.py
           tests
 
