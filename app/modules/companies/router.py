@@ -11,7 +11,11 @@ from app.db.database import get_db
 from app.modules.auth.models import User
 from app.modules.auth.security import decode_access_token
 from app.modules.companies import service
-from app.modules.companies.schemas import CompanyCreate, CompanyResponse
+from app.modules.companies.schemas import (
+    CompanyCreate,
+    CompanyResponse,
+    PipelineAccessResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/companies", tags=["Companies"])
@@ -113,3 +117,35 @@ def get_my_company(
             detail="Aucune entreprise trouvée pour cet utilisateur.",
         )
     return company
+
+
+@router.post("/me/pipeline-access", response_model=PipelineAccessResponse)
+def ensure_my_pipeline_access(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PipelineAccessResponse:
+    """Répare l'accès du compte de service et le vérifie réellement via gspread."""
+    company = service.get_company_by_user_id(db, user_id=current_user.id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune entreprise trouvée pour cet utilisateur.",
+        )
+
+    try:
+        permission_updated = service.ensure_and_verify_pipeline_access(company.sheet_id)
+    except service.DriveConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except (service.DriveOperationError, service.PipelineAccessError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return PipelineAccessResponse(
+        pipeline_access=True,
+        permission_updated=permission_updated,
+    )

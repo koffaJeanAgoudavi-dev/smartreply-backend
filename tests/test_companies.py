@@ -16,6 +16,7 @@ from app.main import app
 from app.modules.auth.models import User
 from app.modules.auth.security import create_access_token
 from app.modules.companies import service
+from app.modules.companies.models import Company
 from app.modules.companies.schemas import CompanyCreate
 
 
@@ -382,6 +383,49 @@ class DriveServiceTests(unittest.TestCase):
 
         self.assertEqual(client.deletes, [])
 
+    def test_pipeline_access_repairs_permission_and_opens_with_gspread(self):
+        sheets_client = MagicMock()
+        with (
+            patch.object(
+                service,
+                "ensure_service_account_writer",
+                return_value=True,
+            ) as ensure_writer,
+            patch.object(
+                service,
+                "get_sheets_client",
+                return_value=sheets_client,
+            ),
+        ):
+            permission_updated = service.ensure_and_verify_pipeline_access(
+                "company-sheet"
+            )
+
+        self.assertTrue(permission_updated)
+        ensure_writer.assert_called_once_with("company-sheet")
+        sheets_client.open_by_key.assert_called_once_with("company-sheet")
+
+    def test_pipeline_access_reports_gspread_failure_without_sheet_id(self):
+        sheets_client = MagicMock()
+        sheets_client.open_by_key.side_effect = RuntimeError("secret diagnostic")
+        with (
+            patch.object(
+                service,
+                "ensure_service_account_writer",
+                return_value=False,
+            ),
+            patch.object(
+                service,
+                "get_sheets_client",
+                return_value=sheets_client,
+            ),
+            self.assertRaises(service.PipelineAccessError) as raised,
+        ):
+            service.ensure_and_verify_pipeline_access("company-sheet")
+
+        self.assertNotIn("company-sheet", str(raised.exception))
+        self.assertNotIn("secret diagnostic", str(raised.exception))
+
     def test_database_race_deletes_the_losing_copy(self):
         db = MagicMock()
         db.commit.side_effect = IntegrityError("insert", {}, Exception("unique"))
@@ -489,6 +533,70 @@ class CompaniesApiTests(unittest.TestCase):
         self.assertEqual(fetched.json()["id"], created.json()["id"])
         self.assertEqual(duplicate_attempt.status_code, 409, duplicate_attempt.text)
         duplicate.assert_called_once_with("Acme", "user@example.com")
+
+    def test_pipeline_access_endpoint_repairs_and_verifies_the_users_sheet(self):
+        with self.session_factory() as db:
+            db.add(
+                Company(
+                    user_id=self.user_id,
+                    nom_entreprise="Acme",
+                    secteur="Conseil",
+                    sheet_id="private-sheet-id",
+                )
+            )
+            db.commit()
+
+        with patch.object(
+            service,
+            "ensure_and_verify_pipeline_access",
+            return_value=True,
+        ) as ensure_access:
+            response = self.client.post(
+                "/api/v1/companies/me/pipeline-access",
+                headers=self.authorization,
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json(),
+            {"pipeline_access": True, "permission_updated": True},
+        )
+        self.assertNotIn("sheet", response.text.lower())
+        ensure_access.assert_called_once_with("private-sheet-id")
+
+    def test_pipeline_access_endpoint_returns_404_without_company(self):
+        response = self.client.post(
+            "/api/v1/companies/me/pipeline-access",
+            headers=self.authorization,
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_pipeline_access_endpoint_maps_gspread_failure_to_502(self):
+        with self.session_factory() as db:
+            db.add(
+                Company(
+                    user_id=self.user_id,
+                    nom_entreprise="Acme",
+                    secteur="Conseil",
+                    sheet_id="private-sheet-id",
+                )
+            )
+            db.commit()
+
+        with patch.object(
+            service,
+            "ensure_and_verify_pipeline_access",
+            side_effect=service.PipelineAccessError(
+                "Le compte de service ne peut pas ouvrir le Google Sheet."
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/companies/me/pipeline-access",
+                headers=self.authorization,
+            )
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertNotIn("private-sheet-id", response.text)
 
     def test_two_users_receive_two_distinct_sheets(self):
         with self.session_factory() as db:

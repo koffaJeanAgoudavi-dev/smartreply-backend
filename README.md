@@ -116,17 +116,32 @@ Chaque copie créée par `POST /api/v1/companies` reçoit deux accès `writer` :
 Si l'un des partages échoue, la nouvelle copie est supprimée et aucune ligne
 `companies` n'est créée.
 
-Pour ajouter ou corriger cet accès sur les Sheets déjà enregistrés dans Neon,
-lancer depuis un **Render Shell** :
+Pour réparer et tester gratuitement l'accès de sa propre entreprise, un
+utilisateur authentifié peut appeler depuis Swagger :
+
+```text
+POST /api/v1/companies/me/pipeline-access
+```
+
+L'endpoint ajoute ou élève la permission du compte de service, puis ouvre
+réellement le Sheet avec `gspread`. Il ne retourne ni `sheet_id`, ni adresse du
+compte de service :
+
+```json
+{
+  "pipeline_access": true,
+  "permission_updated": true
+}
+```
+
+`permission_updated` vaut `false` lorsque l'accès `writer` était déjà correct.
+
+Pour un traitement global, si un shell est disponible, le script suivant reste
+idempotent et ne modifie aucune ligne PostgreSQL :
 
 ```bash
 python scripts/share_company_sheets_with_service_account.py
 ```
-
-Le script traite toutes les entreprises de façon idempotente : il conserve une
-permission `writer` déjà correcte, élève une permission de lecture existante et
-ajoute la permission lorsqu'elle manque. Il ne supprime aucun Sheet et ne
-modifie aucune ligne PostgreSQL.
 
 Pour un rattrapage manuel ponctuel : copier l'adresse du compte concerné depuis
 **Google Cloud → IAM et administration → Comptes de service**, ouvrir le Sheet,
@@ -144,6 +159,7 @@ adresse doit correspondre au champ `client_email` du JSON configuré sur Render.
 | `GET /api/v1/gmail/status` | Gmail OAuth | Retourne le statut de connexion Gmail |
 | `POST /api/v1/companies` | Companies | Crée l'entreprise et sa copie de Sheet dédiée |
 | `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
+| `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
 | `POST /api/v1/ai/test` | 3 | Analyse Gemini d'un email factice |
 | `GET /api/v1/gmail/test` | 1 | Liste les emails non lus |
 | `GET /api/v1/filter/test` | 1+2 | Filtre les emails non lus (traiter/ignorer) |
