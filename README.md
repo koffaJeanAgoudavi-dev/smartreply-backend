@@ -42,7 +42,7 @@ Gmail ──→ Module 1 (Réception) ──→ Module 2 (Filtrage)
 - **Google Sheets API** — stockage (compte de service + `gspread`)
 - **Telegram Bot API** — notifications + callbacks (webhook sécurisé par secret token)
 - **Google Gemini** — analyse IA des emails (sortie JSON structurée)
-- **PostgreSQL / Neon** — utilisateurs, connexions Gmail et entreprises
+- **PostgreSQL / Neon** — utilisateurs, connexions Gmail, entreprises et liaisons Telegram
 - **SQLAlchemy / Alembic** — accès aux données et migrations versionnées
 
 Le pipeline historique conserve ses données métier dans Google Sheets. La couche
@@ -148,6 +148,25 @@ Pour un rattrapage manuel ponctuel : copier l'adresse du compte concerné depuis
 cliquer sur **Partager**, ajouter cette adresse avec le rôle **Éditeur**. Cette
 adresse doit correspondre au champ `client_email` du JSON configuré sur Render.
 
+### Liaison d'un compte Telegram
+
+Les codes et connexions Telegram sont stockés exclusivement dans Neon :
+
+- `telegram_link_codes` conserve les codes `SR-XXXXX`, leur expiration à
+  15 minutes et leur statut `pending`, `used` ou `expired` ;
+- `telegram_connections` garantit une seule liaison par utilisateur et une
+  seule liaison par chat Telegram.
+
+Un utilisateur authentifié génère son code avec
+`POST /api/v1/telegram/link-code`, puis envoie `/start SR-XXXXX` ou le code seul
+au bot. La consommation est atomique et le statut JWT n'expose jamais le
+`chat_id`. `/status` dans le bot lit également Neon.
+
+Les anciens onglets Google Sheets `telegram_connection_codes` et `Integrations`
+sont **dépréciés** pour la liaison Telegram : ils restent présents pour
+historique, mais le nouveau webhook ne les lit et ne les met plus à jour. La
+branche existante des callbacks **Envoyer/Ignorer** reste inchangée.
+
 ## 🧪 Endpoints API et de validation
 
 | Endpoint | Module | Description |
@@ -157,6 +176,9 @@ adresse doit correspondre au champ `client_email` du JSON configuré sur Render.
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
 | `GET /api/v1/gmail/connect` | Gmail OAuth | Démarre la connexion Gmail utilisateur |
 | `GET /api/v1/gmail/status` | Gmail OAuth | Retourne le statut de connexion Gmail |
+| `POST /api/v1/telegram/link-code` | Telegram | Génère un code temporaire JWT de 15 minutes |
+| `GET /api/v1/telegram/status` | Telegram | Retourne le statut de liaison sans exposer le chat |
+| `POST /api/v1/telegram/webhook` | Telegram | Reçoit commandes, codes et callbacks avec secret |
 | `POST /api/v1/companies` | Companies | Crée l'entreprise et sa copie de Sheet dédiée |
 | `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
