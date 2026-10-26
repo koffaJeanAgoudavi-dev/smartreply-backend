@@ -38,3 +38,8 @@ class CompanyResponse(BaseModel):
     sheet_id: str
     created_at: datetime
     updated_at: datetime
+
+
+class PipelineAccessResponse(BaseModel):
+    pipeline_access: bool
+    permission_updated: bool

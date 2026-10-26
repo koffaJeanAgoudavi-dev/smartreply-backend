@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.sheets_client import get_sheets_client
 from app.modules.companies.models import Company
 from app.modules.companies.schemas import CompanyCreate
 
@@ -32,6 +33,10 @@ class DriveConfigurationError(RuntimeError):
 
 class DriveOperationError(RuntimeError):
     """Une opération distante Google Drive a échoué."""
+
+
+class PipelineAccessError(RuntimeError):
+    """Le compte de service ne peut pas ouvrir le Sheet avec gspread."""
 
 
 class CompanyPersistenceError(RuntimeError):
@@ -406,6 +411,26 @@ def ensure_service_account_writer(sheet_id: str) -> bool:
         raise DriveOperationError(
             "Le service Google Drive est temporairement inaccessible."
         ) from exc
+
+
+def ensure_and_verify_pipeline_access(sheet_id: str) -> bool:
+    """Répare la permission puis vérifie une vraie ouverture via gspread.
+
+    Retourne True si la permission Drive a été créée ou modifiée, False si elle
+    était déjà suffisante. Le Sheet et son identifiant ne sont jamais journalisés.
+    """
+    permission_updated = ensure_service_account_writer(sheet_id)
+    try:
+        get_sheets_client().open_by_key(sheet_id)
+    except Exception as exc:
+        logger.error(
+            "Vérification gspread du Sheet d'entreprise échouée (%s)",
+            type(exc).__name__,
+        )
+        raise PipelineAccessError(
+            "Le compte de service ne peut pas ouvrir le Google Sheet."
+        ) from exc
+    return permission_updated
 
 
 def get_company_by_user_id(db: Session, user_id: int) -> Company | None:
