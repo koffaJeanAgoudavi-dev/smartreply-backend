@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.modules.actions.router import router as actions_router
@@ -47,3 +50,12 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+# Dashboard Phase A : fichiers statiques légers, servis sur la même origine.
+dashboard_directory = Path(__file__).resolve().parent / "dashboard"
+app.mount(
+    "/dashboard",
+    StaticFiles(directory=dashboard_directory, html=True),
+    name="dashboard",
+)
