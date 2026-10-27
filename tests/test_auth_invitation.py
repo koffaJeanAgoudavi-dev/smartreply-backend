@@ -87,6 +87,22 @@ class InvitationRegistrationTests(unittest.TestCase):
         self.assertEqual(login_response.status_code, 200, login_response.text)
         self.assertIn("access_token", login_response.json())
 
+    def test_input_and_config_are_normalized_before_comparison(self):
+        settings.INVITATION_CODES = " ab-cd 2345 , WX-YZ-6789 "
+
+        response = self.register("normalized@example.com", "a-b c d-2 3-4-5")
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(self.user_count(), 1)
+
+    def test_membership_does_not_enforce_the_recommended_format(self):
+        settings.INVITATION_CODES = "legacy-code!"
+
+        response = self.register("legacy@example.com", "LEGACY CODE!")
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(self.user_count(), 1)
+
     def test_invalid_code_is_refused_with_a_generic_403(self):
         response = self.register("invalid@example.com", "wrong-code")
         self.assert_generic_invitation_refusal(response)

@@ -260,6 +260,10 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - Inscriptions fermées par défaut : `INVITATION_CODES` doit contenir au moins
   un code ; chaque candidat est comparé en temps constant et n'est jamais
   journalisé ni renvoyé par l'API
+- Format recommandé des invitations : 8 caractères parmi `A-Z` hors `I`, `L`,
+  `O`, et les chiffres `2-9`. La saisie et la configuration sont normalisées
+  avant comparaison (espaces et tirets retirés, majuscules). Le format n'est
+  pas validé séparément : seule l'appartenance à la liste autorisée compte
 - Webhook Telegram vérifié par `X-Telegram-Bot-Api-Secret-Token`
 - Endpoint pipeline protégé par `X-CRON-SCRIPT` (si `CRON_SECRET` défini)
 - Aucune clé en dur dans le code : 100 % variables d'environnement

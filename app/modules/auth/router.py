@@ -39,14 +39,19 @@ from app.modules.auth.service import authenticate_user, create_user
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
+def _normalize_invitation_code(code: str) -> bytes:
+    """Retire espaces et tirets, puis passe le code en majuscules."""
+    return "".join(code.split()).replace("-", "").upper().encode("utf-8")
+
+
 def _invitation_code_is_valid(invitation_code: str | None) -> bool:
-    """Compare le candidat à tous les codes configurés, sans sortie anticipée."""
-    allowed_codes = tuple(
-        code.strip().encode("utf-8")
+    """Compare le candidat normalisé à chaque code, sans sortie anticipée."""
+    normalized_codes = (
+        _normalize_invitation_code(code)
         for code in settings.INVITATION_CODES.split(",")
-        if code.strip()
     )
-    candidate = (invitation_code or "").encode("utf-8")
+    allowed_codes = tuple(code for code in normalized_codes if code)
+    candidate = _normalize_invitation_code(invitation_code or "")
     is_valid = False
     for allowed_code in allowed_codes:
         is_valid |= hmac.compare_digest(candidate, allowed_code)
