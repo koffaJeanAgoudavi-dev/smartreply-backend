@@ -3,7 +3,7 @@
 import asyncio
 import base64
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app.modules.drafts import service as drafts_service
 from app.modules.gmail import service as gmail_service
@@ -119,6 +119,138 @@ class CompanyGmailAdapterTests(unittest.TestCase):
         raw = base64.urlsafe_b64decode(kwargs["json"]["message"]["raw"]).decode()
         self.assertIn("To: recipient@test.invalid", raw)
         self.assertIn("In-Reply-To: <message@test.invalid>", raw)
+
+
+class HistoricalWrapperDelegationTests(unittest.TestCase):
+    def test_gmail_wrappers_delegate_with_legacy_cache_and_shape(self):
+        token_core = AsyncMock(return_value="historical-access")
+        with patch.object(
+            gmail_service,
+            "_get_access_token_for_refresh_token",
+            token_core,
+        ):
+            token = asyncio.run(gmail_service._get_access_token())
+        self.assertEqual(token, "historical-access")
+        token_core.assert_awaited_once_with(
+            gmail_service.settings.GOOGLE_REFRESH_TOKEN,
+            token_cache=gmail_service._token_cache,
+            legacy_errors=True,
+        )
+
+        list_core = AsyncMock(return_value=[{"id_gmail": "message"}])
+        with (
+            patch.object(
+                gmail_service,
+                "_get_access_token",
+                new=AsyncMock(return_value="historical-access"),
+            ),
+            patch.object(
+                gmail_service,
+                "_list_unread_emails_with_access_token",
+                list_core,
+            ),
+        ):
+            emails = asyncio.run(gmail_service.list_unread_emails(max_results=7))
+        self.assertEqual(emails, [{"id_gmail": "message"}])
+        list_core.assert_awaited_once_with("historical-access", max_results=7)
+
+    def test_draft_wrappers_delegate_without_adding_a_thread(self):
+        draft_core = AsyncMock(return_value="historical-draft")
+        with (
+            patch.object(
+                drafts_service,
+                "_get_access_token",
+                new=AsyncMock(return_value="historical-access"),
+            ),
+            patch.object(
+                drafts_service,
+                "_create_gmail_draft_with_token",
+                draft_core,
+            ),
+        ):
+            draft_id = asyncio.run(
+                drafts_service.create_gmail_draft(
+                    "recipient@test.invalid",
+                    "Subject",
+                    "Body",
+                )
+            )
+        self.assertEqual(draft_id, "historical-draft")
+        draft_core.assert_awaited_once_with(
+            "historical-access",
+            destinataire="recipient@test.invalid",
+            objet="Subject",
+            corps="Body",
+            thread_id=None,
+            legacy_errors=True,
+        )
+
+        with (
+            patch.object(
+                drafts_service,
+                "get_data_workbook",
+                return_value="historical-workbook",
+            ),
+            patch.object(
+                drafts_service,
+                "append_draft_to_workbook",
+                return_value=4,
+            ) as append_core,
+        ):
+            row = drafts_service.record_draft_in_sheet("draft", "email", "Body")
+        self.assertEqual(row, 4)
+        append_core.assert_called_once_with(
+            "historical-workbook",
+            brouillon_id="draft",
+            email_id="email",
+            contenu="Body",
+        )
+
+    def test_sheet_wrappers_delegate_with_historical_append_parameters(self):
+        with patch.object(
+            sheets_service,
+            "_get_workbook_by_id",
+            return_value="historical-workbook",
+        ) as workbook_core:
+            workbook = sheets_service.get_data_workbook()
+        self.assertEqual(workbook, "historical-workbook")
+        workbook_core.assert_called_once_with(
+            sheets_service.settings.GOOGLE_DATA_SHEET_ID,
+            require_nonempty_id=False,
+        )
+
+        with (
+            patch.object(
+                sheets_service,
+                "get_data_workbook",
+                return_value="historical-workbook",
+            ),
+            patch.object(
+                sheets_service,
+                "append_analyzed_email_to_workbook",
+                return_value={"email_id": "EM-fixed", "ligne": 3},
+            ) as append_core,
+        ):
+            result = sheets_service.append_analyzed_email(
+                "sender@test.invalid",
+                "Subject",
+                "Summary",
+                "support",
+                "moyenne",
+                email_id="EM-fixed",
+            )
+        self.assertEqual(result, {"email_id": "EM-fixed", "ligne": 3})
+        append_core.assert_called_once_with(
+            "historical-workbook",
+            expediteur="sender@test.invalid",
+            objet="Subject",
+            resume="Summary",
+            categorie="support",
+            priorite="moyenne",
+            statut="Analysé",
+            brouillon_id="",
+            email_id="EM-fixed",
+        )
 
 
 class FakeWorksheet:

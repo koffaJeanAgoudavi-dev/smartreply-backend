@@ -1,12 +1,14 @@
 """Réservation atomique et transitions sûres du registre de dédoublonnage."""
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.modules.processed_emails.models import ProcessedEmail
 
 MAX_PROCESSING_ATTEMPTS = 3
@@ -20,6 +22,7 @@ class EmailReservation:
     record_id: int
     company_id: int
     gmail_message_id: str = field(repr=False)
+    gmail_draft_id: str | None = field(repr=False)
     attempt: int
 
     @property
@@ -40,6 +43,7 @@ def _reservation_from_record(record: ProcessedEmail) -> EmailReservation:
         record_id=record.id,
         company_id=record.company_id,
         gmail_message_id=record.gmail_message_id,
+        gmail_draft_id=record.gmail_draft_id,
         attempt=record.attempts,
     )
 
@@ -50,7 +54,7 @@ def reserve_email(
     company_id: int,
     gmail_message_id: str,
 ) -> EmailReservation | None:
-    """Réserve un message une fois, ou reprend un échec sous la limite de trois."""
+    """Réserve un message ou reprend atomiquement un échec/traitement ancien."""
     record = ProcessedEmail(
         company_id=company_id,
         gmail_message_id=gmail_message_id,
@@ -68,13 +72,21 @@ def reserve_email(
         # Une autre transaction a gagné l'insertion UNIQUE.
         db.rollback()
 
+    stale_seconds = max(0, settings.PIPELINE_PROCESSING_STALE_SECONDS)
+    stale_before = datetime.now(UTC) - timedelta(seconds=stale_seconds)
     result = db.execute(
         update(ProcessedEmail)
         .where(
             ProcessedEmail.company_id == company_id,
             ProcessedEmail.gmail_message_id == gmail_message_id,
-            ProcessedEmail.status == "failed",
             ProcessedEmail.attempts < MAX_PROCESSING_ATTEMPTS,
+            or_(
+                ProcessedEmail.status == "failed",
+                and_(
+                    ProcessedEmail.status == "processing",
+                    ProcessedEmail.updated_at < stale_before,
+                ),
+            ),
         )
         .values(
             status="processing",
@@ -96,6 +108,40 @@ def reserve_email(
     return _reservation_from_record(resumed)
 
 
+def record_gmail_draft_id(
+    db: Session,
+    reservation: EmailReservation,
+    *,
+    gmail_draft_id: str,
+) -> EmailReservation:
+    """Persiste immédiatement le brouillon créé pour la tentative réservée."""
+    normalized_id = gmail_draft_id.strip()
+    if not normalized_id or len(normalized_id) > 255:
+        raise ValueError("invalid_gmail_draft_id")
+    if reservation.gmail_draft_id is not None:
+        if reservation.gmail_draft_id != normalized_id:
+            raise RuntimeError("processed_email_draft_conflict")
+        return reservation
+
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == reservation.record_id,
+            ProcessedEmail.company_id == reservation.company_id,
+            ProcessedEmail.gmail_message_id == reservation.gmail_message_id,
+            ProcessedEmail.status == "processing",
+            ProcessedEmail.attempts == reservation.attempt,
+            ProcessedEmail.gmail_draft_id.is_(None),
+        )
+        .values(gmail_draft_id=normalized_id, updated_at=func.now())
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise RuntimeError("processed_email_state_conflict")
+    db.commit()
+    return replace(reservation, gmail_draft_id=normalized_id)
+
+
 def _set_status(
     db: Session,
     reservation: EmailReservation,
@@ -110,6 +156,7 @@ def _set_status(
             ProcessedEmail.company_id == reservation.company_id,
             ProcessedEmail.gmail_message_id == reservation.gmail_message_id,
             ProcessedEmail.status == "processing",
+            ProcessedEmail.attempts == reservation.attempt,
         )
         .values(
             status=status,
@@ -159,6 +206,7 @@ def release_after_quota(
             ProcessedEmail.company_id == reservation.company_id,
             ProcessedEmail.gmail_message_id == reservation.gmail_message_id,
             ProcessedEmail.status == "processing",
+            ProcessedEmail.attempts == reservation.attempt,
         )
         .values(
             status="failed",

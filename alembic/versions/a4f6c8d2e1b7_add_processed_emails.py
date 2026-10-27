@@ -24,6 +24,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("company_id", sa.Integer(), nullable=False),
         sa.Column("gmail_message_id", sa.String(length=255), nullable=False),
+        sa.Column("gmail_draft_id", sa.String(length=255), nullable=True),
         sa.Column(
             "status",
             sa.String(length=16),

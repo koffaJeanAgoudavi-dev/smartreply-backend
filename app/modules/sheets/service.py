@@ -13,10 +13,48 @@ from app.core.config import settings
 from app.db.sheets_client import get_sheets_client
 
 
+def _get_workbook_by_id(sheet_id: str, *, require_nonempty_id: bool):
+    """Ouvre un classeur explicite, avec validation activable par l'appelant."""
+    if require_nonempty_id and (not sheet_id or not sheet_id.strip()):
+        raise ValueError("company_sheet_id_missing")
+    return get_sheets_client().open_by_key(sheet_id)
+
+
 def get_data_workbook():
-    """Ouvre le classeur Data Entreprise (onglets Emails, Brouillons, Clients…)."""
-    client = get_sheets_client()
-    return client.open_by_key(settings.GOOGLE_DATA_SHEET_ID)
+    """Ouvre le classeur Data Entreprise historique configuré."""
+    return _get_workbook_by_id(
+        settings.GOOGLE_DATA_SHEET_ID,
+        require_nonempty_id=False,
+    )
+
+
+def append_analyzed_email_to_workbook(
+    workbook,
+    *,
+    expediteur: str,
+    objet: str,
+    resume: str,
+    categorie: str,
+    priorite: str,
+    statut: str = "Analysé",
+    brouillon_id: str = "",
+    email_id: str = "",
+) -> dict:
+    """Cœur paramétré de l'ajout historique dans un classeur explicite."""
+    sheet = workbook.worksheet("Emails")
+    if not email_id:
+        email_id = "EM-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    sheet.append_row([
+        email_id,
+        expediteur,
+        objet,
+        resume,
+        categorie,
+        priorite,
+        statut,
+        brouillon_id,
+    ])
+    return {"email_id": email_id, "ligne": len(sheet.get_all_values())}
 
 
 def append_analyzed_email(
@@ -33,23 +71,17 @@ def append_analyzed_email(
     Ajoute une ligne dans l'onglet "Emails" du Sheet Data Entreprise.
     Retourne {"email_id", "ligne"}.
     """
-    wb = get_data_workbook()
-    sheet = wb.worksheet("Emails")
-
-    if not email_id:
-        email_id = "EM-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-
-    sheet.append_row([
-        email_id,
-        expediteur,
-        objet,
-        resume,
-        categorie,
-        priorite,
-        statut,
-        brouillon_id,
-    ])
-    return {"email_id": email_id, "ligne": len(sheet.get_all_values())}
+    return append_analyzed_email_to_workbook(
+        get_data_workbook(),
+        expediteur=expediteur,
+        objet=objet,
+        resume=resume,
+        categorie=categorie,
+        priorite=priorite,
+        statut=statut,
+        brouillon_id=brouillon_id,
+        email_id=email_id,
+    )
 
 
 EMAIL_HEADERS = [
@@ -79,9 +111,20 @@ def _rows_with_fixed_headers(sheet, expected_headers: list[str]) -> list[list[st
 
 def get_company_workbook(sheet_id: str):
     """Ouvre explicitement le Sheet d'une entreprise, sans variable globale."""
-    if not sheet_id or not sheet_id.strip():
-        raise ValueError("company_sheet_id_missing")
-    return get_sheets_client().open_by_key(sheet_id)
+    return _get_workbook_by_id(sheet_id, require_nonempty_id=True)
+
+
+def append_draft_to_workbook(
+    workbook,
+    *,
+    brouillon_id: str,
+    email_id: str,
+    contenu: str,
+) -> int:
+    """Cœur paramétré de l'ajout historique d'un brouillon au Sheet."""
+    sheet = workbook.worksheet("Brouillons")
+    sheet.append_row([brouillon_id, email_id, contenu, "En attente"])
+    return len(sheet.get_all_values())
 
 
 def _row_with_value(rows: list[list[str]], column: int, value: str) -> int | None:

@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     GEMINI_MAX_EMAIL_BODY_CHARS: int = int(
         os.getenv("GEMINI_MAX_EMAIL_BODY_CHARS", "6000")
     )
+    PIPELINE_PROCESSING_STALE_SECONDS: int = int(
+        os.getenv("PIPELINE_PROCESSING_STALE_SECONDS", "900")
+    )
 
     class Config:
         env_file = ".env"

@@ -3,9 +3,9 @@
 import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, update
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -43,10 +43,17 @@ class PipelineExecutionTests(unittest.TestCase):
         self.sequence = 0
         self.activation = datetime(2026, 10, 27, 18, 0, tzinfo=timezone.utc)
         self.original_body_limit = service.settings.GEMINI_MAX_EMAIL_BODY_CHARS
+        self.original_stale_seconds = (
+            service.settings.PIPELINE_PROCESSING_STALE_SECONDS
+        )
         service.settings.GEMINI_MAX_EMAIL_BODY_CHARS = 12
+        service.settings.PIPELINE_PROCESSING_STALE_SECONDS = 60
 
     def tearDown(self):
         service.settings.GEMINI_MAX_EMAIL_BODY_CHARS = self.original_body_limit
+        service.settings.PIPELINE_PROCESSING_STALE_SECONDS = (
+            self.original_stale_seconds
+        )
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
 
@@ -462,6 +469,166 @@ class PipelineExecutionTests(unittest.TestCase):
             records = db.execute(select(ProcessedEmail)).scalars().all()
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].status, "done")
+
+    def test_sheet_failure_reuses_persisted_gmail_draft_on_retry(self):
+        plan = self.create_company("DraftRetry", activated_at=self.activation)
+        draft = AsyncMock(return_value="draft-persisted")
+        write_draft = Mock(
+            side_effect=[RuntimeError("sheet temporarily unavailable"), None]
+        )
+
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("same-message",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("draft-retry")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(
+                service, "analyze_email", side_effect=self.successful_analysis
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(service, "create_company_gmail_draft", draft),
+            patch.object(service, "upsert_company_draft", write_draft),
+            patch.object(service, "mark_company_email_draft_ready"),
+        ):
+            first = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+            with self.session_factory() as db:
+                failed_record = db.scalar(
+                    select(ProcessedEmail).where(
+                        ProcessedEmail.company_id == plan.company_id
+                    )
+                )
+                self.assertEqual(failed_record.status, "failed")
+                self.assertEqual(
+                    failed_record.gmail_draft_id,
+                    "draft-persisted",
+                )
+            second = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(first.failed, 1)
+        self.assertEqual(second.processed, 1)
+        self.assertEqual(draft.await_count, 1)
+        self.assertEqual(write_draft.call_count, 2)
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+        self.assertEqual(record.status, "done")
+        self.assertEqual(record.attempts, 2)
+        self.assertEqual(record.gmail_draft_id, "draft-persisted")
+
+    def test_stale_processing_reservation_is_resumed_atomically_up_to_cap(self):
+        plan = self.create_company("Stale", activated_at=self.activation)
+        with self.session_factory() as db:
+            first = reserve_email(
+                db,
+                company_id=plan.company_id,
+                gmail_message_id="stale-message",
+            )
+        self.assertIsNotNone(first)
+
+        # Une réservation fraîche ne peut pas être volée.
+        with self.session_factory() as db:
+            self.assertIsNone(
+                reserve_email(
+                    db,
+                    company_id=plan.company_id,
+                    gmail_message_id="stale-message",
+                )
+            )
+
+        old_timestamp = datetime.now(timezone.utc) - timedelta(seconds=61)
+        with self.session_factory() as db:
+            db.execute(
+                update(ProcessedEmail)
+                .where(
+                    ProcessedEmail.company_id == plan.company_id,
+                    ProcessedEmail.gmail_message_id == "stale-message",
+                )
+                .values(updated_at=old_timestamp)
+            )
+            db.commit()
+        with self.session_factory() as db:
+            second = reserve_email(
+                db,
+                company_id=plan.company_id,
+                gmail_message_id="stale-message",
+            )
+        self.assertIsNotNone(second)
+        self.assertEqual(second.attempt, 2)
+
+        # Le premier repreneur a rafraîchi updated_at : un second perd la course.
+        with self.session_factory() as db:
+            self.assertIsNone(
+                reserve_email(
+                    db,
+                    company_id=plan.company_id,
+                    gmail_message_id="stale-message",
+                )
+            )
+
+        with self.session_factory() as db:
+            db.execute(
+                update(ProcessedEmail)
+                .where(ProcessedEmail.id == second.record_id)
+                .values(updated_at=old_timestamp)
+            )
+            db.commit()
+        with self.session_factory() as db:
+            third = reserve_email(
+                db,
+                company_id=plan.company_id,
+                gmail_message_id="stale-message",
+            )
+        self.assertIsNotNone(third)
+        self.assertEqual(third.attempt, 3)
+
+        with self.session_factory() as db:
+            db.execute(
+                update(ProcessedEmail)
+                .where(ProcessedEmail.id == third.record_id)
+                .values(updated_at=old_timestamp)
+            )
+            db.commit()
+        with self.session_factory() as db:
+            self.assertIsNone(
+                reserve_email(
+                    db,
+                    company_id=plan.company_id,
+                    gmail_message_id="stale-message",
+                )
+            )
+            record = db.get(ProcessedEmail, third.record_id)
+        self.assertEqual(record.status, "processing")
+        self.assertEqual(record.attempts, 3)
 
     def test_per_company_cap_limits_reserved_messages(self):
         plan = self.create_company("Cap", activated_at=self.activation, email_limit=2)

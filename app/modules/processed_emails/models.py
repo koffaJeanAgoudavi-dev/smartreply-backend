@@ -51,6 +51,7 @@ class ProcessedEmail(Base):
         nullable=False,
     )
     gmail_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    gmail_draft_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,

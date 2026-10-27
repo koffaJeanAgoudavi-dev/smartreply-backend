@@ -35,6 +35,7 @@ from app.modules.processed_emails.service import (
     mark_done,
     mark_failed,
     mark_skipped,
+    record_gmail_draft_id,
     release_after_quota,
     reserve_email,
 )
@@ -196,6 +197,19 @@ def _reserve(
         )
 
 
+def _record_draft(
+    session_factory: Callable[[], Session],
+    reservation: EmailReservation,
+    draft_id: str,
+) -> EmailReservation:
+    with session_factory() as db:
+        return record_gmail_draft_id(
+            db,
+            reservation,
+            gmail_draft_id=draft_id,
+        )
+
+
 def _status_code_from_exception(exc: Exception) -> int | None:
     status_code = getattr(exc, "status_code", None)
     if isinstance(status_code, int):
@@ -314,10 +328,20 @@ async def _process_reserved_email(
             priorite=analysis["urgence"],
             statut="Analysé",
         )
-        draft_id = get_company_draft_id(
-            workbook,
-            email_id=reservation.sheet_email_id,
-        )
+        # Neon est la source d'idempotence prioritaire. Le Sheet permet aussi de
+        # récupérer les brouillons créés avant l'ajout de ce champ au registre.
+        draft_id = reservation.gmail_draft_id
+        if draft_id is None:
+            draft_id = get_company_draft_id(
+                workbook,
+                email_id=reservation.sheet_email_id,
+            )
+            if draft_id is not None:
+                reservation = _record_draft(
+                    session_factory,
+                    reservation,
+                    draft_id,
+                )
         if draft_id is None:
             stage = "gmail_draft"
             thread_id = email.get("thread_id")
@@ -331,14 +355,21 @@ async def _process_reserved_email(
                 thread_id=thread_id,
                 in_reply_to=email.get("message_id_header", ""),
             )
-            stage = "sheets"
-            upsert_company_draft(
-                workbook,
-                draft_id=draft_id,
-                email_id=reservation.sheet_email_id,
-                contenu=analysis["brouillon"],
-                statut="En attente",
+            # Cette transaction est validée avant toute écriture Sheet : un
+            # nouvel essai ne peut donc pas créer un second brouillon Gmail.
+            reservation = _record_draft(
+                session_factory,
+                reservation,
+                draft_id,
             )
+        stage = "sheets"
+        upsert_company_draft(
+            workbook,
+            draft_id=draft_id,
+            email_id=reservation.sheet_email_id,
+            contenu=analysis["brouillon"],
+            statut="En attente",
+        )
         mark_company_email_draft_ready(
             workbook,
             email_id=reservation.sheet_email_id,

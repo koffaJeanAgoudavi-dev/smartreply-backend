@@ -108,6 +108,7 @@ scripts/
 | `PIPELINE_ALLOWED_COMPANY_IDS` | IDs internes autorisés au traitement réel, séparés par des virgules ; vide ou absent = aucune entreprise traitée |
 | `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond par entreprise et par passage (défaut : `10`) |
 | `PIPELINE_RUN_TIME_BUDGET_SECONDS` | Budget total d'un passage (défaut : `240` secondes) |
+| `PIPELINE_PROCESSING_STALE_SECONDS` | Délai avant reprise atomique d'une réservation `processing` abandonnée (défaut : `900` secondes) |
 | `GEMINI_MAX_EMAIL_BODY_CHARS` | Taille maximale du corps transmis à Gemini dans le flux multi-tenant (défaut : `6000`) |
 | `CRON_SECRET` | (Optionnel) Sécurise `POST /api/v1/pipeline/run` via l'en-tête `X-CRON-SECRET` |
 
@@ -225,8 +226,8 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 La migration de fondations `e1a5c7d9b3f2` ajoute le statut Gmail et les dates de
 coupure/équité. La migration PR 2 `a4f6c8d2e1b7` ajoute `processed_emails`,
 registre isolé par `company_id` avec unicité `(company_id, gmail_message_id)`,
-statut `processing`, `done`, `skipped` ou `failed`, nombre de tentatives et code
-d'erreur court.
+statut `processing`, `done`, `skipped` ou `failed`, nombre de tentatives, ID du
+brouillon Gmail nullable et code d'erreur court.
 
 Avec `MULTI_TENANT_PIPELINE_ENABLED=false`, le endpoint conserve strictement le
 pipeline mono-utilisateur et sa réponse historique. Avec `true`, une entreprise
@@ -244,15 +245,20 @@ le statut lu/non lu de Gmail.
 
 Chaque message est réservé atomiquement dans `processed_emails` avant son
 traitement. Un message `done` ou `skipped` n'est jamais retraité. Un échec est
-réessayé jusqu'à trois tentatives ; un HTTP `429` ne consomme aucune tentative
+réessayé jusqu'à trois tentatives. Une réservation restée `processing` au-delà
+de `PIPELINE_PROCESSING_STALE_SECONDS` est reprise par la même transition
+atomique, sans dépasser ce plafond. Un HTTP `429` ne consomme aucune tentative
 et arrête seulement l'entreprise concernée pour le passage. Un `invalid_grant`
 passe sa connexion Gmail à `revoked`. Chaque entreprise reste dans son propre
 bloc d'erreurs.
 
 Le flux réel utilise explicitement le refresh token déchiffré et le `sheet_id`
-de l'entreprise. Il filtre le message, tronque le corps avant Gemini, écrit dans
-les onglets `Emails` et `Brouillons`, puis crée un brouillon Gmail dans le même
-fil avec le token de cette entreprise. Les écritures Sheet sont idempotentes par
+de l'entreprise. Il filtre le message, tronque le corps avant Gemini et crée le
+brouillon Gmail dans le même fil avec le token de cette entreprise. Son ID est
+enregistré dans `processed_emails` immédiatement après la création, avant toute
+écriture suivante dans le Sheet. Un nouvel essai consulte d'abord cet ID, puis
+l'éventuelle ligne `Brouillons`, et ne recrée donc pas le brouillon après une
+panne Sheet. Les écritures Sheet `Emails` et `Brouillons` sont idempotentes par
 `Email_ID` et conservent la double écriture. **Aucune notification Telegram
 n'est envoyée dans la PR 2.**
 

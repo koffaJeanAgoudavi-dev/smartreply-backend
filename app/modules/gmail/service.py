@@ -23,26 +23,59 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _token_cache: dict = {"access_token": None, "expires_at": 0.0}
 
 
-async def _get_access_token() -> str:
-    """Récupère un access token valide (le rafraîchit si expiré)."""
-    if _token_cache["access_token"] and time.time() < _token_cache["expires_at"]:
-        return _token_cache["access_token"]
+async def _get_access_token_for_refresh_token(
+    refresh_token: str,
+    *,
+    token_cache: dict | None = None,
+    legacy_errors: bool = False,
+) -> str:
+    """Cœur OAuth paramétré commun aux comptes historique et d'entreprise."""
+    if (
+        token_cache is not None
+        and token_cache["access_token"]
+        and time.time() < token_cache["expires_at"]
+    ):
+        return token_cache["access_token"]
 
     payload = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "client_secret": settings.GOOGLE_CLIENT_SECRET,
-        "refresh_token": settings.GOOGLE_REFRESH_TOKEN,
+        "refresh_token": refresh_token,
         "grant_type": "refresh_token",
     }
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(GOOGLE_TOKEN_URL, data=payload)
-        if resp.status_code != 200:
-            raise RuntimeError(f"Refresh token échoué (HTTP {resp.status_code}): {resp.text}")
-        data = resp.json()
+        response = await client.post(GOOGLE_TOKEN_URL, data=payload)
 
-    _token_cache["access_token"] = data["access_token"]
-    _token_cache["expires_at"] = time.time() + data.get("expires_in", 3600) - 60
-    return _token_cache["access_token"]
+    if legacy_errors:
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Refresh token échoué (HTTP {response.status_code}): {response.text}"
+            )
+        data = response.json()
+        access_token = data["access_token"]
+    else:
+        data = _safe_response_json(response)
+        if response.status_code == 400 and data.get("error") == "invalid_grant":
+            raise GmailTokenRevokedError("gmail_token_revoked", status_code=400)
+        if response.status_code != 200:
+            _raise_company_gmail_error(response, "token")
+        access_token = data.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise CompanyGmailError("gmail_token_response_invalid")
+
+    if token_cache is not None:
+        token_cache["access_token"] = access_token
+        token_cache["expires_at"] = time.time() + data.get("expires_in", 3600) - 60
+    return access_token
+
+
+async def _get_access_token() -> str:
+    """Récupère le token historique en conservant son cache et ses erreurs."""
+    return await _get_access_token_for_refresh_token(
+        settings.GOOGLE_REFRESH_TOKEN,
+        token_cache=_token_cache,
+        legacy_errors=True,
+    )
 
 
 def _strip_html(html: str) -> str:
@@ -71,12 +104,12 @@ def _extract_text(payload: dict) -> str:
     return ""
 
 
-async def list_unread_emails(max_results: int = 5) -> list[dict]:
-    """
-    Module 1 — Détection : retourne les emails non lus du compte configuré.
-    Chaque email : id_gmail, expediteur, objet, date, snippet, corps.
-    """
-    access_token = await _get_access_token()
+async def _list_unread_emails_with_access_token(
+    access_token: str,
+    *,
+    max_results: int,
+) -> list[dict]:
+    """Cœur paramétré de la lecture historique des messages non lus."""
     headers = {"Authorization": f"Bearer {access_token}"}
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -116,6 +149,17 @@ async def list_unread_emails(max_results: int = 5) -> list[dict]:
         return emails
 
 
+async def list_unread_emails(max_results: int = 5) -> list[dict]:
+    """
+    Module 1 — Détection : retourne les emails non lus du compte configuré.
+    Chaque email : id_gmail, expediteur, objet, date, snippet, corps.
+    """
+    return await _list_unread_emails_with_access_token(
+        await _get_access_token(),
+        max_results=max_results,
+    )
+
+
 class CompanyGmailError(RuntimeError):
     """Erreur Gmail sûre pour le pipeline par entreprise."""
 
@@ -152,24 +196,7 @@ def _raise_company_gmail_error(response: httpx.Response, operation: str) -> None
 
 async def get_company_access_token(refresh_token: str) -> str:
     """Échange explicitement le refresh token d'une entreprise, sans cache global."""
-    payload = {
-        "client_id": settings.GOOGLE_CLIENT_ID,
-        "client_secret": settings.GOOGLE_CLIENT_SECRET,
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(GOOGLE_TOKEN_URL, data=payload)
-
-    data = _safe_response_json(response)
-    if response.status_code == 400 and data.get("error") == "invalid_grant":
-        raise GmailTokenRevokedError("gmail_token_revoked", status_code=400)
-    if response.status_code != 200:
-        _raise_company_gmail_error(response, "token")
-    access_token = data.get("access_token")
-    if not isinstance(access_token, str) or not access_token:
-        raise CompanyGmailError("gmail_token_response_invalid")
-    return access_token
+    return await _get_access_token_for_refresh_token(refresh_token)
 
 
 async def list_company_message_page(
