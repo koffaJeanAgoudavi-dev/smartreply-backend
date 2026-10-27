@@ -166,7 +166,7 @@ class PipelineSelectionTests(unittest.TestCase):
             [never_processed_id, oldest_id, newest_id],
         )
 
-    def test_simulation_applies_per_company_cap_and_total_counter(self):
+    def test_simulation_reports_per_company_and_total_theoretical_caps(self):
         first_activation = datetime(2026, 10, 27, 10, 0, tzinfo=timezone.utc)
         self.create_candidate(3, activated_at=first_activation)
         self.create_candidate(3)
@@ -179,7 +179,7 @@ class PipelineSelectionTests(unittest.TestCase):
             )
 
         self.assertEqual(result.eligible_company_count, 2)
-        self.assertEqual(result.would_process_email_count, 6)
+        self.assertEqual(result.max_emails_cap, 6)
         self.assertEqual(result.max_emails_per_company, 3)
         self.assertEqual(result.time_budget_seconds, 45)
         self.assertEqual([plan.email_limit for plan in plans], [3, 3])
@@ -273,7 +273,7 @@ class PipelineSelectionTests(unittest.TestCase):
                 "status",
                 "company_ids",
                 "eligible_company_count",
-                "would_process_email_count",
+                "max_emails_cap",
                 "max_emails_per_company",
                 "time_budget_seconds",
             },
@@ -326,7 +326,7 @@ class PipelineLockTests(unittest.TestCase):
                 status="accepted",
                 company_ids=(12, 34),
                 eligible_company_count=2,
-                would_process_email_count=20,
+                max_emails_cap=20,
                 max_emails_per_company=10,
                 time_budget_seconds=240,
             ),

@@ -47,12 +47,12 @@ class PipelineRunBudget:
 
 @dataclass(frozen=True)
 class SimulationResult:
-    """Résultat public limité à des identifiants internes et des compteurs."""
+    """Résultat public sûr; ``max_emails_cap`` est un plafond, pas un comptage."""
 
     status: str
     company_ids: tuple[int, ...]
     eligible_company_count: int
-    would_process_email_count: int
+    max_emails_cap: int
     max_emails_per_company: int
     time_budget_seconds: int
 
@@ -61,7 +61,7 @@ class SimulationResult:
             "status": self.status,
             "company_ids": list(self.company_ids),
             "eligible_company_count": self.eligible_company_count,
-            "would_process_email_count": self.would_process_email_count,
+            "max_emails_cap": self.max_emails_cap,
             "max_emails_per_company": self.max_emails_per_company,
             "time_budget_seconds": self.time_budget_seconds,
         }
@@ -178,7 +178,7 @@ def build_simulation_result(
         status="accepted",
         company_ids=tuple(plan.company_id for plan in plans),
         eligible_company_count=len(plans),
-        would_process_email_count=sum(plan.email_limit for plan in plans),
+        max_emails_cap=sum(plan.email_limit for plan in plans),
         max_emails_per_company=email_limit,
         time_budget_seconds=time_budget,
     )
@@ -212,7 +212,7 @@ def prepare_multi_tenant_simulation(
                     status="already_running",
                     company_ids=(),
                     eligible_company_count=0,
-                    would_process_email_count=0,
+                    max_emails_cap=0,
                     max_emails_per_company=max_emails,
                     time_budget_seconds=time_budget,
                 ),
@@ -244,11 +244,11 @@ async def complete_multi_tenant_simulation(prepared: PreparedSimulationRun) -> N
     try:
         logger.info(
             "Simulation pipeline terminée: company_ids=%s "
-            "eligible_company_count=%d would_process_email_count=%d "
+            "eligible_company_count=%d max_emails_cap=%d "
             "max_emails_per_company=%d time_budget_seconds=%d",
             list(result.company_ids),
             result.eligible_company_count,
-            result.would_process_email_count,
+            result.max_emails_cap,
             result.max_emails_per_company,
             result.time_budget_seconds,
         )

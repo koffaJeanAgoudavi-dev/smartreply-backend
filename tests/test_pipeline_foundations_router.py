@@ -38,7 +38,7 @@ class PipelineFoundationsRouterTests(unittest.TestCase):
                 status="accepted" if lock_acquired else "already_running",
                 company_ids=(7, 9) if lock_acquired else (),
                 eligible_company_count=2 if lock_acquired else 0,
-                would_process_email_count=20 if lock_acquired else 0,
+                max_emails_cap=20 if lock_acquired else 0,
                 max_emails_per_company=10,
                 time_budget_seconds=240,
             ),
@@ -67,6 +67,11 @@ class PipelineFoundationsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), historical_result)
+        self.assertEqual(
+            response.content,
+            b'{"emails_traites":1,"resultats":[{"historical":true}]}',
+        )
+        self.assertEqual(response.headers["content-type"], "application/json")
         old_pipeline.assert_awaited_once_with()
 
     def test_enabled_switch_returns_a_fast_202_and_schedules_background(self):
@@ -100,7 +105,7 @@ class PipelineFoundationsRouterTests(unittest.TestCase):
                 "status": "accepted",
                 "company_ids": [7, 9],
                 "eligible_company_count": 2,
-                "would_process_email_count": 20,
+                "max_emails_cap": 20,
                 "max_emails_per_company": 10,
                 "time_budget_seconds": 240,
             },

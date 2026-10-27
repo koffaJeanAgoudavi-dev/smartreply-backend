@@ -238,10 +238,11 @@ puis les autres de la date de dernier traitement la plus ancienne à la plus
 récente.
 
 Le `202` de simulation contient uniquement des IDs internes d'entreprise et des
-compteurs. `would_process_email_count` est la capacité maximale théorique
-(nombre d'entreprises × plafond), car aucun email Gmail n'est lu dans cette PR.
-Aucune ligne Neon et aucun service Gmail, Sheets, Gemini ou Telegram n'est
-modifié par la simulation.
+compteurs. `max_emails_per_company` est le plafond configuré par entreprise et
+`max_emails_cap` est le plafond total théorique de la sélection
+(`eligible_company_count × max_emails_per_company`). Il ne compte donc aucun
+email réel : aucun email Gmail n'est lu dans cette PR. Aucune ligne Neon et aucun
+service Gmail, Sheets, Gemini ou Telegram n'est modifié par la simulation.
 
 Le passage est protégé par `pg_try_advisory_xact_lock`, verrou PostgreSQL limité
 à la transaction. Contrairement à un verrou advisory de session, il reste
