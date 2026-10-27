@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     # Gmail OAuth par utilisateur (Étape 3) — chiffrement des refresh tokens (Fernet)
     TOKEN_ENCRYPTION_KEY: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")
 
+    # Pipeline multi-entreprises — Étape 3, fondations (désactivé par défaut)
+    MULTI_TENANT_PIPELINE_ENABLED: bool = os.getenv(
+        "MULTI_TENANT_PIPELINE_ENABLED", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    MAX_EMAILS_PER_COMPANY_PER_RUN: int = int(
+        os.getenv("MAX_EMAILS_PER_COMPANY_PER_RUN", "10")
+    )
+    PIPELINE_RUN_TIME_BUDGET_SECONDS: int = int(
+        os.getenv("PIPELINE_RUN_TIME_BUDGET_SECONDS", "240")
+    )
+
     class Config:
         env_file = ".env"
 

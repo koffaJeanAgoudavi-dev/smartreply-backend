@@ -29,3 +29,11 @@ class Company(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    # Ces deux dates restent nulles pendant la simulation de la PR 1.
+    # La date d'activation sera fixée au premier traitement réel (PR 2).
+    pipeline_activated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pipeline_last_processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
