@@ -71,7 +71,8 @@ app/
     ├── drafts/              # Module 5 : brouillons Gmail
     ├── notifications/       # Module 6 : notifications Telegram
     ├── actions/             # Module 7 : callbacks Envoyer / Ignorer
-    └── pipeline/            # Orchestrateur (chaîne complète 1→6)
+    ├── pipeline/            # Orchestrateur historique + point d'entrée
+    └── pipeline_selection/  # Sélection multi-tenant équitable (simulation)
 alembic/                     # Migrations PostgreSQL versionnées
 scripts/
 └── setup_webhook.py         # Pointe le webhook Telegram vers ce service
@@ -101,6 +102,9 @@ scripts/
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
 | `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
+| `MULTI_TENANT_PIPELINE_ENABLED` | Active la sélection multi-tenant ; `false` par défaut conserve le pipeline historique |
+| `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond théorique par entreprise et par passage (défaut : `10`) |
+| `PIPELINE_RUN_TIME_BUDGET_SECONDS` | Budget total d'un passage (défaut : `240` secondes) |
 | `CRON_SECRET` | (Optionnel) Sécurise `POST /api/v1/pipeline/run` via l'en-tête `X-CRON-SECRET` |
 
 3. **Webhook Telegram** : `python scripts/setup_webhook.py`
@@ -205,12 +209,45 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
       vérifier le retour automatique sur Intégrations avec Gmail connecté.
 - [ ] Générer un code Telegram, envoyer la commande `/start …` au bot sans
       partager le code, puis vérifier le passage automatique à « Connecté ».
-- [ ] Vérifier l'indicateur `3/3` et le bandeau annonçant que le traitement
-      des emails peut démarrer.
+- [ ] Vérifier l'indicateur `3/3` et le bandeau précisant que le traitement
+      attend encore le branchement du pipeline utilisateur.
 - [ ] Se déconnecter, se reconnecter et vérifier qu'un JWT invalide ou expiré
       renvoie vers la connexion.
 - [ ] Vérifier que l'accueil n'affiche ni statistiques, ni emails, ni activité
       factices avant le démarrage réel du traitement.
+
+### Pipeline multi-entreprises — Étape 3, PR 1
+
+La migration `e1a5c7d9b3f2` ajoute :
+
+- `gmail_connections.status`, limité à `connected` ou `revoked` ;
+- `companies.pipeline_activated_at`, future date de coupure ;
+- `companies.pipeline_last_processed_at`, utilisée pour l'ordre équitable.
+
+Les dates restent nulles pendant cette PR. `pipeline_activated_at` sera fixée
+au premier **traitement réel** de la PR 2 afin de ne jamais importer l'arriéré.
+Le prédicat de coupure accepte uniquement les messages reçus strictement après
+cette date.
+
+Avec `MULTI_TENANT_PIPELINE_ENABLED=false`, le endpoint conserve strictement le
+pipeline mono-utilisateur et sa réponse historique. Avec `true`, il effectue
+une simulation en lecture seule : une entreprise est éligible si elle possède
+un `sheet_id`, une connexion Telegram et une connexion Gmail `connected` avec
+un token chiffré présent. Les entreprises jamais traitées passent en premier,
+puis les autres de la date de dernier traitement la plus ancienne à la plus
+récente.
+
+Le `202` de simulation contient uniquement des IDs internes d'entreprise et des
+compteurs. `max_emails_per_company` est le plafond configuré par entreprise et
+`max_emails_cap` est le plafond total théorique de la sélection
+(`eligible_company_count × max_emails_per_company`). Il ne compte donc aucun
+email réel : aucun email Gmail n'est lu dans cette PR. Aucune ligne Neon et aucun
+service Gmail, Sheets, Gemini ou Telegram n'est modifié par la simulation.
+
+Le passage est protégé par `pg_try_advisory_xact_lock`, verrou PostgreSQL limité
+à la transaction. Contrairement à un verrou advisory de session, il reste
+compatible avec le pooler transactionnel de Neon et est libéré par rollback à
+la fin du travail en arrière-plan.
 
 ## 🧪 Endpoints API et de validation
 
@@ -236,7 +273,7 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 | `POST /api/v1/notifications/test` | 6 | Envoie une notification Telegram |
 | `POST /api/v1/actions/test-ignore` | 7 | Simule un clic « Ignorer » |
 | `POST /api/v1/actions/test-send` | 7 | Crée et envoie un vrai brouillon de test |
-| `POST /api/v1/pipeline/run` | 1→6 | **Pipeline complet** (manuel ou via cron) |
+| `POST /api/v1/pipeline/run` | Pipeline | Historique si désactivé ; sélection simulée `202` si multi-tenant activé |
 
 ## 📊 Statuts (figés par le cadrage)
 
@@ -252,6 +289,9 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
   - [x] entreprise unique et Sheet dynamique
   - [x] dashboard Phase A : onboarding et intégrations
 - [ ] **Étape 3** — Branchement du pipeline sur la couche multi-utilisateur
+  - [x] PR 1 : sélection, plafonds, équité, verrou et simulation en lecture seule
+  - [ ] PR 2 : traitement réel isolé par entreprise et date de coupure
+  - [ ] PR 3 : finalisation opérationnelle et observabilité
 - [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard avancé,
       fallback multi-modèles
 
@@ -265,7 +305,7 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
   avant comparaison (espaces et tirets retirés, majuscules). Le format n'est
   pas validé séparément : seule l'appartenance à la liste autorisée compte
 - Webhook Telegram vérifié par `X-Telegram-Bot-Api-Secret-Token`
-- Endpoint pipeline protégé par `X-CRON-SCRIPT` (si `CRON_SECRET` défini)
+- Endpoint pipeline protégé par `X-CRON-SECRET` (si `CRON_SECRET` défini)
 - Aucune clé en dur dans le code : 100 % variables d'environnement
 - ⚠️ Avant mise en production : régénérer les tokens de test,
   restreindre les scopes OAuth au strict nécessaire
