@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     # PostgreSQL (Neon) — Étape 2 : couche multi-utilisateur (auth)
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
-    # Authentification JWT (Étape 2) — secret de signature + validité du token
+    # Authentification (Étape 2) — invitation, signature et validité du JWT
+    INVITATION_CODES: str = os.getenv("INVITATION_CODES", "")
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")

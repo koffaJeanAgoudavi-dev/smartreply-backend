@@ -35,6 +35,9 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("Tableau de bord", response.text)
         self.assertIn("Intégrations", response.text)
         self.assertIn("Bientôt", response.text)
+        self.assertIn('id="register-invitation"', response.text)
+        self.assertIn("Code d'invitation", response.text)
+        self.assertIn("Le traitement n'est pas encore activé", response.text)
         self.assertIn("Vos statistiques apparaîtront", response.text)
         for excluded_feature in (
             "Plan Pro",
@@ -62,6 +65,10 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn('"smartreply_access_token"', js_response.text)
         self.assertIn('"/api/v1/gmail/connect"', js_response.text)
         self.assertIn('"/api/v1/telegram/link-code"', js_response.text)
+        self.assertIn("invitation_code", js_response.text)
+        self.assertIn("Code d'invitation invalide.", js_response.text)
+        self.assertIn("pipeline sera branché à votre compte", js_response.text)
+        self.assertNotIn("Le traitement des emails peut démarrer", js_response.text)
 
     def test_existing_health_endpoint_is_unchanged(self):
         response = self.client.get("/health")

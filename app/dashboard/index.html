@@ -111,6 +111,10 @@
             <input id="register-email" name="email" type="email" autocomplete="email" placeholder="vous@entreprise.com" required>
           </label>
           <label class="field">
+            <span>Code d'invitation</span>
+            <input id="register-invitation" name="invitation_code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ex. ABCD-2345" required>
+          </label>
+          <label class="field">
             <span>Mot de passe</span>
             <input id="register-password" name="password" type="password" autocomplete="new-password" minlength="8" placeholder="8 caractères minimum" required>
           </label>
@@ -292,7 +296,7 @@
 
           <section id="readiness-banner" class="readiness-banner" aria-live="polite">
             <div class="readiness-icon"><svg><use href="#icon-link"></use></svg></div>
-            <div><strong id="readiness-title">Finalisez vos connexions</strong><p id="readiness-text">Le traitement des emails démarrera lorsque les 3 intégrations seront connectées.</p></div>
+            <div><strong id="readiness-title">Finalisez vos connexions</strong><p id="readiness-text">Connectez les 3 services pour préparer votre compte. Le traitement n'est pas encore activé.</p></div>
             <span id="integrations-progress" class="progress-count">0/3</span>
           </section>
 
