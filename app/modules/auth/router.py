@@ -11,26 +11,59 @@ Endpoints :
 Tests :
   curl -X POST http://localhost:8000/api/v1/auth/register \
     -H "Content-Type: application/json" \
-    -d '{"email": "alice@example.com", "password": "motdepasse123"}'
+    -d '{"email": "alice@example.com", "password": "motdepasse123", \
+         "invitation_code": "votre-code"}'
 
   curl -X POST http://localhost:8000/api/v1/auth/login \
     -H "Content-Type: application/json" \
     -d '{"email": "alice@example.com", "password": "motdepasse123"}'
 """
+
+import hmac
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.database import get_db
-from app.modules.auth.schemas import RegisterResponse, Token, UserCreate, UserLogin, UserOut
+from app.modules.auth.schemas import (
+    RegisterResponse,
+    Token,
+    UserCreate,
+    UserLogin,
+    UserOut,
+)
 from app.modules.auth.security import create_access_token
 from app.modules.auth.service import authenticate_user, create_user
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+def _invitation_code_is_valid(invitation_code: str | None) -> bool:
+    """Compare le candidat à tous les codes configurés, sans sortie anticipée."""
+    allowed_codes = tuple(
+        code.strip().encode("utf-8")
+        for code in settings.INVITATION_CODES.split(",")
+        if code.strip()
+    )
+    candidate = (invitation_code or "").encode("utf-8")
+    is_valid = False
+    for allowed_code in allowed_codes:
+        is_valid |= hmac.compare_digest(candidate, allowed_code)
+    return is_valid
+
+
+@router.post(
+    "/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
+)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
-    """Inscription : email + mot de passe (haché en Argon2), renvoie un JWT."""
+    """Crée un compte uniquement avec un code d'invitation autorisé."""
+    if not _invitation_code_is_valid(payload.invitation_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Code d'invitation invalide",
+        )
+
     try:
         user = create_user(db, payload.email, payload.password)
     except ValueError:

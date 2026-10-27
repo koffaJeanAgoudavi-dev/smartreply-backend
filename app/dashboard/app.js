@@ -332,6 +332,7 @@
         body: {
           email: $("register-email").value.trim(),
           password,
+          invitation_code: $("register-invitation").value.trim(),
         },
       });
       setSession(response.access_token);
@@ -340,7 +341,9 @@
       $("company-name").focus();
     } catch (error) {
       let message = error.message || "Inscription impossible.";
-      if (error.status === 409) {
+      if (error.status === 403) {
+        message = "Code d'invitation invalide.";
+      } else if (error.status === 409) {
         message = "Un compte existe déjà pour cette adresse email. Connectez-vous plutôt.";
       }
       showAlert(errorElement, message);
@@ -481,8 +484,8 @@
       ? "Vos intégrations sont prêtes"
       : "Finalisez vos connexions";
     $("readiness-text").textContent = ready
-      ? "Les 3 intégrations sont connectées. Le traitement des emails peut démarrer."
-      : "Le traitement des emails démarrera lorsque les 3 intégrations seront connectées.";
+      ? "Les 3 intégrations sont connectées. Le traitement sera activé lorsque le pipeline sera branché à votre compte (Étape 3)."
+      : "Connectez les 3 services pour préparer votre compte. Le traitement n'est pas encore activé.";
 
     const gmailButton = $("connect-gmail");
     gmailButton.disabled = integrations.gmail;

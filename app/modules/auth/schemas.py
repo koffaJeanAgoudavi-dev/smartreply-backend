@@ -1,4 +1,5 @@
 """Schémas Pydantic (corps de requête / réponse) du module auth — Étape 2."""
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -9,6 +10,9 @@ class UserCreate(BaseModel):
 
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    # Optionnel dans le schéma afin qu'une absence reçoive le même 403 générique
+    # qu'un code invalide, au lieu d'exposer une différence via un 422.
+    invitation_code: str | None = None
 
 
 class UserLogin(BaseModel):

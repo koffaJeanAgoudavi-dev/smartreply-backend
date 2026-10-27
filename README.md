@@ -98,6 +98,7 @@ scripts/
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Client OAuth Gmail par utilisateur |
 | `GOOGLE_REFRESH_TOKEN` | Refresh token historique du pipeline mono-utilisateur |
 | `DATABASE_URL` | URL PostgreSQL Neon |
+| `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
 | `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
 | `CRON_SECRET` | (Optionnel) Sécurise `POST /api/v1/pipeline/run` via l'en-tête `X-CRON-SECRET` |
@@ -176,8 +177,8 @@ natifs : aucune dépendance front-end, police distante ou étape de build.
 
 La Phase A comprend :
 
-- inscription, connexion et déconnexion avec JWT conservé dans
-  `localStorage` ;
+- inscription protégée par un code de `INVITATION_CODES`, connexion et
+  déconnexion avec JWT conservé dans `localStorage` ;
 - création de l'entreprise et accès à son Google Sheet ;
 - accueil sans données fictives, avec le nombre réel d'intégrations connectées ;
 - connexion Gmail, suivi Telegram par code temporaire et statuts réels ;
@@ -193,8 +194,9 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 
 - [ ] Ouvrir `/dashboard` sur ordinateur puis sur un écran mobile étroit ;
       vérifier le menu repliable et l'absence de débordement horizontal.
-- [ ] Créer un compte avec une adresse inédite et un mot de passe d'au moins
-      huit caractères ; vérifier l'arrivée sur la création d'entreprise.
+- [ ] Créer un compte avec une adresse inédite, un code d'invitation autorisé
+      et un mot de passe d'au moins huit caractères ; vérifier l'arrivée sur
+      la création d'entreprise et le refus clair d'un code invalide.
 - [ ] Créer l'entreprise avec son nom et son secteur ; vérifier les messages
       français en cas de réponse Google `502` ou `503`.
 - [ ] Vérifier le nom d'entreprise dans la barre latérale et ouvrir le Sheet
@@ -216,7 +218,7 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 |---|---|---|
 | `GET /health` | — | Santé du service |
 | `GET /dashboard` | Dashboard | Ouvre l'interface Phase A (redirection vers `/dashboard/`) |
-| `POST /api/v1/auth/register` | Auth | Crée un utilisateur et renvoie son JWT |
+| `POST /api/v1/auth/register` | Auth | Crée un utilisateur avec un code d'invitation et renvoie son JWT |
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
 | `GET /api/v1/gmail/connect` | Gmail OAuth | Démarre la connexion Gmail utilisateur |
 | `GET /api/v1/gmail/status` | Gmail OAuth | Retourne le statut de connexion Gmail |
@@ -255,6 +257,9 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 
 ## 🔒 Sécurité
 
+- Inscriptions fermées par défaut : `INVITATION_CODES` doit contenir au moins
+  un code ; chaque candidat est comparé en temps constant et n'est jamais
+  journalisé ni renvoyé par l'API
 - Webhook Telegram vérifié par `X-Telegram-Bot-Api-Secret-Token`
 - Endpoint pipeline protégé par `X-CRON-SCRIPT` (si `CRON_SECRET` défini)
 - Aucune clé en dur dans le code : 100 % variables d'environnement
