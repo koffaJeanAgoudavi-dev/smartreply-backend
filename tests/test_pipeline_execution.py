@@ -1,0 +1,642 @@
+"""Tests du flux multi-entreprises réel et de son isolation stricte."""
+
+import asyncio
+import unittest
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
+
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db.database import Base
+from app.modules.auth.models import User
+from app.modules.companies.models import Company
+from app.modules.gmail.service import GmailTokenRevokedError
+from app.modules.gmail_oauth.models import GmailConnection
+from app.modules.notifications import service as notifications_service
+from app.modules.pipeline_execution import service
+from app.modules.pipeline_selection.service import (
+    CompanyRunPlan,
+    PipelineRunBudget,
+    PreparedSimulationRun,
+    SimulationResult,
+)
+from app.modules.processed_emails.models import ProcessedEmail
+from app.modules.processed_emails.service import mark_failed, reserve_email
+from app.modules.telegram.models import TelegramConnection
+
+
+class PipelineExecutionTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        self.session_factory = sessionmaker(
+            bind=self.engine,
+            autoflush=False,
+            expire_on_commit=False,
+        )
+        Base.metadata.create_all(self.engine)
+        self.sequence = 0
+        self.activation = datetime(2026, 10, 27, 18, 0, tzinfo=timezone.utc)
+        self.original_body_limit = service.settings.GEMINI_MAX_EMAIL_BODY_CHARS
+        service.settings.GEMINI_MAX_EMAIL_BODY_CHARS = 12
+
+    def tearDown(self):
+        service.settings.GEMINI_MAX_EMAIL_BODY_CHARS = self.original_body_limit
+        Base.metadata.drop_all(self.engine)
+        self.engine.dispose()
+
+    def create_company(
+        self,
+        label: str,
+        *,
+        activated_at: datetime | None = None,
+        email_limit: int = 10,
+    ) -> CompanyRunPlan:
+        self.sequence += 1
+        with self.session_factory() as db:
+            user = User(
+                email=f"user-{label.lower()}@test.invalid",
+                hashed_password="unused",
+            )
+            db.add(user)
+            db.flush()
+            company = Company(
+                user_id=user.id,
+                nom_entreprise=f"Company {label}",
+                secteur="Test",
+                sheet_id=f"sheet-{label}",
+                pipeline_activated_at=activated_at,
+            )
+            db.add(company)
+            db.flush()
+            db.add(
+                GmailConnection(
+                    user_id=user.id,
+                    encrypted_refresh_token=f"encrypted-{label}",
+                    status="connected",
+                )
+            )
+            db.add(
+                TelegramConnection(
+                    user_id=user.id,
+                    telegram_chat_id=100_000 + self.sequence,
+                    telegram_user_id=200_000 + self.sequence,
+                )
+            )
+            db.commit()
+            return CompanyRunPlan(
+                company_id=company.id,
+                user_id=user.id,
+                pipeline_activated_at=activated_at,
+                pipeline_last_processed_at=None,
+                email_limit=email_limit,
+            )
+
+    @staticmethod
+    def prepared(plans: list[CompanyRunPlan]) -> PreparedSimulationRun:
+        company_ids = tuple(plan.company_id for plan in plans)
+        total_cap = sum(plan.email_limit for plan in plans)
+        return PreparedSimulationRun(
+            result=SimulationResult(
+                status="accepted",
+                company_ids=company_ids,
+                processing_company_ids=company_ids,
+                eligible_company_count=len(plans),
+                processing_company_count=len(plans),
+                simulation_company_count=0,
+                max_emails_cap=total_cap,
+                processing_max_emails_cap=total_cap,
+                max_emails_per_company=max(
+                    (plan.email_limit for plan in plans),
+                    default=0,
+                ),
+                time_budget_seconds=240,
+            ),
+            plans=tuple(plans),
+            lock_acquired=True,
+            budget=PipelineRunBudget(total_seconds=240),
+        )
+
+    def email(self, label: str, *, received_at: datetime | None = None) -> dict:
+        return {
+            "id_gmail": f"message-{label}",
+            "thread_id": f"thread-{label}",
+            "expediteur": f"Sender {label} <sender-{label}@test.invalid>",
+            "objet": f"Subject {label}",
+            "message_id_header": f"<{label}@test.invalid>",
+            "list_unsubscribe": "",
+            "snippet": f"snippet-{label}",
+            "corps": f"body-{label}-with-extra-private-content",
+            "received_at": received_at or self.activation + timedelta(seconds=1),
+        }
+
+    @staticmethod
+    async def successful_analysis(*_args):
+        return {
+            "urgence": "moyenne",
+            "categorie": "support",
+            "resume": "Résumé de test",
+            "brouillon": "Brouillon de test",
+        }
+
+    def test_isolation_uses_only_each_company_token_and_sheet_and_continues(self):
+        plan_a = self.create_company("A", activated_at=self.activation)
+        plan_b = self.create_company("B", activated_at=self.activation)
+        prepared = self.prepared([plan_a, plan_b])
+        calls: dict[str, list] = {
+            "refresh": [],
+            "list": [],
+            "detail": [],
+            "sheet": [],
+            "draft": [],
+            "sheet_write": [],
+        }
+
+        async def access_token(refresh_token):
+            calls["refresh"].append(refresh_token)
+            return f"access-{refresh_token[-1]}"
+
+        async def list_page(access_token, **_kwargs):
+            calls["list"].append(access_token)
+            return ((f"message-{access_token[-1]}",), None)
+
+        async def get_email(access_token, gmail_message_id):
+            calls["detail"].append((access_token, gmail_message_id))
+            return self.email(access_token[-1])
+
+        def workbook(sheet_id):
+            calls["sheet"].append(sheet_id)
+            return f"workbook-{sheet_id[-1]}"
+
+        def write_email(workbook_value, **_kwargs):
+            calls["sheet_write"].append(workbook_value)
+
+        async def create_draft(access_token, **kwargs):
+            calls["draft"].append((access_token, kwargs["thread_id"]))
+            if access_token == "access-A":
+                raise RuntimeError("private failure from company A")
+            return "draft-B"
+
+        with (
+            patch.object(
+                service,
+                "decrypt_token",
+                side_effect=lambda encrypted: f"refresh-{encrypted[-1]}",
+            ),
+            patch.object(service, "get_company_access_token", side_effect=access_token),
+            patch.object(service, "list_company_message_page", side_effect=list_page),
+            patch.object(service, "get_company_email", side_effect=get_email),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(
+                service, "analyze_email", side_effect=self.successful_analysis
+            ),
+            patch.object(service, "get_company_workbook", side_effect=workbook),
+            patch.object(service, "upsert_company_email", side_effect=write_email),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(
+                service, "create_company_gmail_draft", side_effect=create_draft
+            ),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+            patch.object(
+                notifications_service,
+                "send_email_notification",
+                side_effect=AssertionError("notifications forbidden in PR 2"),
+            ),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(calls["refresh"], ["refresh-A", "refresh-B"])
+        self.assertEqual(calls["list"], ["access-A", "access-B"])
+        self.assertEqual(
+            calls["detail"],
+            [("access-A", "message-A"), ("access-B", "message-B")],
+        )
+        self.assertEqual(calls["sheet"], ["sheet-A", "sheet-B"])
+        self.assertEqual(calls["sheet_write"], ["workbook-A", "workbook-B"])
+        self.assertEqual(
+            calls["draft"],
+            [("access-A", "thread-A"), ("access-B", "thread-B")],
+        )
+        self.assertEqual(summary.processed, 1)
+        self.assertEqual(summary.failed, 1)
+        with self.session_factory() as db:
+            records = db.execute(select(ProcessedEmail)).scalars().all()
+            statuses = {row.company_id: row.status for row in records}
+            error_codes = {row.company_id: row.last_error_code for row in records}
+            companies = db.execute(select(Company)).scalars().all()
+        self.assertEqual(statuses[plan_a.company_id], "failed")
+        self.assertEqual(error_codes[plan_a.company_id], "gmail_draft_error")
+        self.assertNotIn("private", str(error_codes))
+        self.assertEqual(statuses[plan_b.company_id], "done")
+        self.assertTrue(
+            all(company.pipeline_last_processed_at for company in companies)
+        )
+
+    def test_empty_allowlist_keeps_eligible_company_in_read_only_simulation(self):
+        plan = self.create_company("Simulated", activated_at=None)
+        prepared = PreparedSimulationRun(
+            result=SimulationResult(
+                status="accepted",
+                company_ids=(plan.company_id,),
+                processing_company_ids=(),
+                eligible_company_count=1,
+                processing_company_count=0,
+                simulation_company_count=1,
+                max_emails_cap=plan.email_limit,
+                processing_max_emails_cap=0,
+                max_emails_per_company=plan.email_limit,
+                time_budget_seconds=240,
+            ),
+            plans=(plan,),
+            lock_acquired=True,
+            budget=PipelineRunBudget(total_seconds=240),
+        )
+        with (
+            patch.object(
+                service,
+                "get_company_access_token",
+                side_effect=AssertionError("Gmail forbidden in simulation"),
+            ),
+            patch.object(
+                service,
+                "get_company_workbook",
+                side_effect=AssertionError("Sheets forbidden in simulation"),
+            ),
+            patch.object(
+                service,
+                "analyze_email",
+                side_effect=AssertionError("Gemini forbidden in simulation"),
+            ),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.attempted_company_ids, [])
+        with self.session_factory() as db:
+            company = db.get(Company, plan.company_id)
+            self.assertIsNone(company.pipeline_activated_at)
+            self.assertIsNone(company.pipeline_last_processed_at)
+            self.assertEqual(db.scalar(select(func.count(ProcessedEmail.id))), 0)
+
+    def test_first_real_pass_activates_before_any_gmail_read(self):
+        plan = self.create_company("First", activated_at=None)
+        prepared = self.prepared([plan])
+        observed_activation = []
+
+        async def access_token(_refresh_token):
+            with self.session_factory() as db:
+                activated_at = db.get(Company, plan.company_id).pipeline_activated_at
+            observed_activation.append(activated_at)
+            return "access-First"
+
+        async def list_page(_access_token, **kwargs):
+            with self.session_factory() as db:
+                activated_at = db.get(Company, plan.company_id).pipeline_activated_at
+            self.assertIsNotNone(activated_at)
+            self.assertEqual(
+                kwargs["after_epoch_seconds"], int(activated_at.timestamp())
+            )
+            return (), None
+
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh-First"),
+            patch.object(service, "get_company_access_token", side_effect=access_token),
+            patch.object(service, "list_company_message_page", side_effect=list_page),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.processed, 0)
+        self.assertEqual(len(observed_activation), 1)
+        self.assertIsNotNone(observed_activation[0])
+        with self.session_factory() as db:
+            company = db.get(Company, plan.company_id)
+            self.assertIsNotNone(company.pipeline_activated_at)
+            self.assertIsNotNone(company.pipeline_last_processed_at)
+            self.assertEqual(db.scalar(select(func.count(ProcessedEmail.id))), 0)
+
+    def test_cutoff_is_strict_and_body_is_truncated_for_gemini(self):
+        plan = self.create_company("Cutoff", activated_at=self.activation)
+        prepared = self.prepared([plan])
+        analyzed_bodies = []
+
+        async def get_email(_token, gmail_message_id):
+            if gmail_message_id == "at-cutoff":
+                return self.email("old", received_at=self.activation)
+            return self.email(
+                "new",
+                received_at=self.activation + timedelta(milliseconds=1),
+            )
+
+        async def analyze(_sender, _subject, body):
+            analyzed_bodies.append(body)
+            return await self.successful_analysis()
+
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("at-cutoff", "after-cutoff"), None)),
+            ),
+            patch.object(service, "get_company_email", side_effect=get_email),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(service, "analyze_email", side_effect=analyze),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(
+                service,
+                "create_company_gmail_draft",
+                new=AsyncMock(return_value="draft"),
+            ),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.skipped, 1)
+        self.assertEqual(summary.processed, 1)
+        self.assertEqual(len(analyzed_bodies), 1)
+        self.assertEqual(len(analyzed_bodies[0]), 12)
+
+    def test_repeated_pass_does_not_process_the_same_email_twice(self):
+        plan = self.create_company("Dedupe", activated_at=self.activation)
+        prepared_one = self.prepared([plan])
+        prepared_two = self.prepared([plan])
+        analyze = AsyncMock(side_effect=self.successful_analysis)
+        draft = AsyncMock(return_value="draft")
+        patches = (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("same-message",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("same")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(service, "analyze_email", analyze),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(service, "create_company_gmail_draft", draft),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+        )
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+            patches[8],
+            patches[9],
+            patches[10],
+            patches[11],
+        ):
+            first = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared_one,
+                    session_factory=self.session_factory,
+                )
+            )
+            second = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared_two,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(first.processed, 1)
+        self.assertEqual(second.processed, 0)
+        self.assertEqual(analyze.await_count, 1)
+        self.assertEqual(draft.await_count, 1)
+        with self.session_factory() as db:
+            records = db.execute(select(ProcessedEmail)).scalars().all()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].status, "done")
+
+    def test_per_company_cap_limits_reserved_messages(self):
+        plan = self.create_company("Cap", activated_at=self.activation, email_limit=2)
+        prepared = self.prepared([plan])
+        detail = AsyncMock(
+            side_effect=lambda _token, message_id: self.email(message_id)
+        )
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("m1", "m2", "m3", "m4"), None)),
+            ),
+            patch.object(service, "get_company_email", detail),
+            patch.object(
+                service,
+                "should_process",
+                return_value={"decision": "ignorer", "raison": "test"},
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.skipped, 2)
+        self.assertEqual(detail.await_count, 2)
+        with self.session_factory() as db:
+            self.assertEqual(len(db.execute(select(ProcessedEmail)).scalars().all()), 2)
+
+    def test_three_failures_are_the_maximum(self):
+        plan = self.create_company("Retry", activated_at=self.activation)
+        with self.session_factory() as db:
+            first = reserve_email(
+                db,
+                company_id=plan.company_id,
+                gmail_message_id="retry-message",
+            )
+        self.assertIsNotNone(first)
+        reservation = first
+        for expected_attempt in (1, 2, 3):
+            self.assertEqual(reservation.attempt, expected_attempt)
+            with self.session_factory() as db:
+                mark_failed(db, reservation, error_code="gemini_error")
+            with self.session_factory() as db:
+                next_reservation = reserve_email(
+                    db,
+                    company_id=plan.company_id,
+                    gmail_message_id="retry-message",
+                )
+            if expected_attempt < 3:
+                self.assertIsNotNone(next_reservation)
+                reservation = next_reservation
+            else:
+                self.assertIsNone(next_reservation)
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+        self.assertEqual(record.status, "failed")
+        self.assertEqual(record.attempts, 3)
+        self.assertEqual(record.last_error_code, "gemini_error")
+
+    def test_quota_429_consumes_no_attempt_and_stops_only_that_company(self):
+        plan_a = self.create_company("QuotaA", activated_at=self.activation)
+        plan_b = self.create_company("QuotaB", activated_at=self.activation)
+        prepared = self.prepared([plan_a, plan_b])
+
+        async def list_page(access_token, **_kwargs):
+            if access_token.endswith("QuotaA"):
+                return (("quota-message", "must-not-be-read"), None)
+            return (("company-b-message",), None)
+
+        async def analyze(sender, *_args):
+            if "QuotaA" in sender:
+                raise RuntimeError("Gemini HTTP 429: private provider response")
+            return await self.successful_analysis()
+
+        def decrypted(encrypted):
+            return encrypted.replace("encrypted-", "refresh-")
+
+        async def token(refresh):
+            return refresh.replace("refresh-", "access-")
+
+        async def detail(access, message_id):
+            label = "QuotaA" if access.endswith("QuotaA") else "QuotaB"
+            return self.email(label)
+
+        with (
+            patch.object(service, "decrypt_token", side_effect=decrypted),
+            patch.object(service, "get_company_access_token", side_effect=token),
+            patch.object(service, "list_company_message_page", side_effect=list_page),
+            patch.object(
+                service, "get_company_email", side_effect=detail
+            ) as get_detail,
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(service, "analyze_email", side_effect=analyze),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(
+                service,
+                "create_company_gmail_draft",
+                new=AsyncMock(return_value="draft"),
+            ),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertIn(plan_a.company_id, summary.quota_stopped_company_ids)
+        self.assertEqual(summary.processed, 1)
+        self.assertEqual(get_detail.await_count, 2)
+        with self.session_factory() as db:
+            records = db.execute(select(ProcessedEmail)).scalars().all()
+        quota_record = next(
+            row for row in records if row.company_id == plan_a.company_id
+        )
+        self.assertEqual(quota_record.status, "failed")
+        self.assertEqual(quota_record.attempts, 0)
+        self.assertEqual(quota_record.last_error_code, "gemini_quota_429")
+
+    def test_invalid_grant_revokes_only_the_company(self):
+        plan = self.create_company("Revoked", activated_at=None)
+        prepared = self.prepared([plan])
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(
+                    side_effect=GmailTokenRevokedError(
+                        "gmail_token_revoked",
+                        status_code=400,
+                    )
+                ),
+            ),
+            patch.object(service, "list_company_message_page") as list_messages,
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    prepared,
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.revoked_company_ids, [plan.company_id])
+        list_messages.assert_not_called()
+        with self.session_factory() as db:
+            connection = db.scalar(
+                select(GmailConnection).where(GmailConnection.user_id == plan.user_id)
+            )
+            company = db.get(Company, plan.company_id)
+        self.assertEqual(connection.status, "revoked")
+        self.assertIsNotNone(company.pipeline_activated_at)
+
+
+if __name__ == "__main__":
+    unittest.main()

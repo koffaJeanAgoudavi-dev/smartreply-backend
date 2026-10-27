@@ -8,6 +8,7 @@ En-têtes figés : Email_ID, Expéditeur, Objet, Résumé, Catégorie,
 Priorité, Statut, Brouillon_ID
 """
 from datetime import datetime, timezone
+
 from app.core.config import settings
 from app.db.sheets_client import get_sheets_client
 
@@ -49,3 +50,126 @@ def append_analyzed_email(
         brouillon_id,
     ])
     return {"email_id": email_id, "ligne": len(sheet.get_all_values())}
+
+
+EMAIL_HEADERS = [
+    "Email_ID",
+    "Expéditeur",
+    "Objet",
+    "Résumé",
+    "Catégorie",
+    "Priorité",
+    "Statut",
+    "Brouillon_ID",
+]
+DRAFT_HEADERS = ["Brouillon_ID", "Email_ID", "Contenu", "Statut"]
+EMAIL_STATUSES = {"Nouveau", "Analysé", "Brouillon prêt", "Envoyé", "Ignoré"}
+DRAFT_STATUSES = {"En attente", "Envoyé", "Ignoré"}
+
+
+def _rows_with_fixed_headers(sheet, expected_headers: list[str]) -> list[list[str]]:
+    rows = sheet.get_all_values()
+    if not rows:
+        sheet.append_row(expected_headers)
+        return [list(expected_headers)]
+    if rows[0][: len(expected_headers)] != expected_headers:
+        raise RuntimeError("company_sheet_headers_invalid")
+    return rows
+
+
+def get_company_workbook(sheet_id: str):
+    """Ouvre explicitement le Sheet d'une entreprise, sans variable globale."""
+    if not sheet_id or not sheet_id.strip():
+        raise ValueError("company_sheet_id_missing")
+    return get_sheets_client().open_by_key(sheet_id)
+
+
+def _row_with_value(rows: list[list[str]], column: int, value: str) -> int | None:
+    for row_index, row in enumerate(rows[1:], start=2):
+        if len(row) > column and str(row[column]) == value:
+            return row_index
+    return None
+
+
+def upsert_company_email(
+    workbook,
+    *,
+    email_id: str,
+    expediteur: str,
+    objet: str,
+    resume: str,
+    categorie: str,
+    priorite: str,
+    statut: str,
+    brouillon_id: str = "",
+) -> int:
+    """Insère ou remplace la ligne Emails identifiée, dans un seul classeur."""
+    if statut not in EMAIL_STATUSES:
+        raise ValueError("company_email_status_invalid")
+    sheet = workbook.worksheet("Emails")
+    rows = _rows_with_fixed_headers(sheet, EMAIL_HEADERS)
+    values = [
+        email_id,
+        expediteur,
+        objet,
+        resume,
+        categorie,
+        priorite,
+        statut,
+        brouillon_id,
+    ]
+    row_index = _row_with_value(rows, 0, email_id)
+    if row_index is None:
+        sheet.append_row(values)
+        return len(rows) + 1
+    sheet.update(range_name=f"A{row_index}:H{row_index}", values=[values])
+    return row_index
+
+
+def get_company_draft_id(workbook, *, email_id: str) -> str | None:
+    """Retourne le brouillon déjà consigné pour cet Email_ID, le cas échéant."""
+    sheet = workbook.worksheet("Brouillons")
+    rows = _rows_with_fixed_headers(sheet, DRAFT_HEADERS)
+    row_index = _row_with_value(rows, 1, email_id)
+    if row_index is None:
+        return None
+    row = rows[row_index - 1]
+    return str(row[0]) if row and row[0] else None
+
+
+def upsert_company_draft(
+    workbook,
+    *,
+    draft_id: str,
+    email_id: str,
+    contenu: str,
+    statut: str = "En attente",
+) -> int:
+    """Conserve une seule ligne Brouillons par Email_ID dans l'entreprise."""
+    if statut not in DRAFT_STATUSES:
+        raise ValueError("company_draft_status_invalid")
+    sheet = workbook.worksheet("Brouillons")
+    rows = _rows_with_fixed_headers(sheet, DRAFT_HEADERS)
+    values = [draft_id, email_id, contenu, statut]
+    row_index = _row_with_value(rows, 1, email_id)
+    if row_index is None:
+        sheet.append_row(values)
+        return len(rows) + 1
+    sheet.update(range_name=f"A{row_index}:D{row_index}", values=[values])
+    return row_index
+
+
+def mark_company_email_draft_ready(
+    workbook,
+    *,
+    email_id: str,
+    draft_id: str,
+) -> None:
+    """Effectue la deuxième écriture : statut et Brouillon_ID dans Emails."""
+    sheet = workbook.worksheet("Emails")
+    rows = _rows_with_fixed_headers(sheet, EMAIL_HEADERS)
+    row_index = _row_with_value(rows, 0, email_id)
+    if row_index is None:
+        raise RuntimeError("company_email_row_missing")
+    sheet.update_cell(row_index, 7, "Brouillon prêt")
+    sheet.update_cell(row_index, 8, draft_id)

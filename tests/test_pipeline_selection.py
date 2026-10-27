@@ -3,7 +3,7 @@
 import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
@@ -18,6 +18,7 @@ from app.modules.filtering import service as filtering_service
 from app.modules.gmail import service as gmail_service
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.notifications import service as notifications_service
+from app.modules.pipeline_execution import service as execution_service
 from app.modules.pipeline_selection import service
 from app.modules.sheets import service as sheets_service
 from app.modules.telegram.models import TelegramConnection
@@ -185,6 +186,32 @@ class PipelineSelectionTests(unittest.TestCase):
         self.assertEqual([plan.email_limit for plan in plans], [3, 3])
         self.assertEqual(plans[0].pipeline_activated_at, first_activation)
 
+    def test_allowlist_selects_only_explicit_internal_company_ids(self):
+        _, first_company_id = self.create_candidate(3)
+        _, second_company_id = self.create_candidate(3)
+
+        with self.session_factory() as db:
+            result, _ = service.build_simulation_result(
+                db,
+                max_emails_per_company=4,
+                allowed_company_ids=frozenset({second_company_id, 999_999}),
+            )
+
+        self.assertEqual(result.company_ids, (first_company_id, second_company_id))
+        self.assertEqual(result.processing_company_ids, (second_company_id,))
+        self.assertEqual(result.processing_company_count, 1)
+        self.assertEqual(result.simulation_company_count, 1)
+        self.assertEqual(result.processing_max_emails_cap, 4)
+
+    def test_empty_allowlist_means_simulation_and_invalid_value_fails_closed(self):
+        self.assertEqual(service.parse_allowed_company_ids(""), frozenset())
+        self.assertEqual(
+            service.parse_allowed_company_ids(" 2, 7,2 "),
+            frozenset({2, 7}),
+        )
+        with self.assertRaisesRegex(ValueError, "PIPELINE_ALLOWED_COMPANY_IDS"):
+            service.parse_allowed_company_ids("2,not-an-id")
+
     def test_time_budget_uses_a_monotonic_deadline(self):
         budget = service.PipelineRunBudget(
             total_seconds=10,
@@ -272,8 +299,12 @@ class PipelineSelectionTests(unittest.TestCase):
             {
                 "status",
                 "company_ids",
+                "processing_company_ids",
                 "eligible_company_count",
+                "processing_company_count",
+                "simulation_company_count",
                 "max_emails_cap",
+                "processing_max_emails_cap",
                 "max_emails_per_company",
                 "time_budget_seconds",
             },
@@ -325,28 +356,89 @@ class PipelineLockTests(unittest.TestCase):
             result=service.SimulationResult(
                 status="accepted",
                 company_ids=(12, 34),
+                processing_company_ids=(12, 34),
                 eligible_company_count=2,
+                processing_company_count=2,
+                simulation_company_count=0,
                 max_emails_cap=20,
+                processing_max_emails_cap=20,
                 max_emails_per_company=10,
                 time_budget_seconds=240,
             ),
+            plans=(),
             lock_acquired=True,
             budget=service.PipelineRunBudget(total_seconds=240),
             db=db,
         )
+        summary = execution_service.PipelineRunSummary(
+            processed=1,
+            skipped=1,
+            failed=0,
+            attempted_company_ids=[12, 34],
+        )
 
-        with patch.object(service.logger, "info") as log_info:
-            asyncio.run(service.complete_multi_tenant_simulation(prepared))
+        with (
+            patch.object(
+                execution_service,
+                "execute_multi_tenant_run",
+                new=AsyncMock(return_value=summary),
+            ),
+            patch.object(execution_service.logger, "info") as log_info,
+        ):
+            asyncio.run(execution_service.complete_multi_tenant_run(prepared))
 
         db.rollback.assert_called_once()
         db.close.assert_called_once()
         db.commit.assert_not_called()
         log_format, *log_values = log_info.call_args.args
         rendered = log_format % tuple(log_values)
-        self.assertIn("company_ids=[12, 34]", rendered)
+        self.assertIn("attempted_company_ids=[12, 34]", rendered)
+        self.assertIn("processed=1 skipped=1 failed=0", rendered)
         self.assertNotIn("@", rendered)
         self.assertNotIn("token", rendered.lower())
         self.assertNotIn("chat", rendered.lower())
+
+    def test_background_error_log_never_renders_exception_details(self):
+        db = MagicMock()
+        prepared = service.PreparedSimulationRun(
+            result=service.SimulationResult(
+                status="accepted",
+                company_ids=(12,),
+                processing_company_ids=(12,),
+                eligible_company_count=1,
+                processing_company_count=1,
+                simulation_company_count=0,
+                max_emails_cap=10,
+                processing_max_emails_cap=10,
+                max_emails_per_company=10,
+                time_budget_seconds=240,
+            ),
+            plans=(),
+            lock_acquired=True,
+            budget=service.PipelineRunBudget(total_seconds=240),
+            db=db,
+        )
+        private_error = RuntimeError(
+            "sender@test.invalid private-refresh-token private-sheet-id"
+        )
+        with (
+            patch.object(
+                execution_service,
+                "execute_multi_tenant_run",
+                new=AsyncMock(side_effect=private_error),
+            ),
+            patch.object(execution_service.logger, "error") as log_error,
+        ):
+            asyncio.run(execution_service.complete_multi_tenant_run(prepared))
+
+        log_format, *log_values = log_error.call_args.args
+        rendered = log_format % tuple(log_values)
+        self.assertIn("RuntimeError", rendered)
+        self.assertNotIn("sender@test.invalid", rendered)
+        self.assertNotIn("private-refresh-token", rendered)
+        self.assertNotIn("private-sheet-id", rendered)
+        db.rollback.assert_called_once()
+        db.close.assert_called_once()
 
 
 if __name__ == "__main__":

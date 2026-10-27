@@ -37,11 +37,16 @@ class PipelineFoundationsRouterTests(unittest.TestCase):
             result=service.SimulationResult(
                 status="accepted" if lock_acquired else "already_running",
                 company_ids=(7, 9) if lock_acquired else (),
+                processing_company_ids=(7,) if lock_acquired else (),
                 eligible_company_count=2 if lock_acquired else 0,
+                processing_company_count=1 if lock_acquired else 0,
+                simulation_company_count=1 if lock_acquired else 0,
                 max_emails_cap=20 if lock_acquired else 0,
+                processing_max_emails_cap=10 if lock_acquired else 0,
                 max_emails_per_company=10,
                 time_budget_seconds=240,
             ),
+            plans=(),
             lock_acquired=lock_acquired,
             budget=service.PipelineRunBudget(total_seconds=240),
         )
@@ -104,15 +109,19 @@ class PipelineFoundationsRouterTests(unittest.TestCase):
             {
                 "status": "accepted",
                 "company_ids": [7, 9],
+                "processing_company_ids": [7],
                 "eligible_company_count": 2,
+                "processing_company_count": 1,
+                "simulation_company_count": 1,
                 "max_emails_cap": 20,
+                "processing_max_emails_cap": 10,
                 "max_emails_per_company": 10,
                 "time_budget_seconds": 240,
             },
         )
         prepare.assert_called_once_with()
         add_task.assert_called_once_with(
-            pipeline_router.complete_multi_tenant_simulation,
+            pipeline_router.complete_multi_tenant_run,
             prepared,
         )
 

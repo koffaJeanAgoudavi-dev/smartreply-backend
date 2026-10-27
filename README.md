@@ -72,7 +72,9 @@ app/
     ├── notifications/       # Module 6 : notifications Telegram
     ├── actions/             # Module 7 : callbacks Envoyer / Ignorer
     ├── pipeline/            # Orchestrateur historique + point d'entrée
-    └── pipeline_selection/  # Sélection multi-tenant équitable (simulation)
+    ├── pipeline_selection/  # Sélection, allowlist, équité et verrou
+    ├── pipeline_execution/  # Flux réel isolé Gmail → Sheet → brouillon
+    └── processed_emails/    # Dédoublonnage et tentatives dans Neon
 alembic/                     # Migrations PostgreSQL versionnées
 scripts/
 └── setup_webhook.py         # Pointe le webhook Telegram vers ce service
@@ -102,9 +104,11 @@ scripts/
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
 | `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
-| `MULTI_TENANT_PIPELINE_ENABLED` | Active la sélection multi-tenant ; `false` par défaut conserve le pipeline historique |
-| `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond théorique par entreprise et par passage (défaut : `10`) |
+| `MULTI_TENANT_PIPELINE_ENABLED` | Active le pipeline multi-tenant ; `false` par défaut conserve strictement le pipeline historique |
+| `PIPELINE_ALLOWED_COMPANY_IDS` | IDs internes autorisés au traitement réel, séparés par des virgules ; vide ou absent = aucune entreprise traitée |
+| `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond par entreprise et par passage (défaut : `10`) |
 | `PIPELINE_RUN_TIME_BUDGET_SECONDS` | Budget total d'un passage (défaut : `240` secondes) |
+| `GEMINI_MAX_EMAIL_BODY_CHARS` | Taille maximale du corps transmis à Gemini dans le flux multi-tenant (défaut : `6000`) |
 | `CRON_SECRET` | (Optionnel) Sécurise `POST /api/v1/pipeline/run` via l'en-tête `X-CRON-SECRET` |
 
 3. **Webhook Telegram** : `python scripts/setup_webhook.py`
@@ -216,38 +220,67 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - [ ] Vérifier que l'accueil n'affiche ni statistiques, ni emails, ni activité
       factices avant le démarrage réel du traitement.
 
-### Pipeline multi-entreprises — Étape 3, PR 1
+### Pipeline multi-entreprises — Étape 3, PR 1 et PR 2
 
-La migration `e1a5c7d9b3f2` ajoute :
-
-- `gmail_connections.status`, limité à `connected` ou `revoked` ;
-- `companies.pipeline_activated_at`, future date de coupure ;
-- `companies.pipeline_last_processed_at`, utilisée pour l'ordre équitable.
-
-Les dates restent nulles pendant cette PR. `pipeline_activated_at` sera fixée
-au premier **traitement réel** de la PR 2 afin de ne jamais importer l'arriéré.
-Le prédicat de coupure accepte uniquement les messages reçus strictement après
-cette date.
+La migration de fondations `e1a5c7d9b3f2` ajoute le statut Gmail et les dates de
+coupure/équité. La migration PR 2 `a4f6c8d2e1b7` ajoute `processed_emails`,
+registre isolé par `company_id` avec unicité `(company_id, gmail_message_id)`,
+statut `processing`, `done`, `skipped` ou `failed`, nombre de tentatives et code
+d'erreur court.
 
 Avec `MULTI_TENANT_PIPELINE_ENABLED=false`, le endpoint conserve strictement le
-pipeline mono-utilisateur et sa réponse historique. Avec `true`, il effectue
-une simulation en lecture seule : une entreprise est éligible si elle possède
-un `sheet_id`, une connexion Telegram et une connexion Gmail `connected` avec
-un token chiffré présent. Les entreprises jamais traitées passent en premier,
-puis les autres de la date de dernier traitement la plus ancienne à la plus
-récente.
+pipeline mono-utilisateur et sa réponse historique. Avec `true`, une entreprise
+reste éligible seulement si elle possède un Sheet, une connexion Telegram et
+une connexion Gmail `connected`. Seules les entreprises dont l'ID interne est
+dans `PIPELINE_ALLOWED_COMPANY_IDS` sont traitées réellement ; toutes les
+autres restent comptées en simulation. Une allowlist vide signifie donc zéro
+traitement réel.
 
-Le `202` de simulation contient uniquement des IDs internes d'entreprise et des
-compteurs. `max_emails_per_company` est le plafond configuré par entreprise et
-`max_emails_cap` est le plafond total théorique de la sélection
-(`eligible_company_count × max_emails_per_company`). Il ne compte donc aucun
-email réel : aucun email Gmail n'est lu dans cette PR. Aucune ligne Neon et aucun
-service Gmail, Sheets, Gemini ou Telegram n'est modifié par la simulation.
+Au premier passage réel, `pipeline_activated_at` est enregistré et validé en
+base **avant** le premier accès Gmail. Gmail est ensuite interrogé avec
+`in:inbox after:<epoch>`, puis `internalDate` est contrôlé strictement : seuls
+les messages reçus après l'activation sont admissibles. Le flux ne modifie plus
+le statut lu/non lu de Gmail.
+
+Chaque message est réservé atomiquement dans `processed_emails` avant son
+traitement. Un message `done` ou `skipped` n'est jamais retraité. Un échec est
+réessayé jusqu'à trois tentatives ; un HTTP `429` ne consomme aucune tentative
+et arrête seulement l'entreprise concernée pour le passage. Un `invalid_grant`
+passe sa connexion Gmail à `revoked`. Chaque entreprise reste dans son propre
+bloc d'erreurs.
+
+Le flux réel utilise explicitement le refresh token déchiffré et le `sheet_id`
+de l'entreprise. Il filtre le message, tronque le corps avant Gemini, écrit dans
+les onglets `Emails` et `Brouillons`, puis crée un brouillon Gmail dans le même
+fil avec le token de cette entreprise. Les écritures Sheet sont idempotentes par
+`Email_ID` et conservent la double écriture. **Aucune notification Telegram
+n'est envoyée dans la PR 2.**
+
+Le `202` est rendu après la sélection et expose seulement les IDs internes et
+les compteurs d'entreprises/plafonds. `processing_company_ids` est
+l'intersection éligible/allowlist ; les compteurs `processed`, `skipped` et
+`failed` définitifs sont journalisés à la fin du travail d'arrière-plan, sans
+contenu d'email, adresse, token, Sheet ID ou identifiant Telegram.
 
 Le passage est protégé par `pg_try_advisory_xact_lock`, verrou PostgreSQL limité
 à la transaction. Contrairement à un verrou advisory de session, il reste
 compatible avec le pooler transactionnel de Neon et est libéré par rollback à
 la fin du travail en arrière-plan.
+
+#### Test réel PR 2 après déploiement
+
+1. Récupérer l'ID interne de l'entreprise de test sans le publier.
+2. Définir `PIPELINE_ALLOWED_COMPANY_IDS` avec uniquement cet ID et conserver
+   `MULTI_TENANT_PIPELINE_ENABLED=true`.
+3. Lancer une première fois `POST /api/v1/pipeline/run` : ce passage doit fixer
+   `pipeline_activated_at` et ne doit normalement créer aucun brouillon.
+4. Envoyer ensuite un nouvel email à la boîte Gmail liée.
+5. Lancer un second passage : vérifier un seul brouillon dans le même fil, une
+   ligne unique dans `Emails`, une ligne liée dans `Brouillons`, et aucune
+   écriture dans le Sheet ou la boîte d'une autre entreprise.
+6. Vérifier que la réponse et les logs ne contiennent que des IDs internes,
+   statuts opérationnels et compteurs. Ne jamais copier de secret ou de contenu
+   d'email dans un rapport de test.
 
 ## 🧪 Endpoints API et de validation
 
@@ -273,7 +306,7 @@ la fin du travail en arrière-plan.
 | `POST /api/v1/notifications/test` | 6 | Envoie une notification Telegram |
 | `POST /api/v1/actions/test-ignore` | 7 | Simule un clic « Ignorer » |
 | `POST /api/v1/actions/test-send` | 7 | Crée et envoie un vrai brouillon de test |
-| `POST /api/v1/pipeline/run` | Pipeline | Historique si désactivé ; sélection simulée `202` si multi-tenant activé |
+| `POST /api/v1/pipeline/run` | Pipeline | Historique si désactivé ; plan sûr `202`, puis traitement allowlisté en arrière-plan si activé |
 
 ## 📊 Statuts (figés par le cadrage)
 
@@ -290,7 +323,7 @@ la fin du travail en arrière-plan.
   - [x] dashboard Phase A : onboarding et intégrations
 - [ ] **Étape 3** — Branchement du pipeline sur la couche multi-utilisateur
   - [x] PR 1 : sélection, plafonds, équité, verrou et simulation en lecture seule
-  - [ ] PR 2 : traitement réel isolé par entreprise et date de coupure
+  - [x] PR 2 : traitement réel isolé par entreprise, dédoublonnage et coupure
   - [ ] PR 3 : finalisation opérationnelle et observabilité
 - [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard avancé,
       fallback multi-modèles
