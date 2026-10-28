@@ -282,6 +282,24 @@ async def get_company_email(access_token: str, gmail_message_id: str) -> dict:
     }
 
 
+async def company_gmail_draft_exists(
+    access_token: str,
+    gmail_draft_id: str,
+) -> bool:
+    """Vérifie un brouillon sans le modifier; 404 signifie qu'il a été consommé."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(
+            f"{GMAIL_API}/drafts/{gmail_draft_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"format": "minimal"},
+        )
+    if response.status_code == 404:
+        return False
+    if response.status_code != 200:
+        _raise_company_gmail_error(response, "draft_get")
+    return True
+
+
 async def send_company_gmail_draft(access_token: str, gmail_draft_id: str) -> None:
     """Envoie un brouillon avec le token explicite de son entreprise."""
     async with httpx.AsyncClient(timeout=30) as client:

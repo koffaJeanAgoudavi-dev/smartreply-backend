@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import create_engine, select
@@ -295,7 +295,7 @@ class CompanyTelegramActionTests(unittest.TestCase):
             record = db.get(ProcessedEmail, self.tenant_a["record_id"])
         self.assertEqual(record.draft_status, "discarded")
 
-    def test_deleted_gmail_draft_is_reported_without_technical_error(self):
+    def test_gmail_404_during_send_is_finalized_as_sent(self):
         query = self.callback("send", self.tenant_a)
         with (
             patch.object(
@@ -324,14 +324,198 @@ class CompanyTelegramActionTests(unittest.TestCase):
                     )
                 ),
             ),
+            patch.object(company_service, "get_company_workbook", return_value="wb"),
+            patch.object(
+                company_service, "update_company_draft_status"
+            ) as update_sheet,
         ):
             with self.session_factory() as db:
                 asyncio.run(company_service.handle_company_callback_query(query, db))
 
-        self.assertIn("n’existe plus", send_message.await_args.args[1])
+        self.assertIn("envoyé", send_message.await_args.args[1])
+        update_sheet.assert_called_once()
         with self.session_factory() as db:
             record = db.get(ProcessedEmail, self.tenant_a["record_id"])
-        self.assertEqual(record.draft_status, "missing")
+        self.assertEqual(record.draft_status, "sent")
+        self.assertIsNotNone(record.sheet_status_synced_at)
+
+    def test_stale_sending_checks_gmail_404_then_marks_sent_without_resend(self):
+        class SimulatedProcessStop(BaseException):
+            pass
+
+        query = self.callback("send", self.tenant_a)
+        with (
+            patch.object(
+                company_service,
+                "answer_company_callback",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                company_service,
+                "send_company_telegram_message",
+                new_callable=AsyncMock,
+            ),
+            patch.object(company_service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                company_service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                company_service,
+                "send_company_gmail_draft",
+                new=AsyncMock(side_effect=SimulatedProcessStop()),
+            ) as first_send,
+        ):
+            with self.session_factory() as db:
+                with self.assertRaises(SimulatedProcessStop):
+                    asyncio.run(
+                        company_service.handle_company_callback_query(query, db)
+                    )
+
+        first_send.assert_awaited_once_with("access", "draft-A")
+        with self.session_factory() as db:
+            record = db.get(ProcessedEmail, self.tenant_a["record_id"])
+            self.assertEqual(record.draft_status, "sending")
+
+        with (
+            patch.object(
+                company_service,
+                "answer_company_callback",
+                new_callable=AsyncMock,
+            ) as immediate_answer,
+            patch.object(
+                company_service,
+                "company_gmail_draft_exists",
+                new_callable=AsyncMock,
+            ) as immediate_check,
+            patch.object(
+                company_service,
+                "send_company_gmail_draft",
+                new_callable=AsyncMock,
+            ) as immediate_send,
+        ):
+            with self.session_factory() as db:
+                asyncio.run(company_service.handle_company_callback_query(query, db))
+
+        immediate_check.assert_not_awaited()
+        immediate_send.assert_not_awaited()
+        self.assertIn("déjà en cours", immediate_answer.await_args.args[1])
+
+        with self.session_factory() as db:
+            record = db.get(ProcessedEmail, self.tenant_a["record_id"])
+            record.updated_at = datetime.now(UTC) - timedelta(seconds=901)
+            db.commit()
+
+        order = []
+
+        async def check_draft(*_args):
+            order.append("check")
+            return False
+
+        async def forbidden_send(*_args):
+            order.append("send")
+            raise AssertionError("an ambiguous stale state must not be resent")
+
+        with (
+            patch.object(
+                company_service,
+                "answer_company_callback",
+                new_callable=AsyncMock,
+            ) as answer,
+            patch.object(
+                company_service,
+                "send_company_telegram_message",
+                new_callable=AsyncMock,
+            ),
+            patch.object(company_service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                company_service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                company_service,
+                "company_gmail_draft_exists",
+                side_effect=check_draft,
+            ) as check_gmail,
+            patch.object(
+                company_service,
+                "send_company_gmail_draft",
+                side_effect=forbidden_send,
+            ) as send_gmail,
+            patch.object(company_service, "get_company_workbook", return_value="wb"),
+            patch.object(
+                company_service, "update_company_draft_status"
+            ) as update_sheet,
+        ):
+            with self.session_factory() as db:
+                asyncio.run(company_service.handle_company_callback_query(query, db))
+
+        check_gmail.assert_awaited_once_with("access", "draft-A")
+        send_gmail.assert_not_awaited()
+        self.assertEqual(order, ["check"])
+        self.assertIn("Vérification", answer.await_args.args[1])
+        update_sheet.assert_called_once()
+        with self.session_factory() as db:
+            record = db.get(ProcessedEmail, self.tenant_a["record_id"])
+        self.assertEqual(record.draft_status, "sent")
+        self.assertIsNotNone(record.sheet_status_synced_at)
+
+    def test_stale_sending_checks_existing_draft_before_one_resend(self):
+        with self.session_factory() as db:
+            record = db.get(ProcessedEmail, self.tenant_a["record_id"])
+            record.draft_status = "sending"
+            record.updated_at = datetime.now(UTC) - timedelta(seconds=901)
+            db.commit()
+
+        query = self.callback("send", self.tenant_a)
+        order = []
+
+        async def check_draft(*_args):
+            order.append("check")
+            return True
+
+        async def send_draft(*_args):
+            order.append("send")
+
+        with (
+            patch.object(
+                company_service,
+                "answer_company_callback",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                company_service,
+                "send_company_telegram_message",
+                new_callable=AsyncMock,
+            ),
+            patch.object(company_service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                company_service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                company_service,
+                "company_gmail_draft_exists",
+                side_effect=check_draft,
+            ),
+            patch.object(
+                company_service,
+                "send_company_gmail_draft",
+                side_effect=send_draft,
+            ),
+            patch.object(company_service, "get_company_workbook", return_value="wb"),
+            patch.object(company_service, "update_company_draft_status"),
+        ):
+            with self.session_factory() as db:
+                asyncio.run(company_service.handle_company_callback_query(query, db))
+
+        self.assertEqual(order, ["check", "send"])
+        with self.session_factory() as db:
+            record = db.get(ProcessedEmail, self.tenant_a["record_id"])
+        self.assertEqual(record.draft_status, "sent")
 
     def test_action_revocation_notice_is_sent_once_until_reconnection(self):
         query = self.callback("send", self.tenant_a)

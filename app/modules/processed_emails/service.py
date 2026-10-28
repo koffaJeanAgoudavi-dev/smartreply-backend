@@ -418,6 +418,33 @@ def claim_draft_send(db: Session, *, company_id: int, record_id: int) -> bool:
     return True
 
 
+def claim_stale_draft_send_recovery(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+) -> bool:
+    """Réserve la vérification Gmail d'un état sending devenu ancien."""
+    stale_before = datetime.now(UTC) - timedelta(
+        seconds=max(0, settings.PIPELINE_PROCESSING_STALE_SECONDS)
+    )
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.draft_status == "sending",
+            ProcessedEmail.updated_at < stale_before,
+        )
+        .values(updated_at=func.now())
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True
+
+
 def claim_draft_discard(db: Session, *, company_id: int, record_id: int) -> bool:
     result = db.execute(
         update(ProcessedEmail)
