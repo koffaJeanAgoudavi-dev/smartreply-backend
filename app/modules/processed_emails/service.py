@@ -1,6 +1,7 @@
 """Réservation atomique et transitions sûres du registre de dédoublonnage."""
 
 import re
+import secrets
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
@@ -23,6 +24,8 @@ class EmailReservation:
     company_id: int
     gmail_message_id: str = field(repr=False)
     gmail_draft_id: str | None = field(repr=False)
+    callback_token: str | None = field(repr=False)
+    draft_status: str | None
     attempt: int
 
     @property
@@ -44,6 +47,8 @@ def _reservation_from_record(record: ProcessedEmail) -> EmailReservation:
         company_id=record.company_id,
         gmail_message_id=record.gmail_message_id,
         gmail_draft_id=record.gmail_draft_id,
+        callback_token=record.callback_token,
+        draft_status=record.draft_status,
         attempt=record.attempts,
     )
 
@@ -114,32 +119,62 @@ def record_gmail_draft_id(
     *,
     gmail_draft_id: str,
 ) -> EmailReservation:
-    """Persiste immédiatement le brouillon créé pour la tentative réservée."""
+    """Persiste le brouillon et son jeton opaque avant toute écriture suivante."""
     normalized_id = gmail_draft_id.strip()
     if not normalized_id or len(normalized_id) > 255:
         raise ValueError("invalid_gmail_draft_id")
-    if reservation.gmail_draft_id is not None:
-        if reservation.gmail_draft_id != normalized_id:
-            raise RuntimeError("processed_email_draft_conflict")
-        return reservation
-
-    result = db.execute(
-        update(ProcessedEmail)
-        .where(
-            ProcessedEmail.id == reservation.record_id,
-            ProcessedEmail.company_id == reservation.company_id,
-            ProcessedEmail.gmail_message_id == reservation.gmail_message_id,
-            ProcessedEmail.status == "processing",
-            ProcessedEmail.attempts == reservation.attempt,
-            ProcessedEmail.gmail_draft_id.is_(None),
+    if (
+        reservation.gmail_draft_id is not None
+        and reservation.gmail_draft_id != normalized_id
+    ):
+        raise RuntimeError("processed_email_draft_conflict")
+    if reservation.callback_token is not None:
+        return replace(
+            reservation,
+            gmail_draft_id=normalized_id,
+            draft_status=reservation.draft_status or "pending",
         )
-        .values(gmail_draft_id=normalized_id, updated_at=func.now())
-    )
-    if result.rowcount != 1:
-        db.rollback()
-        raise RuntimeError("processed_email_state_conflict")
-    db.commit()
-    return replace(reservation, gmail_draft_id=normalized_id)
+
+    # Une collision cryptographique est extraordinairement improbable, mais ne
+    # doit jamais faire perdre l'ID Gmail déjà créé : la transaction est rejouée.
+    for _ in range(5):
+        callback_token = secrets.token_urlsafe(24)
+        try:
+            result = db.execute(
+                update(ProcessedEmail)
+                .where(
+                    ProcessedEmail.id == reservation.record_id,
+                    ProcessedEmail.company_id == reservation.company_id,
+                    ProcessedEmail.gmail_message_id == reservation.gmail_message_id,
+                    ProcessedEmail.status == "processing",
+                    ProcessedEmail.attempts == reservation.attempt,
+                    or_(
+                        ProcessedEmail.gmail_draft_id.is_(None),
+                        ProcessedEmail.gmail_draft_id == normalized_id,
+                    ),
+                    ProcessedEmail.callback_token.is_(None),
+                )
+                .values(
+                    gmail_draft_id=normalized_id,
+                    callback_token=callback_token,
+                    draft_status="pending",
+                    updated_at=func.now(),
+                )
+            )
+            if result.rowcount != 1:
+                db.rollback()
+                raise RuntimeError("processed_email_state_conflict")
+            db.commit()
+            return replace(
+                reservation,
+                gmail_draft_id=normalized_id,
+                callback_token=callback_token,
+                draft_status="pending",
+            )
+        except IntegrityError:
+            db.rollback()
+
+    raise RuntimeError("processed_email_callback_token_collision")
 
 
 def _set_status(
@@ -222,3 +257,236 @@ def release_after_quota(
         db.rollback()
         raise RuntimeError("processed_email_state_conflict")
     db.commit()
+
+
+def list_pending_notifications(
+    db: Session,
+    *,
+    company_id: int,
+) -> tuple[tuple[int, str], ...]:
+    """Liste uniquement les notifications réessayables de cette entreprise."""
+    stale_before = datetime.now(UTC) - timedelta(
+        seconds=max(0, settings.PIPELINE_PROCESSING_STALE_SECONDS)
+    )
+    rows = db.execute(
+        select(ProcessedEmail.id, ProcessedEmail.callback_token).where(
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.status == "done",
+            ProcessedEmail.gmail_draft_id.is_not(None),
+            ProcessedEmail.callback_token.is_not(None),
+            ProcessedEmail.notified_at.is_(None),
+            ProcessedEmail.notification_blocked_at.is_(None),
+            ProcessedEmail.notification_attempts < MAX_PROCESSING_ATTEMPTS,
+            or_(
+                ProcessedEmail.notification_claimed_at.is_(None),
+                ProcessedEmail.notification_claimed_at < stale_before,
+            ),
+        )
+    ).all()
+    return tuple((record_id, callback_token) for record_id, callback_token in rows)
+
+
+def claim_notification_attempt(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+) -> bool:
+    """Consomme atomiquement une tentative Telegram, sans rouvrir le traitement."""
+    stale_before = datetime.now(UTC) - timedelta(
+        seconds=max(0, settings.PIPELINE_PROCESSING_STALE_SECONDS)
+    )
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.status == "done",
+            ProcessedEmail.gmail_draft_id.is_not(None),
+            ProcessedEmail.callback_token.is_not(None),
+            ProcessedEmail.notified_at.is_(None),
+            ProcessedEmail.notification_blocked_at.is_(None),
+            ProcessedEmail.notification_attempts < MAX_PROCESSING_ATTEMPTS,
+            or_(
+                ProcessedEmail.notification_claimed_at.is_(None),
+                ProcessedEmail.notification_claimed_at < stale_before,
+            ),
+        )
+        .values(
+            notification_attempts=ProcessedEmail.notification_attempts + 1,
+            notification_claimed_at=func.now(),
+            updated_at=func.now(),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True
+
+
+def release_notification_claim(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+) -> None:
+    """Rend réessayable une tentative Telegram qui a échoué proprement."""
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.notified_at.is_(None),
+            ProcessedEmail.notification_blocked_at.is_(None),
+            ProcessedEmail.notification_claimed_at.is_not(None),
+        )
+        .values(notification_claimed_at=None, updated_at=func.now())
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise RuntimeError("processed_email_notification_conflict")
+    db.commit()
+
+
+def mark_notification_sent(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+) -> None:
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.notified_at.is_(None),
+        )
+        .values(
+            notified_at=func.now(),
+            notification_claimed_at=None,
+            updated_at=func.now(),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise RuntimeError("processed_email_notification_conflict")
+    db.commit()
+
+
+def mark_notification_blocked(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+) -> None:
+    """Arrête définitivement les retries lorsque l'utilisateur bloque le bot."""
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.notified_at.is_(None),
+            ProcessedEmail.notification_blocked_at.is_(None),
+        )
+        .values(
+            notification_blocked_at=func.now(),
+            notification_claimed_at=None,
+            updated_at=func.now(),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise RuntimeError("processed_email_notification_conflict")
+    db.commit()
+
+
+def claim_draft_send(db: Session, *, company_id: int, record_id: int) -> bool:
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.draft_status == "pending",
+        )
+        .values(draft_status="sending", updated_at=func.now())
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True
+
+
+def claim_draft_discard(db: Session, *, company_id: int, record_id: int) -> bool:
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.draft_status == "pending",
+        )
+        .values(
+            draft_status="discarded",
+            sheet_status_synced_at=None,
+            updated_at=func.now(),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True
+
+
+def transition_draft_status(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+    expected_status: str,
+    target_status: str,
+) -> bool:
+    if target_status not in {"pending", "sent", "missing"}:
+        raise ValueError("processed_email_draft_status_invalid")
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.draft_status == expected_status,
+        )
+        .values(
+            draft_status=target_status,
+            sheet_status_synced_at=None,
+            updated_at=func.now(),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True
+
+
+def mark_draft_sheet_synced(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+    draft_status: str,
+) -> bool:
+    result = db.execute(
+        update(ProcessedEmail)
+        .where(
+            ProcessedEmail.id == record_id,
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.draft_status == draft_status,
+        )
+        .values(sheet_status_synced_at=func.now(), updated_at=func.now())
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True

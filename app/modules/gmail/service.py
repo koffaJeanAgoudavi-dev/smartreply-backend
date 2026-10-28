@@ -177,6 +177,10 @@ class GmailQuotaError(CompanyGmailError):
     """Google demande d'arrêter temporairement les appels."""
 
 
+class GmailDraftNotFoundError(CompanyGmailError):
+    """Le brouillon ciblé n'existe plus dans le compte Gmail de l'entreprise."""
+
+
 def _safe_response_json(response: httpx.Response) -> dict:
     try:
         data = response.json()
@@ -276,3 +280,17 @@ async def get_company_email(access_token: str, gmail_message_id: str) -> dict:
             tz=timezone.utc,
         ),
     }
+
+
+async def send_company_gmail_draft(access_token: str, gmail_draft_id: str) -> None:
+    """Envoie un brouillon avec le token explicite de son entreprise."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{GMAIL_API}/drafts/send",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={"id": gmail_draft_id},
+        )
+    if response.status_code == 404:
+        raise GmailDraftNotFoundError("gmail_draft_missing", status_code=404)
+    if response.status_code != 200:
+        _raise_company_gmail_error(response, "draft_send")

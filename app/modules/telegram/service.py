@@ -251,9 +251,19 @@ def consume_link_code(
 
 async def process_telegram_update(update: dict, db: Session) -> None:
     if "callback_query" in update:
-        from app.modules.actions.service import handle_callback_query
+        query = update["callback_query"]
+        data = str(query.get("data", ""))
+        if data.startswith("mt_"):
+            from app.modules.actions.company_service import (
+                handle_company_callback_query,
+            )
 
-        await handle_callback_query(update["callback_query"])
+            await handle_company_callback_query(query, db)
+        else:
+            # Tous les formats historiques restent gérés sans modification.
+            from app.modules.actions.service import handle_callback_query
+
+            await handle_callback_query(query)
         return
 
     message = update.get("message")

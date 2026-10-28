@@ -37,10 +37,30 @@ class ProcessedEmail(Base):
             "attempts >= 0 AND attempts <= 3",
             name="ck_processed_emails_attempts",
         ),
+        CheckConstraint(
+            "draft_status IS NULL OR draft_status IN "
+            "('pending', 'sending', 'sent', 'discarded', 'missing')",
+            name="ck_processed_emails_draft_status",
+        ),
+        CheckConstraint(
+            "notification_attempts >= 0 AND notification_attempts <= 3",
+            name="ck_processed_emails_notification_attempts",
+        ),
         Index(
             "ix_processed_emails_company_status",
             "company_id",
             "status",
+        ),
+        Index(
+            "uq_processed_emails_callback_token",
+            "callback_token",
+            unique=True,
+        ),
+        Index(
+            "ix_processed_emails_company_notification",
+            "company_id",
+            "notified_at",
+            "notification_attempts",
         ),
     )
 
@@ -52,6 +72,8 @@ class ProcessedEmail(Base):
     )
     gmail_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
     gmail_draft_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    callback_token: Mapped[str | None] = mapped_column(String(43), nullable=True)
+    draft_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
@@ -65,6 +87,24 @@ class ProcessedEmail(Base):
         server_default="0",
     )
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notification_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    notification_blocked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notification_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sheet_status_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import SessionLocal
+from app.modules.actions.company_service import build_company_callback_data
 from app.modules.ai.service import analyze_email
 from app.modules.companies.models import Company
 from app.modules.drafts.service import create_company_gmail_draft
@@ -25,6 +26,13 @@ from app.modules.gmail.service import (
 )
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.gmail_oauth.security import decrypt_token
+from app.modules.gmail_oauth.service import revoke_company_gmail_and_claim_notification
+from app.modules.notifications.service import (
+    CompanyTelegramBlockedError,
+    CompanyTelegramError,
+    send_company_email_notification,
+    send_company_gmail_revoked_notification,
+)
 from app.modules.pipeline_selection.service import (
     CompanyRunPlan,
     PreparedSimulationRun,
@@ -32,15 +40,21 @@ from app.modules.pipeline_selection.service import (
 )
 from app.modules.processed_emails.service import (
     EmailReservation,
+    claim_notification_attempt,
+    list_pending_notifications,
     mark_done,
     mark_failed,
+    mark_notification_blocked,
+    mark_notification_sent,
     mark_skipped,
     record_gmail_draft_id,
     release_after_quota,
+    release_notification_claim,
     reserve_email,
 )
 from app.modules.sheets.service import (
     get_company_draft_id,
+    get_company_notification_data,
     get_company_workbook,
     mark_company_email_draft_ready,
     upsert_company_draft,
@@ -58,6 +72,7 @@ class CompanyExecutionContext:
     company_id: int
     sheet_id: str = field(repr=False)
     encrypted_refresh_token: str = field(repr=False)
+    telegram_chat_id: int = field(repr=False)
     pipeline_activated_at: datetime
     email_limit: int
 
@@ -112,7 +127,7 @@ def _activate_and_load_context(
     """Active avant tout accès externe et recharge les trois intégrations."""
     with session_factory() as db:
         row = db.execute(
-            select(Company, GmailConnection)
+            select(Company, GmailConnection, TelegramConnection)
             .join(GmailConnection, GmailConnection.user_id == Company.user_id)
             .join(TelegramConnection, TelegramConnection.user_id == Company.user_id)
             .where(
@@ -125,7 +140,7 @@ def _activate_and_load_context(
         if row is None:
             db.rollback()
             return None
-        company, gmail_connection = row
+        company, gmail_connection, telegram_connection = row
         company_id = company.id
         sheet_id = company.sheet_id
         encrypted_refresh_token = gmail_connection.encrypted_refresh_token
@@ -139,28 +154,28 @@ def _activate_and_load_context(
             company_id=company_id,
             sheet_id=sheet_id,
             encrypted_refresh_token=encrypted_refresh_token,
+            telegram_chat_id=telegram_connection.telegram_chat_id,
             pipeline_activated_at=_as_utc(activated_at),
             email_limit=plan.email_limit,
         )
 
 
-def _revoke_company_gmail(
+async def _revoke_company_gmail(
     session_factory: Callable[[], Session],
-    company_id: int,
+    context: CompanyExecutionContext,
 ) -> None:
     with session_factory() as db:
-        company_user_id = (
-            select(Company.user_id).where(Company.id == company_id).scalar_subquery()
+        should_notify = revoke_company_gmail_and_claim_notification(
+            db,
+            company_id=context.company_id,
         )
-        db.execute(
-            update(GmailConnection)
-            .where(
-                GmailConnection.user_id == company_user_id,
-                GmailConnection.status == "connected",
-            )
-            .values(status="revoked", updated_at=func.now())
-        )
-        db.commit()
+    if not should_notify:
+        return
+    try:
+        await send_company_gmail_revoked_notification(context.telegram_chat_id)
+    except CompanyTelegramError:
+        # Le marqueur rend cet avis au plus une fois, y compris si le bot est bloqué.
+        pass
 
 
 def _mark_company_pass_finished(
@@ -208,6 +223,107 @@ def _record_draft(
             reservation,
             gmail_draft_id=draft_id,
         )
+
+
+async def _attempt_company_notification(
+    *,
+    session_factory: Callable[[], Session],
+    context: CompanyExecutionContext,
+    record_id: int,
+    callback_token: str,
+    notification_data: dict,
+) -> bool:
+    with session_factory() as db:
+        claimed = claim_notification_attempt(
+            db,
+            company_id=context.company_id,
+            record_id=record_id,
+        )
+    if not claimed:
+        return False
+
+    try:
+        await send_company_email_notification(
+            context.telegram_chat_id,
+            expediteur=str(notification_data["expediteur"]),
+            objet=str(notification_data["objet"]),
+            categorie=str(notification_data["categorie"]),
+            priorite=str(notification_data["priorite"]),
+            resume=str(notification_data["resume"]),
+            view_callback_data=build_company_callback_data(
+                "view",
+                callback_token,
+            ),
+        )
+    except CompanyTelegramBlockedError:
+        _with_record_session(
+            session_factory,
+            lambda db: mark_notification_blocked(
+                db,
+                company_id=context.company_id,
+                record_id=record_id,
+            ),
+        )
+        return False
+    except Exception:
+        # La tentative reste comptée, mais le traitement Gmail/Gemini est terminé.
+        _with_record_session(
+            session_factory,
+            lambda db: release_notification_claim(
+                db,
+                company_id=context.company_id,
+                record_id=record_id,
+            ),
+        )
+        return False
+
+    _with_record_session(
+        session_factory,
+        lambda db: mark_notification_sent(
+            db,
+            company_id=context.company_id,
+            record_id=record_id,
+        ),
+    )
+    return True
+
+
+async def _retry_pending_notifications(
+    *,
+    session_factory: Callable[[], Session],
+    context: CompanyExecutionContext,
+    workbook,
+):
+    with session_factory() as db:
+        pending = list_pending_notifications(db, company_id=context.company_id)
+    if not pending:
+        return workbook
+    try:
+        workbook = workbook or get_company_workbook(context.sheet_id)
+    except Exception:
+        return workbook
+
+    for record_id, callback_token in pending:
+        try:
+            notification_data = get_company_notification_data(
+                workbook,
+                email_id=f"EM-{record_id}",
+            )
+        except Exception:
+            continue
+        if notification_data is None:
+            continue
+        try:
+            await _attempt_company_notification(
+                session_factory=session_factory,
+                context=context,
+                record_id=record_id,
+                callback_token=callback_token,
+                notification_data=notification_data,
+            )
+        except Exception:
+            continue
+    return workbook
 
 
 def _status_code_from_exception(exc: Exception) -> int | None:
@@ -379,6 +495,24 @@ async def _process_reserved_email(
             session_factory,
             lambda db: mark_done(db, reservation),
         )
+        if reservation.callback_token is not None:
+            try:
+                await _attempt_company_notification(
+                    session_factory=session_factory,
+                    context=context,
+                    record_id=reservation.record_id,
+                    callback_token=reservation.callback_token,
+                    notification_data={
+                        "expediteur": email["expediteur"],
+                        "objet": email["objet"],
+                        "categorie": analysis["categorie"],
+                        "priorite": analysis["urgence"],
+                        "resume": analysis["resume"],
+                    },
+                )
+            except Exception:
+                # La notification reste indépendante du traitement désormais done.
+                pass
         return "done", workbook
     except Exception as exc:
         if _is_quota_error(exc):
@@ -414,11 +548,17 @@ async def _run_company(
     if context is None:
         return counters
 
+    workbook = None
+    workbook = await _retry_pending_notifications(
+        session_factory=session_factory,
+        context=context,
+        workbook=workbook,
+    )
     try:
         refresh_token = decrypt_token(context.encrypted_refresh_token)
         access_token = await get_company_access_token(refresh_token)
     except GmailTokenRevokedError:
-        _revoke_company_gmail(session_factory, context.company_id)
+        await _revoke_company_gmail(session_factory, context)
         counters.token_revoked = True
         _mark_company_pass_finished(session_factory, context.company_id)
         return counters
@@ -435,7 +575,6 @@ async def _run_company(
     page_token: str | None = None
     seen_page_tokens: set[str] = set()
     reserved_count = 0
-    workbook = None
 
     try:
         while reserved_count < context.email_limit and budget.has_time_remaining():
