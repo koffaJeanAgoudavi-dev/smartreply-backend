@@ -95,6 +95,26 @@ class CompanyGmailAdapterTests(unittest.TestCase):
         _, kwargs = client.post_calls[0]
         self.assertEqual(kwargs["data"]["refresh_token"], "private-refresh-token")
 
+    def test_draft_existence_check_treats_404_as_consumed(self):
+        client = FakeAsyncClient(get_response=FakeResponse(404, {}))
+        with patch.object(gmail_service.httpx, "AsyncClient", return_value=client):
+            exists = asyncio.run(
+                gmail_service.company_gmail_draft_exists(
+                    "company-access-token",
+                    "draft-internal-id",
+                )
+            )
+
+        self.assertFalse(exists)
+        url, kwargs = client.get_calls[0]
+        self.assertTrue(url.endswith("/drafts/draft-internal-id"))
+        self.assertEqual(
+            kwargs["headers"],
+            {"Authorization": "Bearer company-access-token"},
+        )
+        self.assertEqual(kwargs["params"], {"format": "minimal"})
+        self.assertEqual(client.post_calls, [])
+
     def test_draft_uses_explicit_token_recipient_and_thread(self):
         client = FakeAsyncClient(
             post_response=FakeResponse(200, {"id": "draft-internal-id"})

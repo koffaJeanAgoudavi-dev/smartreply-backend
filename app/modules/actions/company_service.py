@@ -10,6 +10,7 @@ from app.modules.companies.models import Company
 from app.modules.gmail.service import (
     GmailDraftNotFoundError,
     GmailTokenRevokedError,
+    company_gmail_draft_exists,
     get_company_access_token,
     send_company_gmail_draft,
 )
@@ -26,6 +27,7 @@ from app.modules.processed_emails.models import ProcessedEmail
 from app.modules.processed_emails.service import (
     claim_draft_discard,
     claim_draft_send,
+    claim_stale_draft_send_recovery,
     mark_draft_sheet_synced,
     transition_draft_status,
 )
@@ -278,6 +280,31 @@ async def _notify_revocation_once(
         pass
 
 
+async def _finish_draft_sent(
+    db: Session,
+    context: CompanyDraftContext,
+    *,
+    chat_id: int,
+) -> None:
+    transitioned = transition_draft_status(
+        db,
+        company_id=context.company_id,
+        record_id=context.record_id,
+        expected_status="sending",
+        target_status="sent",
+    )
+    current_status, _ = _current_draft_status(
+        db,
+        company_id=context.company_id,
+        record_id=context.record_id,
+    )
+    if transitioned or current_status == "sent":
+        _sync_sheet_status(db, context, draft_status="sent")
+        await _safe_send(chat_id, "Brouillon envoyé.")
+        return
+    await _safe_send(chat_id, "L’état de l’envoi n’a pas pu être confirmé.")
+
+
 async def _handle_send(
     db: Session,
     context: CompanyDraftContext,
@@ -288,59 +315,90 @@ async def _handle_send(
     if context.gmail_status != "connected":
         await _safe_answer(callback_id, "Reconnectez Gmail depuis vos intégrations.")
         return
-    if context.draft_status != "pending" or not claim_draft_send(
-        db,
-        company_id=context.company_id,
-        record_id=context.record_id,
-    ):
+
+    recovering_ambiguous_send = context.draft_status == "sending"
+    if context.draft_status == "pending":
+        claimed = claim_draft_send(
+            db,
+            company_id=context.company_id,
+            record_id=context.record_id,
+        )
+    elif recovering_ambiguous_send:
+        claimed = claim_stale_draft_send_recovery(
+            db,
+            company_id=context.company_id,
+            record_id=context.record_id,
+        )
+    else:
+        claimed = False
+    if not claimed:
         await _answer_existing_state(db, context, callback_id)
         return
 
-    await _safe_answer(callback_id, "Envoi en cours…")
+    await _safe_answer(
+        callback_id,
+        "Vérification de l’envoi…"
+        if recovering_ambiguous_send
+        else "Envoi en cours…",
+    )
     try:
         refresh_token = decrypt_token(context.encrypted_refresh_token)
         access_token = await get_company_access_token(refresh_token)
-        await send_company_gmail_draft(access_token, context.gmail_draft_id)
     except GmailTokenRevokedError:
-        transition_draft_status(
-            db,
-            company_id=context.company_id,
-            record_id=context.record_id,
-            expected_status="sending",
-            target_status="pending",
-        )
+        if not recovering_ambiguous_send:
+            transition_draft_status(
+                db,
+                company_id=context.company_id,
+                record_id=context.record_id,
+                expected_status="sending",
+                target_status="pending",
+            )
         await _notify_revocation_once(db, context, chat_id=chat_id)
         return
-    except GmailDraftNotFoundError:
-        transition_draft_status(
-            db,
-            company_id=context.company_id,
-            record_id=context.record_id,
-            expected_status="sending",
-            target_status="missing",
-        )
-        await _safe_send(chat_id, "Ce brouillon n’existe plus dans Gmail.")
-        return
     except Exception:
-        transition_draft_status(
-            db,
-            company_id=context.company_id,
-            record_id=context.record_id,
-            expected_status="sending",
-            target_status="pending",
-        )
-        await _safe_send(chat_id, "L’envoi a échoué. Le brouillon reste disponible.")
+        if not recovering_ambiguous_send:
+            transition_draft_status(
+                db,
+                company_id=context.company_id,
+                record_id=context.record_id,
+                expected_status="sending",
+                target_status="pending",
+            )
+        await _safe_send(chat_id, "Gmail est temporairement indisponible.")
         return
 
-    transition_draft_status(
-        db,
-        company_id=context.company_id,
-        record_id=context.record_id,
-        expected_status="sending",
-        target_status="sent",
-    )
-    _sync_sheet_status(db, context, draft_status="sent")
-    await _safe_send(chat_id, "Brouillon envoyé.")
+    if recovering_ambiguous_send:
+        try:
+            draft_exists = await company_gmail_draft_exists(
+                access_token,
+                context.gmail_draft_id,
+            )
+        except Exception:
+            await _safe_send(
+                chat_id,
+                "L’état de l’envoi reste à vérifier. Aucun nouvel envoi effectué.",
+            )
+            return
+        if not draft_exists:
+            await _finish_draft_sent(db, context, chat_id=chat_id)
+            return
+
+    try:
+        await send_company_gmail_draft(access_token, context.gmail_draft_id)
+    except GmailDraftNotFoundError:
+        # drafts.send consomme le brouillon. Un 404 confirme donc l'envoi déjà fait.
+        await _finish_draft_sent(db, context, chat_id=chat_id)
+        return
+    except Exception:
+        # La requête a pu atteindre Gmail : conserver sending empêche tout renvoi
+        # avant une future vérification explicite après le délai de fraîcheur.
+        await _safe_send(
+            chat_id,
+            "L’état de l’envoi reste à vérifier. Aucun nouvel envoi automatique.",
+        )
+        return
+
+    await _finish_draft_sent(db, context, chat_id=chat_id)
 
 
 async def _handle_discard(

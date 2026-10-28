@@ -108,7 +108,7 @@ scripts/
 | `PIPELINE_ALLOWED_COMPANY_IDS` | IDs internes autorisés au traitement réel, séparés par des virgules ; vide ou absent = aucune entreprise traitée |
 | `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond par entreprise et par passage (défaut : `10`) |
 | `PIPELINE_RUN_TIME_BUDGET_SECONDS` | Budget total d'un passage (défaut : `240` secondes) |
-| `PIPELINE_PROCESSING_STALE_SECONDS` | Délai avant reprise atomique d'une réservation `processing` abandonnée (défaut : `900` secondes) |
+| `PIPELINE_PROCESSING_STALE_SECONDS` | Délai avant reprise atomique d'une réservation `processing` ou vérification d'un envoi `sending` abandonné (défaut : `900` secondes) |
 | `GEMINI_MAX_EMAIL_BODY_CHARS` | Taille maximale du corps transmis à Gemini dans le flux multi-tenant (défaut : `6000`) |
 | `CRON_SECRET` | (Optionnel) Sécurise `POST /api/v1/pipeline/run` via l'en-tête `X-CRON-SECRET` |
 
@@ -284,7 +284,10 @@ envoie le brouillon avec le token Gmail de cette entreprise, puis synchronise
 `Emails` et `Brouillons` à `Envoyé`. **Ignorer** réserve l'état `Ignoré` et
 synchronise les deux onglets sans supprimer le brouillon Gmail. Les doubles
 clics et rejeux ne répètent jamais l'envoi ; une synchronisation Sheet échouée
-peut être rejouée sans répéter l'action Gmail.
+peut être rejouée sans répéter l'action Gmail. Si un état `sending` dépasse
+`PIPELINE_PROCESSING_STALE_SECONDS`, le clic suivant vérifie d'abord l'existence
+du brouillon dans Gmail. Un `404` confirme qu'il a déjà été consommé : Neon et
+le Sheet passent à `Envoyé` sans appeler une seconde fois `drafts.send`.
 
 Un `invalid_grant` déclenche au plus un avis Telegram avec un lien vers
 `BASE_URL/dashboard/#integrations`. Le marqueur est remis à zéro uniquement
@@ -326,16 +329,21 @@ la fin du travail en arrière-plan.
    brouillon** sans ID Gmail/Sheet/email visible dans son `callback_data`.
 3. Cliquer **Voir**, puis **Envoyer** deux fois rapidement. Vérifier un seul
    email envoyé, les deux statuts Sheet à `Envoyé` et la réponse polie au rejeu.
-4. Refaire avec **Ignorer** : vérifier les deux statuts `Ignoré` et la présence
+4. En environnement de test uniquement, reproduire un arrêt ambigu : consommer
+   le brouillon dans Gmail tout en laissant sa ligne Neon à `sending`, attendre
+   `PIPELINE_PROCESSING_STALE_SECONDS`, puis recliquer **Envoyer**. Vérifier que
+   Gmail n'envoie aucun second email et que Neon puis le Sheet passent à
+   `sent`/`Envoyé`.
+5. Refaire avec **Ignorer** : vérifier les deux statuts `Ignoré` et la présence
    inchangée du brouillon dans Gmail.
-5. Depuis le chat B, rejouer un callback capturé pour A. Vérifier une réponse
+6. Depuis le chat B, rejouer un callback capturé pour A. Vérifier une réponse
    générique et aucune lecture, écriture ou action dans Gmail/Sheet de A.
-6. Provoquer temporairement un échec Telegram : au passage suivant, vérifier la
+7. Provoquer temporairement un échec Telegram : au passage suivant, vérifier la
    seule reprise de notification, sans nouvel appel Gemini ni nouveau brouillon.
    Un blocage du bot (`403`) ne doit produire aucune reprise supplémentaire.
-7. Révoquer Gmail : vérifier un seul avis avec le lien vers Intégrations, aucun
+8. Révoquer Gmail : vérifier un seul avis avec le lien vers Intégrations, aucun
    second avis avant reconnexion, puis la remise à zéro après reconnexion.
-8. Rejouer un callback historique avec l'interrupteur multi-tenant désactivé et
+9. Rejouer un callback historique avec l'interrupteur multi-tenant désactivé et
    confirmer le comportement historique. Vérifier enfin que réponses et logs
    ne contiennent ni adresse, contenu, jeton, Sheet ID ou identifiant Telegram.
 
