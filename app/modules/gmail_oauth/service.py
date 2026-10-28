@@ -8,11 +8,12 @@ Le refresh token n'apparaît jamais dans une réponse API ni dans un log.
 import urllib.parse
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.modules.companies.models import Company
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.gmail_oauth.security import encrypt_token
 
@@ -80,6 +81,7 @@ def save_refresh_token(db: Session, user_id: int, refresh_token: str) -> None:
     if existing:
         existing.encrypted_refresh_token = encrypted
         existing.status = "connected"
+        existing.revocation_notified_at = None
         db.commit()
         return
     db.add(GmailConnection(user_id=user_id, encrypted_refresh_token=encrypted))
@@ -88,6 +90,35 @@ def save_refresh_token(db: Session, user_id: int, refresh_token: str) -> None:
     except IntegrityError:
         db.rollback()
         raise ValueError("Connexion Gmail déjà enregistrée pour cet utilisateur")
+
+
+def revoke_company_gmail_and_claim_notification(
+    db: Session,
+    *,
+    company_id: int,
+) -> bool:
+    """Révoque la connexion et réserve au plus un avis Telegram."""
+    company_user_id = (
+        select(Company.user_id).where(Company.id == company_id).scalar_subquery()
+    )
+    result = db.execute(
+        update(GmailConnection)
+        .where(
+            GmailConnection.user_id == company_user_id,
+            GmailConnection.status == "connected",
+            GmailConnection.revocation_notified_at.is_(None),
+        )
+        .values(
+            status="revoked",
+            revocation_notified_at=func.now(),
+            updated_at=func.now(),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True
 
 
 def get_connection(db: Session, user_id: int) -> GmailConnection | None:

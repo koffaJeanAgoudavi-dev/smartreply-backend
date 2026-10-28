@@ -46,3 +46,6 @@ class GmailConnection(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    revocation_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

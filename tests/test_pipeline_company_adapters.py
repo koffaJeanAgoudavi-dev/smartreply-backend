@@ -2,11 +2,13 @@
 
 import asyncio
 import base64
+import logging
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from app.modules.drafts import service as drafts_service
 from app.modules.gmail import service as gmail_service
+from app.modules.notifications import service as notifications_service
 from app.modules.sheets import service as sheets_service
 
 
@@ -119,6 +121,88 @@ class CompanyGmailAdapterTests(unittest.TestCase):
         raw = base64.urlsafe_b64decode(kwargs["json"]["message"]["raw"]).decode()
         self.assertIn("To: recipient@test.invalid", raw)
         self.assertIn("In-Reply-To: <message@test.invalid>", raw)
+
+
+class CompanyNotificationAdapterTests(unittest.TestCase):
+    def test_notification_contains_summary_and_only_an_opaque_view_button(self):
+        client = FakeAsyncClient(
+            post_response=FakeResponse(200, {"ok": True, "result": {}})
+        )
+        original_token = notifications_service.settings.TELEGRAM_BOT_TOKEN
+        notifications_service.settings.TELEGRAM_BOT_TOKEN = "configured-test-token"
+        try:
+            with patch.object(
+                notifications_service.httpx,
+                "AsyncClient",
+                return_value=client,
+            ):
+                asyncio.run(
+                    notifications_service.send_company_email_notification(
+                        12345,
+                        expediteur="Sender <sender@test.invalid>",
+                        objet="Request",
+                        categorie="support",
+                        priorite="moyenne",
+                        resume="Summary",
+                        view_callback_data="mt_view_" + "A" * 32,
+                    )
+                )
+        finally:
+            notifications_service.settings.TELEGRAM_BOT_TOKEN = original_token
+
+        _, kwargs = client.post_calls[0]
+        payload = kwargs["json"]
+        self.assertIn("Sender", payload["text"])
+        self.assertIn("Request", payload["text"])
+        buttons = payload["reply_markup"]["inline_keyboard"]
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(len(buttons[0]), 1)
+        self.assertEqual(buttons[0][0]["callback_data"], "mt_view_" + "A" * 32)
+        self.assertLessEqual(len(buttons[0][0]["callback_data"].encode()), 64)
+
+    def test_http_403_is_classified_as_permanently_blocked(self):
+        client = FakeAsyncClient(post_response=FakeResponse(403, {}))
+        original_token = notifications_service.settings.TELEGRAM_BOT_TOKEN
+        notifications_service.settings.TELEGRAM_BOT_TOKEN = "configured-test-token"
+        try:
+            with patch.object(
+                notifications_service.httpx,
+                "AsyncClient",
+                return_value=client,
+            ):
+                with self.assertRaises(
+                    notifications_service.CompanyTelegramBlockedError
+                ):
+                    asyncio.run(
+                        notifications_service.send_company_telegram_message(
+                            12345,
+                            "Test",
+                        )
+                    )
+        finally:
+            notifications_service.settings.TELEGRAM_BOT_TOKEN = original_token
+
+    def test_bot_token_is_redacted_from_http_client_logs(self):
+        original_token = notifications_service.settings.TELEGRAM_BOT_TOKEN
+        notifications_service.settings.TELEGRAM_BOT_TOKEN = "private-bot-token"
+        try:
+            record = logging.LogRecord(
+                name="httpx",
+                level=logging.INFO,
+                pathname=__file__,
+                lineno=1,
+                msg="HTTP Request: %s",
+                args=(
+                    "https://api.telegram.org/botprivate-bot-token/sendMessage",
+                ),
+                exc_info=None,
+            )
+            redaction_filter = notifications_service._TelegramTokenRedactionFilter()
+            self.assertTrue(redaction_filter.filter(record))
+            self.assertNotIn("private-bot-token", record.getMessage())
+            self.assertIn("[REDACTED]", record.getMessage())
+        finally:
+            notifications_service.settings.TELEGRAM_BOT_TOKEN = original_token
 
 
 class HistoricalWrapperDelegationTests(unittest.TestCase):
@@ -340,6 +424,46 @@ class CompanySheetAdapterTests(unittest.TestCase):
         self.assertEqual(email_rows[1][6], "Brouillon prêt")
         self.assertEqual(email_rows[1][7], "draft-42")
         self.assertEqual(draft_rows[1][3], "En attente")
+
+    def test_company_action_reads_and_updates_only_explicit_workbook(self):
+        workbook = FakeWorkbook()
+        sheets_service.upsert_company_email(
+            workbook,
+            email_id="EM-84",
+            expediteur="sender@test.invalid",
+            objet="Request",
+            resume="Summary",
+            categorie="support",
+            priorite="moyenne",
+            statut="Analysé",
+        )
+        sheets_service.upsert_company_draft(
+            workbook,
+            draft_id="draft-84",
+            email_id="EM-84",
+            contenu="Draft content",
+        )
+
+        notification = sheets_service.get_company_notification_data(
+            workbook,
+            email_id="EM-84",
+        )
+        content = sheets_service.get_company_draft_content(
+            workbook,
+            email_id="EM-84",
+            draft_id="draft-84",
+        )
+        sheets_service.update_company_draft_status(
+            workbook,
+            email_id="EM-84",
+            draft_id="draft-84",
+            statut="Envoyé",
+        )
+
+        self.assertEqual(notification["objet"], "Request")
+        self.assertEqual(content, "Draft content")
+        self.assertEqual(workbook.sheets["Emails"].rows[1][6], "Envoyé")
+        self.assertEqual(workbook.sheets["Brouillons"].rows[1][3], "Envoyé")
 
 
 if __name__ == "__main__":

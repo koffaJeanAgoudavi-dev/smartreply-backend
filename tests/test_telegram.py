@@ -478,6 +478,67 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         handle_callback.assert_awaited_once_with(callback)
 
+    def test_explicit_historical_callback_prefixes_still_use_legacy_actions(self):
+        historical_values = (
+            "view_draft_legacy",
+            "send_draft_legacy",
+            "discard_legacy",
+        )
+        with (
+            patch(
+                "app.modules.actions.service.handle_callback_query",
+                new_callable=AsyncMock,
+            ) as legacy_handler,
+            patch(
+                "app.modules.actions.company_service.handle_company_callback_query",
+                new_callable=AsyncMock,
+            ) as company_handler,
+        ):
+            for index, data in enumerate(historical_values):
+                callback = {
+                    "id": f"legacy-{index}",
+                    "data": data,
+                    "message": {"chat": {"id": 90001}},
+                }
+                response = self.client.post(
+                    "/api/v1/telegram/webhook",
+                    headers=self.webhook_headers,
+                    json={"update_id": index + 10, "callback_query": callback},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+
+        self.assertEqual(legacy_handler.await_count, 3)
+        company_handler.assert_not_awaited()
+
+    def test_mt_callback_is_routed_to_company_handler_with_database(self):
+        callback = {
+            "id": "company-callback",
+            "data": "mt_view_" + "A" * 32,
+            "from": {"id": 91002},
+            "message": {"chat": {"id": 91001}},
+        }
+        with (
+            patch(
+                "app.modules.actions.service.handle_callback_query",
+                new_callable=AsyncMock,
+            ) as legacy_handler,
+            patch(
+                "app.modules.actions.company_service.handle_company_callback_query",
+                new_callable=AsyncMock,
+            ) as company_handler,
+        ):
+            response = self.client.post(
+                "/api/v1/telegram/webhook",
+                headers=self.webhook_headers,
+                json={"update_id": 20, "callback_query": callback},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        legacy_handler.assert_not_awaited()
+        company_handler.assert_awaited_once()
+        self.assertEqual(company_handler.await_args.args[0], callback)
+        self.assertIsNotNone(company_handler.await_args.args[1])
+
 
 if __name__ == "__main__":
     unittest.main()

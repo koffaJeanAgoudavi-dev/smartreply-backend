@@ -216,3 +216,67 @@ def mark_company_email_draft_ready(
         raise RuntimeError("company_email_row_missing")
     sheet.update_cell(row_index, 7, "Brouillon prêt")
     sheet.update_cell(row_index, 8, draft_id)
+
+
+def get_company_notification_data(workbook, *, email_id: str) -> dict | None:
+    """Relit le résumé déjà produit sans rappeler Gmail ni Gemini."""
+    sheet = workbook.worksheet("Emails")
+    rows = _rows_with_fixed_headers(sheet, EMAIL_HEADERS)
+    row_index = _row_with_value(rows, 0, email_id)
+    if row_index is None:
+        return None
+    row = rows[row_index - 1]
+    if len(row) < len(EMAIL_HEADERS):
+        return None
+    return {
+        "expediteur": str(row[1]),
+        "objet": str(row[2]),
+        "resume": str(row[3]),
+        "categorie": str(row[4]),
+        "priorite": str(row[5]),
+    }
+
+
+def get_company_draft_content(
+    workbook,
+    *,
+    email_id: str,
+    draft_id: str,
+) -> str | None:
+    """Retourne le contenu seulement si les deux identifiants concordent."""
+    sheet = workbook.worksheet("Brouillons")
+    rows = _rows_with_fixed_headers(sheet, DRAFT_HEADERS)
+    row_index = _row_with_value(rows, 1, email_id)
+    if row_index is None:
+        return None
+    row = rows[row_index - 1]
+    if len(row) < len(DRAFT_HEADERS) or str(row[0]) != draft_id:
+        return None
+    return str(row[2])
+
+
+def update_company_draft_status(
+    workbook,
+    *,
+    email_id: str,
+    draft_id: str,
+    statut: str,
+) -> None:
+    """Met à jour les deux onglets d'un Sheet d'entreprise de façon idempotente."""
+    if statut not in {"Envoyé", "Ignoré"}:
+        raise ValueError("company_action_status_invalid")
+
+    email_sheet = workbook.worksheet("Emails")
+    email_rows = _rows_with_fixed_headers(email_sheet, EMAIL_HEADERS)
+    email_row = _row_with_value(email_rows, 0, email_id)
+
+    draft_sheet = workbook.worksheet("Brouillons")
+    draft_rows = _rows_with_fixed_headers(draft_sheet, DRAFT_HEADERS)
+    draft_row = _row_with_value(draft_rows, 1, email_id)
+    if email_row is None or draft_row is None:
+        raise RuntimeError("company_action_sheet_row_missing")
+    if str(draft_rows[draft_row - 1][0]) != draft_id:
+        raise RuntimeError("company_action_sheet_draft_mismatch")
+
+    email_sheet.update_cell(email_row, 7, statut)
+    draft_sheet.update_cell(draft_row, 4, statut)

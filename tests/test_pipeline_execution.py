@@ -23,7 +23,12 @@ from app.modules.pipeline_selection.service import (
     SimulationResult,
 )
 from app.modules.processed_emails.models import ProcessedEmail
-from app.modules.processed_emails.service import mark_failed, reserve_email
+from app.modules.processed_emails.service import (
+    claim_notification_attempt,
+    mark_failed,
+    release_notification_claim,
+    reserve_email,
+)
 from app.modules.telegram.models import TelegramConnection
 
 
@@ -704,6 +709,43 @@ class PipelineExecutionTests(unittest.TestCase):
         self.assertEqual(record.attempts, 3)
         self.assertEqual(record.last_error_code, "gemini_error")
 
+    def test_notification_attempts_are_capped_at_three(self):
+        plan = self.create_company("NotifyCap", activated_at=self.activation)
+        with self.session_factory() as db:
+            record = ProcessedEmail(
+                company_id=plan.company_id,
+                gmail_message_id="notification-cap-message",
+                gmail_draft_id="notification-cap-draft",
+                callback_token="N" * 32,
+                draft_status="pending",
+                status="done",
+                attempts=1,
+            )
+            db.add(record)
+            db.commit()
+            record_id = record.id
+
+        claims = []
+        for attempt_index in range(4):
+            with self.session_factory() as db:
+                claimed = claim_notification_attempt(
+                    db,
+                    company_id=plan.company_id,
+                    record_id=record_id,
+                )
+                claims.append(claimed)
+            if claimed and attempt_index < 3:
+                with self.session_factory() as db:
+                    release_notification_claim(
+                        db,
+                        company_id=plan.company_id,
+                        record_id=record_id,
+                    )
+        self.assertEqual(claims, [True, True, True, False])
+        with self.session_factory() as db:
+            record = db.get(ProcessedEmail, record_id)
+        self.assertEqual(record.notification_attempts, 3)
+
     def test_quota_429_consumes_no_attempt_and_stops_only_that_company(self):
         plan_a = self.create_company("QuotaA", activated_at=self.activation)
         plan_b = self.create_company("QuotaB", activated_at=self.activation)
@@ -770,6 +812,151 @@ class PipelineExecutionTests(unittest.TestCase):
         self.assertEqual(quota_record.attempts, 0)
         self.assertEqual(quota_record.last_error_code, "gemini_quota_429")
 
+    def test_notification_failure_retries_without_gemini_or_new_gmail_draft(self):
+        plan = self.create_company("NotifyRetry", activated_at=self.activation)
+        analyze = AsyncMock(side_effect=self.successful_analysis)
+        create_draft = AsyncMock(return_value="draft-notify")
+        notify = AsyncMock(
+            side_effect=[
+                service.CompanyTelegramError("telegram_http_500", status_code=500),
+                None,
+            ]
+        )
+        notification_data = {
+            "expediteur": "sender@test.invalid",
+            "objet": "Subject",
+            "categorie": "support",
+            "priorite": "moyenne",
+            "resume": "Résumé",
+        }
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("notify-message",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("notify")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(service, "analyze_email", analyze),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(service, "create_company_gmail_draft", create_draft),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+            patch.object(
+                service,
+                "get_company_notification_data",
+                return_value=notification_data,
+            ),
+            patch.object(service, "send_company_email_notification", notify),
+        ):
+            first = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+            second = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(first.processed, 1)
+        self.assertEqual(second.processed, 0)
+        self.assertEqual(analyze.await_count, 1)
+        self.assertEqual(create_draft.await_count, 1)
+        self.assertEqual(notify.await_count, 2)
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+        self.assertEqual(record.status, "done")
+        self.assertEqual(record.notification_attempts, 2)
+        self.assertIsNotNone(record.notified_at)
+
+    def test_blocked_telegram_bot_is_not_retried(self):
+        plan = self.create_company("NotifyBlocked", activated_at=self.activation)
+        notify = AsyncMock(
+            side_effect=service.CompanyTelegramBlockedError(
+                "telegram_blocked",
+                status_code=403,
+            )
+        )
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("blocked-message",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("blocked")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(
+                service, "analyze_email", side_effect=self.successful_analysis
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(
+                service,
+                "create_company_gmail_draft",
+                new=AsyncMock(return_value="draft-blocked"),
+            ),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+            patch.object(service, "send_company_email_notification", notify),
+        ):
+            asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+            asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(notify.await_count, 1)
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+        self.assertIsNotNone(record.notification_blocked_at)
+        self.assertIsNone(record.notified_at)
+
     def test_invalid_grant_revokes_only_the_company(self):
         plan = self.create_company("Revoked", activated_at=None)
         prepared = self.prepared([plan])
@@ -786,6 +973,11 @@ class PipelineExecutionTests(unittest.TestCase):
                 ),
             ),
             patch.object(service, "list_company_message_page") as list_messages,
+            patch.object(
+                service,
+                "send_company_gmail_revoked_notification",
+                new_callable=AsyncMock,
+            ) as revoked_notification,
         ):
             summary = asyncio.run(
                 service.execute_multi_tenant_run(
@@ -793,15 +985,23 @@ class PipelineExecutionTests(unittest.TestCase):
                     session_factory=self.session_factory,
                 )
             )
+            asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
 
         self.assertEqual(summary.revoked_company_ids, [plan.company_id])
         list_messages.assert_not_called()
+        revoked_notification.assert_awaited_once()
         with self.session_factory() as db:
             connection = db.scalar(
                 select(GmailConnection).where(GmailConnection.user_id == plan.user_id)
             )
             company = db.get(Company, plan.company_id)
         self.assertEqual(connection.status, "revoked")
+        self.assertIsNotNone(connection.revocation_notified_at)
         self.assertIsNotNone(company.pipeline_activated_at)
 
 

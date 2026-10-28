@@ -221,7 +221,7 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - [ ] Vérifier que l'accueil n'affiche ni statistiques, ni emails, ni activité
       factices avant le démarrage réel du traitement.
 
-### Pipeline multi-entreprises — Étape 3, PR 1 et PR 2
+### Pipeline multi-entreprises — Étape 3, PR 1 à PR 3
 
 La migration de fondations `e1a5c7d9b3f2` ajoute le statut Gmail et les dates de
 coupure/équité. La migration PR 2 `a4f6c8d2e1b7` ajoute `processed_emails`,
@@ -259,8 +259,36 @@ enregistré dans `processed_emails` immédiatement après la création, avant to
 écriture suivante dans le Sheet. Un nouvel essai consulte d'abord cet ID, puis
 l'éventuelle ligne `Brouillons`, et ne recrée donc pas le brouillon après une
 panne Sheet. Les écritures Sheet `Emails` et `Brouillons` sont idempotentes par
-`Email_ID` et conservent la double écriture. **Aucune notification Telegram
-n'est envoyée dans la PR 2.**
+`Email_ID` et conservent la double écriture. La PR 2 seule ne déclenchait
+encore aucune notification Telegram.
+
+La migration PR 3 `f2c4d6e8a0b1` ajoute au registre le jeton opaque des boutons,
+l'état du brouillon, `notified_at`, le compteur de notification limité à trois,
+le blocage Telegram et la synchronisation du statut Sheet. Elle ajoute aussi le
+marqueur d'avis de révocation à `gmail_connections`. Après la double écriture,
+le bon chat reçoit le résumé et un unique bouton **Voir le brouillon**. Un échec
+Telegram ne rouvre jamais le traitement Gmail/Gemini : seule la notification
+est reprise. Un HTTP `403` arrête définitivement ses reprises.
+
+Les nouveaux callbacks ont le format `mt_<action>_<jeton opaque>` et restent
+sous la limite Telegram de 64 octets. Le jeton ne contient aucun ID métier. Le
+webhook résout à chaque clic le chat et l'utilisateur Telegram, leur entreprise,
+puis le brouillon de cette même entreprise. Les formats sans préfixe `mt_`, y
+compris les callbacks historiques, restent transmis au module `actions`
+historique et continuent d'utiliser le chemin mono-utilisateur inchangé. Le
+`CHAT_ID` historique n'est ni supprimé ni modifié dans cette PR.
+
+**Voir** relit le brouillon dans le Sheet de l'entreprise et tronque le message
+sous 4096 caractères. **Envoyer** réserve atomiquement l'action dans Neon,
+envoie le brouillon avec le token Gmail de cette entreprise, puis synchronise
+`Emails` et `Brouillons` à `Envoyé`. **Ignorer** réserve l'état `Ignoré` et
+synchronise les deux onglets sans supprimer le brouillon Gmail. Les doubles
+clics et rejeux ne répètent jamais l'envoi ; une synchronisation Sheet échouée
+peut être rejouée sans répéter l'action Gmail.
+
+Un `invalid_grant` déclenche au plus un avis Telegram avec un lien vers
+`BASE_URL/dashboard/#integrations`. Le marqueur est remis à zéro uniquement
+lors d'une nouvelle connexion Gmail réussie.
 
 Le `202` est rendu après la sélection et expose seulement les IDs internes et
 les compteurs d'entreprises/plafonds. `processing_company_ids` est
@@ -287,6 +315,29 @@ la fin du travail en arrière-plan.
 6. Vérifier que la réponse et les logs ne contiennent que des IDs internes,
    statuts opérationnels et compteurs. Ne jamais copier de secret ou de contenu
    d'email dans un rapport de test.
+
+#### Test réel PR 3 après déploiement
+
+1. Relier deux comptes de test A et B à deux chats Telegram, deux boîtes Gmail
+   et deux Sheets distincts ; placer seulement leurs IDs internes dans
+   `PIPELINE_ALLOWED_COMPANY_IDS` sans les publier.
+2. Envoyer un nouvel email à A puis lancer le pipeline. Vérifier une seule
+   notification dans le chat A, aucune dans B, et un bouton **Voir le
+   brouillon** sans ID Gmail/Sheet/email visible dans son `callback_data`.
+3. Cliquer **Voir**, puis **Envoyer** deux fois rapidement. Vérifier un seul
+   email envoyé, les deux statuts Sheet à `Envoyé` et la réponse polie au rejeu.
+4. Refaire avec **Ignorer** : vérifier les deux statuts `Ignoré` et la présence
+   inchangée du brouillon dans Gmail.
+5. Depuis le chat B, rejouer un callback capturé pour A. Vérifier une réponse
+   générique et aucune lecture, écriture ou action dans Gmail/Sheet de A.
+6. Provoquer temporairement un échec Telegram : au passage suivant, vérifier la
+   seule reprise de notification, sans nouvel appel Gemini ni nouveau brouillon.
+   Un blocage du bot (`403`) ne doit produire aucune reprise supplémentaire.
+7. Révoquer Gmail : vérifier un seul avis avec le lien vers Intégrations, aucun
+   second avis avant reconnexion, puis la remise à zéro après reconnexion.
+8. Rejouer un callback historique avec l'interrupteur multi-tenant désactivé et
+   confirmer le comportement historique. Vérifier enfin que réponses et logs
+   ne contiennent ni adresse, contenu, jeton, Sheet ID ou identifiant Telegram.
 
 ## 🧪 Endpoints API et de validation
 
@@ -330,7 +381,7 @@ la fin du travail en arrière-plan.
 - [ ] **Étape 3** — Branchement du pipeline sur la couche multi-utilisateur
   - [x] PR 1 : sélection, plafonds, équité, verrou et simulation en lecture seule
   - [x] PR 2 : traitement réel isolé par entreprise, dédoublonnage et coupure
-  - [ ] PR 3 : finalisation opérationnelle et observabilité
+  - [x] PR 3 : notifications et actions Telegram isolées par entreprise
 - [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard avancé,
       fallback multi-modèles
 
