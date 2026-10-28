@@ -1,7 +1,5 @@
-"""Sélection équitable et simulation en lecture seule du pipeline multi-tenant."""
+"""Sélection équitable et plan réel/simulé du pipeline multi-tenant."""
 
-import asyncio
-import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,8 +13,6 @@ from app.db.database import SessionLocal
 from app.modules.companies.models import Company
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.telegram.models import TelegramConnection
-
-logger = logging.getLogger(__name__)
 
 # 0x53524D54 = "SRMT". Le verrou est global à la base PostgreSQL.
 MULTI_TENANT_PIPELINE_LOCK_KEY = 0x53524D54
@@ -47,12 +43,16 @@ class PipelineRunBudget:
 
 @dataclass(frozen=True)
 class SimulationResult:
-    """Résultat public sûr; ``max_emails_cap`` est un plafond, pas un comptage."""
+    """Plan public sûr : éligibles, autorisées et plafonds, sans donnée privée."""
 
     status: str
     company_ids: tuple[int, ...]
+    processing_company_ids: tuple[int, ...]
     eligible_company_count: int
+    processing_company_count: int
+    simulation_company_count: int
     max_emails_cap: int
+    processing_max_emails_cap: int
     max_emails_per_company: int
     time_budget_seconds: int
 
@@ -60,8 +60,12 @@ class SimulationResult:
         return {
             "status": self.status,
             "company_ids": list(self.company_ids),
+            "processing_company_ids": list(self.processing_company_ids),
             "eligible_company_count": self.eligible_company_count,
+            "processing_company_count": self.processing_company_count,
+            "simulation_company_count": self.simulation_company_count,
             "max_emails_cap": self.max_emails_cap,
+            "processing_max_emails_cap": self.processing_max_emails_cap,
             "max_emails_per_company": self.max_emails_per_company,
             "time_budget_seconds": self.time_budget_seconds,
         }
@@ -72,6 +76,7 @@ class PreparedSimulationRun:
     """Passage préparé avant le 202, avec verrou conservé pour l'arrière-plan."""
 
     result: SimulationResult
+    plans: tuple[CompanyRunPlan, ...]
     lock_acquired: bool
     budget: PipelineRunBudget
     db: Session | None = field(default=None, repr=False)
@@ -98,6 +103,20 @@ def _configured_limits() -> tuple[int, int]:
         max(0, settings.MAX_EMAILS_PER_COMPANY_PER_RUN),
         max(0, settings.PIPELINE_RUN_TIME_BUDGET_SECONDS),
     )
+
+
+def parse_allowed_company_ids(raw_value: str | None = None) -> frozenset[int]:
+    """Parse l'allowlist CSV en mode fail-closed; vide signifie aucune entreprise."""
+    raw = settings.PIPELINE_ALLOWED_COMPANY_IDS if raw_value is None else raw_value
+    if not raw.strip():
+        return frozenset()
+    company_ids: set[int] = set()
+    for value in raw.split(","):
+        candidate = value.strip()
+        if not candidate.isdecimal() or int(candidate) <= 0:
+            raise ValueError("PIPELINE_ALLOWED_COMPANY_IDS invalide")
+        company_ids.add(int(candidate))
+    return frozenset(company_ids)
 
 
 def select_eligible_company_plans(
@@ -157,8 +176,9 @@ def build_simulation_result(
     *,
     max_emails_per_company: int | None = None,
     time_budget_seconds: int | None = None,
+    allowed_company_ids: frozenset[int] | None = None,
 ) -> tuple[SimulationResult, tuple[CompanyRunPlan, ...]]:
-    """Construit sans écriture la capacité théorique du prochain passage."""
+    """Construit sans écriture le plan réel/simulé du prochain passage."""
     configured_max, configured_budget = _configured_limits()
     email_limit = (
         configured_max
@@ -170,15 +190,24 @@ def build_simulation_result(
         if time_budget_seconds is None
         else max(0, time_budget_seconds)
     )
+    allowed = frozenset() if allowed_company_ids is None else allowed_company_ids
     plans = select_eligible_company_plans(
         db,
         max_emails_per_company=email_limit,
     )
+    company_ids = tuple(plan.company_id for plan in plans)
+    processing_company_ids = tuple(
+        plan.company_id for plan in plans if plan.company_id in allowed
+    )
     result = SimulationResult(
         status="accepted",
-        company_ids=tuple(plan.company_id for plan in plans),
+        company_ids=company_ids,
+        processing_company_ids=processing_company_ids,
         eligible_company_count=len(plans),
+        processing_company_count=len(processing_company_ids),
+        simulation_company_count=len(plans) - len(processing_company_ids),
         max_emails_cap=sum(plan.email_limit for plan in plans),
+        processing_max_emails_cap=len(processing_company_ids) * email_limit,
         max_emails_per_company=email_limit,
         time_budget_seconds=time_budget,
     )
@@ -198,8 +227,9 @@ def try_acquire_pipeline_lock(db: Session) -> bool:
 def prepare_multi_tenant_simulation(
     session_factory: Callable[[], Session] = SessionLocal,
 ) -> PreparedSimulationRun:
-    """Prend le verrou et sélectionne avant le 202, sans modifier de ligne."""
+    """Prend le verrou et sélectionne le plan avant le 202."""
     max_emails, time_budget = _configured_limits()
+    allowed_company_ids = parse_allowed_company_ids()
     budget = PipelineRunBudget(total_seconds=time_budget)
     db = session_factory()
     try:
@@ -211,22 +241,29 @@ def prepare_multi_tenant_simulation(
                 result=SimulationResult(
                     status="already_running",
                     company_ids=(),
+                    processing_company_ids=(),
                     eligible_company_count=0,
+                    processing_company_count=0,
+                    simulation_company_count=0,
                     max_emails_cap=0,
+                    processing_max_emails_cap=0,
                     max_emails_per_company=max_emails,
                     time_budget_seconds=time_budget,
                 ),
+                plans=(),
                 lock_acquired=False,
                 budget=budget,
             )
 
-        result, _ = build_simulation_result(
+        result, plans = build_simulation_result(
             db,
             max_emails_per_company=max_emails,
             time_budget_seconds=time_budget,
+            allowed_company_ids=allowed_company_ids,
         )
         return PreparedSimulationRun(
             result=result,
+            plans=plans,
             lock_acquired=True,
             budget=budget,
             db=db,
@@ -235,26 +272,3 @@ def prepare_multi_tenant_simulation(
         db.rollback()
         db.close()
         raise
-
-
-async def complete_multi_tenant_simulation(prepared: PreparedSimulationRun) -> None:
-    """Termine après le 202 et libère le verrou par rollback, sans écriture."""
-    await asyncio.sleep(0)
-    result = prepared.result
-    try:
-        logger.info(
-            "Simulation pipeline terminée: company_ids=%s "
-            "eligible_company_count=%d max_emails_cap=%d "
-            "max_emails_per_company=%d time_budget_seconds=%d",
-            list(result.company_ids),
-            result.eligible_company_count,
-            result.max_emails_cap,
-            result.max_emails_per_company,
-            result.time_budget_seconds,
-        )
-    finally:
-        if prepared.db is not None:
-            try:
-                prepared.db.rollback()
-            finally:
-                prepared.db.close()

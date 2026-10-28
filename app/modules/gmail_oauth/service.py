@@ -79,6 +79,7 @@ def save_refresh_token(db: Session, user_id: int, refresh_token: str) -> None:
     ).scalar_one_or_none()
     if existing:
         existing.encrypted_refresh_token = encrypted
+        existing.status = "connected"
         db.commit()
         return
     db.add(GmailConnection(user_id=user_id, encrypted_refresh_token=encrypted))
@@ -96,4 +97,5 @@ def get_connection(db: Session, user_id: int) -> GmailConnection | None:
 
 
 def is_connected(db: Session, user_id: int) -> bool:
-    return get_connection(db, user_id) is not None
+    connection = get_connection(db, user_id)
+    return connection is not None and connection.status == "connected"

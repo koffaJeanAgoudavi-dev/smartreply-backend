@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     PIPELINE_RUN_TIME_BUDGET_SECONDS: int = int(
         os.getenv("PIPELINE_RUN_TIME_BUDGET_SECONDS", "240")
     )
+    # Liste CSV d'identifiants internes. Vide = simulation pour toutes les entreprises.
+    PIPELINE_ALLOWED_COMPANY_IDS: str = os.getenv("PIPELINE_ALLOWED_COMPANY_IDS", "")
+    GEMINI_MAX_EMAIL_BODY_CHARS: int = int(
+        os.getenv("GEMINI_MAX_EMAIL_BODY_CHARS", "6000")
+    )
+    PIPELINE_PROCESSING_STALE_SECONDS: int = int(
+        os.getenv("PIPELINE_PROCESSING_STALE_SECONDS", "900")
+    )
 
     class Config:
         env_file = ".env"

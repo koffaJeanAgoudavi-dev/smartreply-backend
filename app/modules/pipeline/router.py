@@ -20,10 +20,8 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.modules.pipeline.service import run_pipeline
-from app.modules.pipeline_selection.service import (
-    complete_multi_tenant_simulation,
-    prepare_multi_tenant_simulation,
-)
+from app.modules.pipeline_execution.service import complete_multi_tenant_run
+from app.modules.pipeline_selection.service import prepare_multi_tenant_simulation
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/pipeline", tags=["Pipeline"])
@@ -35,7 +33,7 @@ CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 @router.post("/run")
 async def run(request: Request, background_tasks: BackgroundTasks):
-    """Lance le chemin historique ou prépare la simulation multi-tenant."""
+    """Lance le chemin historique ou prépare le passage multi-tenant."""
     if CRON_SECRET and request.headers.get("X-CRON-SECRET") != CRON_SECRET:
         raise HTTPException(status_code=401, detail="Non autorisé")
 
@@ -65,7 +63,7 @@ async def run(request: Request, background_tasks: BackgroundTasks):
 
     if prepared.lock_acquired:
         background_tasks.add_task(
-            complete_multi_tenant_simulation,
+            complete_multi_tenant_run,
             prepared,
         )
 
