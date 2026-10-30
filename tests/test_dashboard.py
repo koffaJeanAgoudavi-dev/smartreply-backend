@@ -54,7 +54,7 @@ class DashboardStaticTests(unittest.TestCase):
             re.compile(r'<(?:script|link)[^>]+(?:src|href)=["\']https?://', re.I),
         )
 
-    def test_dashboard_hides_duplicate_integrations_but_keeps_integration_page(self):
+    def test_dashboard_keeps_counter_but_hides_duplicate_integration_section(self):
         response = self.client.get("/dashboard/")
 
         self.assertEqual(response.status_code, 200)
@@ -69,7 +69,6 @@ class DashboardStaticTests(unittest.TestCase):
 
         for removed_dashboard_element in (
             "integration-summary-title",
-            "dashboard-connected-count",
             "dashboard-gmail-status",
             "dashboard-sheet-status",
             "dashboard-telegram-status",
@@ -78,6 +77,8 @@ class DashboardStaticTests(unittest.TestCase):
             self.assertNotIn(removed_dashboard_element, dashboard_markup)
 
         for preserved_dashboard_element in (
+            'id="dashboard-connected-count"',
+            "intégrations connectées",
             'id="metric-analyzed"',
             'id="metric-processed"',
             'id="metric-ignored"',
@@ -127,10 +128,13 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn('setStatus($("gmail-status")', js_response.text)
         self.assertIn('setStatus($("sheet-status")', js_response.text)
         self.assertIn('setStatus($("telegram-status")', js_response.text)
+        self.assertIn(
+            '$("dashboard-connected-count").textContent = `${count}/3`',
+            js_response.text,
+        )
         self.assertNotIn("dashboard-gmail-status", js_response.text)
         self.assertNotIn("dashboard-sheet-status", js_response.text)
         self.assertNotIn("dashboard-telegram-status", js_response.text)
-        self.assertNotIn("dashboard-connected-count", js_response.text)
         self.assertNotIn("pipeline sera branché à votre compte", js_response.text)
 
     def test_existing_health_endpoint_is_unchanged(self):

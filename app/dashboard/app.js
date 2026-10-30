@@ -486,6 +486,7 @@
     setStatus($("telegram-status"), integrations.telegram, integrations.telegramError);
 
     const count = connectedCount();
+    $("dashboard-connected-count").textContent = `${count}/3`;
     $("integrations-progress").textContent = `${count}/3`;
 
     const banner = $("readiness-banner");
