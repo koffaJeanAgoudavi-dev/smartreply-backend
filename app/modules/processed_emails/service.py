@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.modules.dashboard.models import CompanyActivityEvent
 from app.modules.processed_emails.models import ProcessedEmail
 
 MAX_PROCESSING_ATTEMPTS = 3
@@ -39,6 +40,23 @@ def _validated_error_code(code: str) -> str:
     if not _SAFE_ERROR_CODE.fullmatch(normalized):
         return "internal_error"
     return normalized
+
+
+def _add_activity_event(
+    db: Session,
+    *,
+    company_id: int,
+    record_id: int,
+    event_type: str,
+) -> None:
+    """Ajoute l'événement dans la transaction qui a gagné la transition."""
+    db.add(
+        CompanyActivityEvent(
+            company_id=company_id,
+            processed_email_id=record_id,
+            event_type=event_type,
+        )
+    )
 
 
 def _reservation_from_record(record: ProcessedEmail) -> EmailReservation:
@@ -164,6 +182,12 @@ def record_gmail_draft_id(
             if result.rowcount != 1:
                 db.rollback()
                 raise RuntimeError("processed_email_state_conflict")
+            _add_activity_event(
+                db,
+                company_id=reservation.company_id,
+                record_id=reservation.record_id,
+                event_type="draft_created",
+            )
             db.commit()
             return replace(
                 reservation,
@@ -183,7 +207,22 @@ def _set_status(
     *,
     status: str,
     last_error_code: str | None,
+    category: str | None = None,
+    priority: str | None = None,
+    received_at: datetime | None = None,
+    event_type: str | None = None,
 ) -> None:
+    values = {
+        "status": status,
+        "last_error_code": last_error_code,
+        "updated_at": func.now(),
+    }
+    if event_type is not None:
+        values.update(
+            category=category,
+            priority=priority,
+            received_at=received_at,
+        )
     result = db.execute(
         update(ProcessedEmail)
         .where(
@@ -193,24 +232,69 @@ def _set_status(
             ProcessedEmail.status == "processing",
             ProcessedEmail.attempts == reservation.attempt,
         )
-        .values(
-            status=status,
-            last_error_code=last_error_code,
-            updated_at=func.now(),
-        )
+        .values(**values)
     )
     if result.rowcount != 1:
         db.rollback()
         raise RuntimeError("processed_email_state_conflict")
+    if event_type is not None:
+        _add_activity_event(
+            db,
+            company_id=reservation.company_id,
+            record_id=reservation.record_id,
+            event_type=event_type,
+        )
     db.commit()
 
 
-def mark_done(db: Session, reservation: EmailReservation) -> None:
-    _set_status(db, reservation, status="done", last_error_code=None)
+def mark_done(
+    db: Session,
+    reservation: EmailReservation,
+    *,
+    category: str,
+    priority: str,
+    received_at: datetime,
+) -> None:
+    _set_status(
+        db,
+        reservation,
+        status="done",
+        last_error_code=None,
+        category=category,
+        priority=priority,
+        received_at=received_at,
+        event_type="email_processed",
+    )
 
 
-def mark_skipped(db: Session, reservation: EmailReservation) -> None:
-    _set_status(db, reservation, status="skipped", last_error_code=None)
+def mark_excluded(db: Session, reservation: EmailReservation) -> None:
+    """Finalise un email hors fenêtre sans le qualifier comme analysé."""
+    _set_status(
+        db,
+        reservation,
+        status="excluded",
+        last_error_code=None,
+    )
+
+
+def mark_skipped(
+    db: Session,
+    reservation: EmailReservation,
+    *,
+    category: str | None = None,
+    priority: str | None = None,
+    received_at: datetime | None = None,
+) -> None:
+    _set_status(
+        db,
+        reservation,
+        status="skipped",
+        last_error_code=None,
+        category=category,
+        priority=priority,
+        received_at=received_at,
+        event_type="email_skipped",
+    )
 
 
 def mark_failed(
@@ -371,6 +455,12 @@ def mark_notification_sent(
     if result.rowcount != 1:
         db.rollback()
         raise RuntimeError("processed_email_notification_conflict")
+    _add_activity_event(
+        db,
+        company_id=company_id,
+        record_id=record_id,
+        event_type="notification_sent",
+    )
     db.commit()
 
 
@@ -462,6 +552,12 @@ def claim_draft_discard(db: Session, *, company_id: int, record_id: int) -> bool
     if result.rowcount != 1:
         db.rollback()
         return False
+    _add_activity_event(
+        db,
+        company_id=company_id,
+        record_id=record_id,
+        event_type="draft_discarded",
+    )
     db.commit()
     return True
 
@@ -492,6 +588,13 @@ def transition_draft_status(
     if result.rowcount != 1:
         db.rollback()
         return False
+    if target_status == "sent":
+        _add_activity_event(
+            db,
+            company_id=company_id,
+            record_id=record_id,
+            event_type="draft_sent",
+        )
     db.commit()
     return True
 

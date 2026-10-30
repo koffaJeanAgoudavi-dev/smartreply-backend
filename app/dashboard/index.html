@@ -241,9 +241,14 @@
               <h1 id="dashboard-title">Bonjour, <span id="greeting-name">Utilisateur</span> <span aria-hidden="true">👋</span></h1>
               <p>Voici l'état de configuration de votre assistant intelligent.</p>
             </div>
-            <div class="connection-counter" aria-live="polite">
-              <span class="counter-icon"><svg><use href="#icon-link"></use></svg></span>
-              <span><strong id="dashboard-connected-count">0/3</strong><small>intégrations connectées</small></span>
+            <div class="dashboard-heading-actions">
+              <button id="refresh-dashboard" class="button button-ghost" type="button">
+                <svg><use href="#icon-refresh"></use></svg><span>Actualiser</span>
+              </button>
+              <div class="connection-counter" aria-live="polite">
+                <span class="counter-icon"><svg><use href="#icon-link"></use></svg></span>
+                <span><strong id="dashboard-connected-count">0/3</strong><small>intégrations connectées</small></span>
+              </div>
             </div>
           </div>
 
@@ -271,14 +276,89 @@
             </div>
           </section>
 
-          <section class="empty-state" aria-labelledby="empty-state-title">
+          <div id="dashboard-data-error" class="form-alert error" role="alert" hidden></div>
+
+          <section id="dashboard-stats" class="section-block" aria-labelledby="dashboard-stats-title" aria-busy="true">
+            <div class="section-heading-row">
+              <div>
+                <h2 id="dashboard-stats-title">Indicateurs essentiels</h2>
+                <p>Calculés depuis les traitements enregistrés pour votre entreprise.</p>
+              </div>
+            </div>
+            <div class="stats-grid">
+              <article class="metric-card">
+                <span class="metric-icon"><svg><use href="#icon-chart"></use></svg></span>
+                <div><small>Emails analysés</small><strong id="metric-analyzed">—</strong><p>Traités et ignorés</p></div>
+              </article>
+              <article class="metric-card">
+                <span class="metric-icon"><svg><use href="#icon-mail"></use></svg></span>
+                <div><small>Emails traités</small><strong id="metric-processed">—</strong><p>Avec brouillon finalisé</p></div>
+              </article>
+              <article class="metric-card">
+                <span class="metric-icon muted"><svg><use href="#icon-close"></use></svg></span>
+                <div><small>Emails ignorés</small><strong id="metric-ignored">—</strong><p>Écartés après analyse</p></div>
+              </article>
+              <article class="metric-card">
+                <span class="metric-icon warning"><svg><use href="#icon-clock"></use></svg></span>
+                <div><small>Brouillons en attente</small><strong id="metric-pending">—</strong><p>En attente d'une action</p></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="section-block" aria-labelledby="dashboard-charts-title">
+            <div class="section-heading-row">
+              <div>
+                <h2 id="dashboard-charts-title">Analyse de l'activité</h2>
+                <p>Aucune estimation ni donnée de démonstration.</p>
+              </div>
+            </div>
+            <div class="charts-grid">
+              <article class="chart-card">
+                <div class="card-heading"><div><h3>Volume analysé</h3><p>14 derniers jours</p></div></div>
+                <div id="volume-chart" class="chart-content" aria-label="Volume des emails analysés"><span class="data-loading"><span class="spinner"></span>Chargement…</span></div>
+              </article>
+              <article class="chart-card">
+                <div class="card-heading"><div><h3>Catégories</h3><p>Répartition des analyses connues</p></div></div>
+                <div id="category-chart" class="chart-content" aria-label="Répartition par catégorie"><span class="data-loading"><span class="spinner"></span>Chargement…</span></div>
+              </article>
+              <article class="chart-card">
+                <div class="card-heading"><div><h3>Priorités</h3><p>Niveaux attribués par l'analyse</p></div></div>
+                <div id="priority-chart" class="chart-content" aria-label="Répartition par priorité"><span class="data-loading"><span class="spinner"></span>Chargement…</span></div>
+              </article>
+            </div>
+            <p id="analytics-history-note" class="history-note" hidden>Les catégories, priorités et événements historiques sont enregistrés à partir de l'activation de la Phase B.</p>
+          </section>
+
+          <div class="dashboard-detail-grid">
+            <section class="data-card recent-emails-card" aria-labelledby="recent-emails-title">
+              <div class="card-heading">
+                <div><h2 id="recent-emails-title">Emails récents</h2><p>Données du Google Sheet de votre entreprise.</p></div>
+              </div>
+              <div id="recent-emails-state" class="data-state" role="status"><span class="spinner"></span>Chargement des emails…</div>
+              <div id="recent-emails-table-wrap" class="table-wrap" hidden>
+                <table>
+                  <thead><tr><th>Expéditeur</th><th>Objet</th><th>Date</th><th>Catégorie</th><th>Priorité</th><th>Statut</th></tr></thead>
+                  <tbody id="recent-emails-body"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="data-card activity-card" aria-labelledby="recent-activity-title">
+              <div class="card-heading">
+                <div><h2 id="recent-activity-title">Activité récente</h2><p>Transitions réellement enregistrées dans Neon.</p></div>
+              </div>
+              <div id="recent-activity-state" class="data-state" role="status"><span class="spinner"></span>Chargement de l'activité…</div>
+              <ol id="recent-activity-list" class="activity-list" hidden></ol>
+            </section>
+          </div>
+
+          <section id="dashboard-empty-state" class="empty-state compact" aria-labelledby="empty-state-title" hidden>
             <div class="empty-illustration" aria-hidden="true">
               <span class="empty-chart-icon"><svg><use href="#icon-chart"></use></svg></span>
             </div>
             <span class="eyebrow">Votre activité SmartReply</span>
-            <h2 id="empty-state-title">Vos statistiques apparaîtront dès que le traitement des emails démarrera.</h2>
-            <p>Terminez la connexion des trois intégrations pour préparer votre espace. Aucune donnée de démonstration n'est affichée.</p>
-            <a class="button button-secondary" href="#integrations">Configurer mes intégrations <svg><use href="#icon-arrow"></use></svg></a>
+            <h2 id="empty-state-title">Aucun traitement n'est encore enregistré.</h2>
+            <p>Les indicateurs apparaîtront après les premiers emails analysés. Aucune donnée de démonstration n'est affichée.</p>
           </section>
         </section>
 

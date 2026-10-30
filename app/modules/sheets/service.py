@@ -40,6 +40,49 @@ def get_company_workbook(sheet_id: str):
     return _get_workbook_by_id(sheet_id, require_nonempty_id=True)
 
 
+def list_company_email_rows(workbook) -> list[dict[str, str]]:
+    """Lit les colonnes publiques d'Emails, sans contenu ni identifiant draft."""
+    worksheet = workbook.worksheet("Emails")
+    identity_rows = worksheet.get("A:C")
+    analytics_rows = worksheet.get("E:G")
+    if not identity_rows and not analytics_rows:
+        return []
+    if (
+        not identity_rows
+        or identity_rows[0][:3] != EMAIL_HEADERS[:3]
+        or not analytics_rows
+        or analytics_rows[0][:3] != EMAIL_HEADERS[4:7]
+    ):
+        raise RuntimeError("company_sheet_headers_invalid")
+
+    result = []
+    row_count = max(len(identity_rows), len(analytics_rows))
+    for row_index in range(1, row_count):
+        identity = (
+            list(identity_rows[row_index][:3])
+            if row_index < len(identity_rows)
+            else []
+        )
+        analytics = (
+            list(analytics_rows[row_index][:3])
+            if row_index < len(analytics_rows)
+            else []
+        )
+        identity.extend([""] * (3 - len(identity)))
+        analytics.extend([""] * (3 - len(analytics)))
+        result.append(
+            {
+                "email_id": str(identity[0]),
+                "sender": str(identity[1]),
+                "subject": str(identity[2]),
+                "category": str(analytics[0]),
+                "priority": str(analytics[1]),
+                "status": str(analytics[2]),
+            }
+        )
+    return result
+
+
 def _row_with_value(rows: list[list[str]], column: int, value: str) -> int | None:
     for row_index, row in enumerate(rows[1:], start=2):
         if len(row) > column and str(row[column]) == value:

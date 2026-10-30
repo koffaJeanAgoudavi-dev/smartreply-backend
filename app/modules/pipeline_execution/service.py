@@ -43,6 +43,7 @@ from app.modules.processed_emails.service import (
     claim_notification_attempt,
     list_pending_notifications,
     mark_done,
+    mark_excluded,
     mark_failed,
     mark_notification_blocked,
     mark_notification_sent,
@@ -81,6 +82,7 @@ class CompanyExecutionContext:
 class CompanyRunCounters:
     processed: int = 0
     skipped: int = 0
+    excluded: int = 0
     failed: int = 0
     quota_stopped: bool = False
     token_revoked: bool = False
@@ -91,6 +93,7 @@ class CompanyRunCounters:
 class PipelineRunSummary:
     processed: int = 0
     skipped: int = 0
+    excluded: int = 0
     failed: int = 0
     attempted_company_ids: list[int] = field(default_factory=list)
     revoked_company_ids: list[int] = field(default_factory=list)
@@ -100,6 +103,7 @@ class PipelineRunSummary:
     def add_company(self, company_id: int, counters: CompanyRunCounters) -> None:
         self.processed += counters.processed
         self.skipped += counters.skipped
+        self.excluded += counters.excluded
         self.failed += counters.failed
         self.attempted_company_ids.append(company_id)
         if counters.company_failed:
@@ -399,7 +403,11 @@ async def _process_reserved_email(
             )
             _with_record_session(
                 session_factory,
-                lambda db: mark_skipped(db, reservation),
+                lambda db: mark_skipped(
+                    db,
+                    reservation,
+                    received_at=email["received_at"],
+                ),
             )
             return "skipped", workbook
 
@@ -412,6 +420,16 @@ async def _process_reserved_email(
         )
         required_keys = {"urgence", "categorie", "resume", "brouillon"}
         if not isinstance(analysis, dict) or not required_keys.issubset(analysis):
+            raise ValueError("gemini_response_invalid")
+        if analysis["categorie"] not in {
+            "devis",
+            "support",
+            "facturation",
+            "partenariat",
+            "spam",
+            "newsletter",
+            "autre",
+        } or analysis["urgence"] not in {"haute", "moyenne", "basse"}:
             raise ValueError("gemini_response_invalid")
 
         workbook = workbook or get_company_workbook(context.sheet_id)
@@ -429,7 +447,13 @@ async def _process_reserved_email(
             )
             _with_record_session(
                 session_factory,
-                lambda db: mark_skipped(db, reservation),
+                lambda db: mark_skipped(
+                    db,
+                    reservation,
+                    category=analysis["categorie"],
+                    priority=analysis["urgence"],
+                    received_at=email["received_at"],
+                ),
             )
             return "skipped", workbook
 
@@ -493,7 +517,13 @@ async def _process_reserved_email(
         )
         _with_record_session(
             session_factory,
-            lambda db: mark_done(db, reservation),
+            lambda db: mark_done(
+                db,
+                reservation,
+                category=analysis["categorie"],
+                priority=analysis["urgence"],
+                received_at=email["received_at"],
+            ),
         )
         if reservation.callback_token is not None:
             try:
@@ -626,9 +656,9 @@ async def _run_company(
                 ):
                     _with_record_session(
                         session_factory,
-                        lambda db: mark_skipped(db, reservation),
+                        lambda db: mark_excluded(db, reservation),
                     )
-                    counters.skipped += 1
+                    counters.excluded += 1
                     continue
                 try:
                     outcome, workbook = await _process_reserved_email(
@@ -695,13 +725,14 @@ async def complete_multi_tenant_run(prepared: PreparedSimulationRun) -> None:
         logger.info(
             "Pipeline multi-tenant terminé: attempted_company_ids=%s "
             "revoked_company_ids=%s quota_stopped_company_ids=%s "
-            "failed_company_ids=%s processed=%d skipped=%d failed=%d",
+            "failed_company_ids=%s processed=%d skipped=%d excluded=%d failed=%d",
             summary.attempted_company_ids,
             summary.revoked_company_ids,
             summary.quota_stopped_company_ids,
             summary.failed_company_ids,
             summary.processed,
             summary.skipped,
+            summary.excluded,
             summary.failed,
         )
     except Exception as exc:

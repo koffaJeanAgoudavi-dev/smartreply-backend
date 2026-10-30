@@ -39,6 +39,8 @@ class LegacyRoutesRemovedTests(unittest.TestCase):
         self.assertIn("/api/v1/gmail/status", paths)
         self.assertIn("/api/v1/companies", paths)
         self.assertIn("/api/v1/telegram/webhook", paths)
+        self.assertIn("/api/v1/dashboard/overview", paths)
+        self.assertIn("/api/v1/dashboard/recent-emails", paths)
         mounted_paths = {
             route.path
             for route in app.routes

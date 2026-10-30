@@ -12,6 +12,8 @@ from sqlalchemy.pool import StaticPool
 from app.db.database import Base
 from app.modules.auth.models import User
 from app.modules.companies.models import Company
+from app.modules.dashboard.models import CompanyActivityEvent
+from app.modules.dashboard.service import get_dashboard_overview
 from app.modules.gmail.service import GmailTokenRevokedError
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.pipeline_execution import service
@@ -346,6 +348,7 @@ class PipelineExecutionTests(unittest.TestCase):
         plan = self.create_company("Cutoff", activated_at=self.activation)
         prepared = self.prepared([plan])
         analyzed_bodies = []
+        filter_email = Mock(return_value={"decision": "traiter"})
 
         async def get_email(_token, gmail_message_id):
             if gmail_message_id == "at-cutoff":
@@ -372,9 +375,7 @@ class PipelineExecutionTests(unittest.TestCase):
                 new=AsyncMock(return_value=(("at-cutoff", "after-cutoff"), None)),
             ),
             patch.object(service, "get_company_email", side_effect=get_email),
-            patch.object(
-                service, "should_process", return_value={"decision": "traiter"}
-            ),
+            patch.object(service, "should_process", side_effect=filter_email),
             patch.object(service, "analyze_email", side_effect=analyze),
             patch.object(service, "get_company_workbook", return_value="workbook"),
             patch.object(service, "upsert_company_email"),
@@ -394,10 +395,45 @@ class PipelineExecutionTests(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(summary.skipped, 1)
+        self.assertEqual(summary.excluded, 1)
+        self.assertEqual(summary.skipped, 0)
         self.assertEqual(summary.processed, 1)
+        self.assertEqual(filter_email.call_count, 1)
         self.assertEqual(len(analyzed_bodies), 1)
         self.assertEqual(len(analyzed_bodies[0]), 12)
+        with self.session_factory() as db:
+            records = db.scalars(
+                select(ProcessedEmail).order_by(ProcessedEmail.id)
+            ).all()
+            events = db.scalars(
+                select(CompanyActivityEvent).order_by(CompanyActivityEvent.id)
+            ).all()
+            overview = get_dashboard_overview(
+                db,
+                company_id=plan.company_id,
+            )
+        self.assertEqual(records[0].status, "excluded")
+        self.assertIsNone(records[0].received_at)
+        self.assertIsNone(records[0].category)
+        self.assertEqual(records[1].status, "done")
+        self.assertEqual(records[1].category, "support")
+        self.assertEqual(records[1].priority, "moyenne")
+        self.assertEqual(
+            records[1].received_at.replace(tzinfo=timezone.utc),
+            self.activation + timedelta(milliseconds=1),
+        )
+        self.assertEqual(
+            {event.event_type for event in events},
+            {"draft_created", "email_processed"},
+        )
+        self.assertEqual(overview.metrics.analyzed_emails, 1)
+        self.assertEqual(overview.metrics.processed_emails, 1)
+        self.assertEqual(overview.metrics.ignored_emails, 0)
+        self.assertEqual(sum(point.count for point in overview.volume), 1)
+        self.assertNotIn(
+            "email_skipped",
+            {item.event_type for item in overview.recent_activity},
+        )
 
     def test_repeated_pass_does_not_process_the_same_email_twice(self):
         plan = self.create_company("Dedupe", activated_at=self.activation)
@@ -629,7 +665,7 @@ class PipelineExecutionTests(unittest.TestCase):
         self.assertEqual(record.status, "processing")
         self.assertEqual(record.attempts, 3)
 
-    def test_per_company_cap_limits_reserved_messages(self):
+    def test_filter_ignored_emails_are_analyzed_and_respect_company_cap(self):
         plan = self.create_company("Cap", activated_at=self.activation, email_limit=2)
         prepared = self.prepared([plan])
         detail = AsyncMock(
@@ -664,9 +700,29 @@ class PipelineExecutionTests(unittest.TestCase):
             )
 
         self.assertEqual(summary.skipped, 2)
+        self.assertEqual(summary.excluded, 0)
         self.assertEqual(detail.await_count, 2)
         with self.session_factory() as db:
-            self.assertEqual(len(db.execute(select(ProcessedEmail)).scalars().all()), 2)
+            records = db.scalars(select(ProcessedEmail)).all()
+            events = db.scalars(select(CompanyActivityEvent)).all()
+            overview = get_dashboard_overview(
+                db,
+                company_id=plan.company_id,
+            )
+        self.assertEqual(len(records), 2)
+        self.assertEqual({record.status for record in records}, {"skipped"})
+        self.assertEqual(
+            [event.event_type for event in events],
+            ["email_skipped", "email_skipped"],
+        )
+        self.assertEqual(overview.metrics.analyzed_emails, 2)
+        self.assertEqual(overview.metrics.processed_emails, 0)
+        self.assertEqual(overview.metrics.ignored_emails, 2)
+        self.assertEqual(sum(point.count for point in overview.volume), 2)
+        self.assertEqual(
+            {item.event_type for item in overview.recent_activity},
+            {"email_skipped"},
+        )
 
     def test_three_failures_are_the_maximum(self):
         plan = self.create_company("Retry", activated_at=self.activation)

@@ -373,6 +373,7 @@ class PipelineLockTests(unittest.TestCase):
         summary = execution_service.PipelineRunSummary(
             processed=1,
             skipped=1,
+            excluded=2,
             failed=0,
             attempted_company_ids=[12, 34],
         )
@@ -393,7 +394,7 @@ class PipelineLockTests(unittest.TestCase):
         log_format, *log_values = log_info.call_args.args
         rendered = log_format % tuple(log_values)
         self.assertIn("attempted_company_ids=[12, 34]", rendered)
-        self.assertIn("processed=1 skipped=1 failed=0", rendered)
+        self.assertIn("processed=1 skipped=1 excluded=2 failed=0", rendered)
         self.assertNotIn("@", rendered)
         self.assertNotIn("token", rendered.lower())
         self.assertNotIn("chat", rendered.lower())
