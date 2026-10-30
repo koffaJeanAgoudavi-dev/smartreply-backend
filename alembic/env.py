@@ -21,6 +21,7 @@ from app.core.config import settings  # noqa: E402
 from app.db.database import Base, _normalize_url  # noqa: E402
 from app.modules.auth import models  # noqa: E402, F401 — table users dans Base.metadata
 from app.modules.companies import models as companies_models  # noqa: E402, F401 — table companies
+from app.modules.dashboard import models as dashboard_models  # noqa: E402, F401
 from app.modules.gmail_oauth import models as gmail_oauth_models  # noqa: E402, F401 — table gmail_connections
 from app.modules.processed_emails import models as processed_email_models  # noqa: E402, F401
 from app.modules.telegram import models as telegram_models  # noqa: E402, F401 — tables Telegram

@@ -37,14 +37,17 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("Bientôt", response.text)
         self.assertIn('id="register-invitation"', response.text)
         self.assertIn("Code d'invitation", response.text)
-        self.assertIn("Le traitement n'est pas encore activé", response.text)
-        self.assertIn("Vos statistiques apparaîtront", response.text)
-        for excluded_feature in (
-            "Plan Pro",
-            "Système actif",
-            "Activité récente",
-            "Derniers emails traités",
-        ):
+        self.assertIn("Indicateurs essentiels", response.text)
+        self.assertIn("Emails analysés", response.text)
+        self.assertIn("Emails traités", response.text)
+        self.assertIn("Emails ignorés", response.text)
+        self.assertIn("Brouillons en attente", response.text)
+        self.assertIn("Emails récents", response.text)
+        self.assertIn("Activité récente", response.text)
+        self.assertIn('id="recent-emails-state"', response.text)
+        self.assertIn('id="dashboard-empty-state"', response.text)
+        self.assertIn('id="dashboard-data-error"', response.text)
+        for excluded_feature in ("Plan Pro", "Système actif"):
             self.assertNotIn(excluded_feature, response.text)
         self.assertNotRegex(
             response.text,
@@ -65,10 +68,13 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn('"smartreply_access_token"', js_response.text)
         self.assertIn('"/api/v1/gmail/connect"', js_response.text)
         self.assertIn('"/api/v1/telegram/link-code"', js_response.text)
+        self.assertIn('"/api/v1/dashboard/overview"', js_response.text)
+        self.assertIn('"/api/v1/dashboard/recent-emails"', js_response.text)
         self.assertIn("invitation_code", js_response.text)
         self.assertIn("Code d'invitation invalide.", js_response.text)
-        self.assertIn("pipeline sera branché à votre compte", js_response.text)
-        self.assertNotIn("Le traitement des emails peut démarrer", js_response.text)
+        self.assertIn("renderVolumeChart", js_response.text)
+        self.assertIn("renderRecentEmails", js_response.text)
+        self.assertNotIn("pipeline sera branché à votre compte", js_response.text)
 
     def test_existing_health_endpoint_is_unchanged(self):
         response = self.client.get("/health")

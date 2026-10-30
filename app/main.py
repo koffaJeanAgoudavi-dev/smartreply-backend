@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
+from app.modules.dashboard.router import router as dashboard_router
 from app.modules.gmail_oauth.router import router as gmail_oauth_router
 from app.modules.pipeline.router import router as pipeline_router
 from app.modules.telegram.router import router as telegram_router
@@ -22,6 +23,7 @@ app.include_router(pipeline_router)
 app.include_router(auth_router)
 app.include_router(gmail_oauth_router)
 app.include_router(companies_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/")

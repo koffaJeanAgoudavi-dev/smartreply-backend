@@ -54,7 +54,7 @@ son propre Google Sheet.
 ```
 app/
 ├── main.py                  # Point d'entrée FastAPI + routeurs + montage /dashboard
-├── dashboard/               # Phase A : HTML/CSS/JS statiques, sans build
+├── dashboard/               # Dashboard Phase B : HTML/CSS/JS statiques, sans build
 ├── core/
 │   └── config.py            # Configuration (variables d'environnement)
 ├── db/
@@ -75,7 +75,8 @@ app/
     ├── pipeline/            # Point d'entrée cron protégé
     ├── pipeline_selection/  # Sélection, allowlist, équité et verrou
     ├── pipeline_execution/  # Flux réel isolé Gmail → Sheet → brouillon
-    └── processed_emails/    # Dédoublonnage et tentatives dans Neon
+    ├── processed_emails/    # Dédoublonnage et tentatives dans Neon
+    └── dashboard/           # Agrégats tenant-scoped, activité et emails récents
 alembic/                     # Migrations PostgreSQL versionnées
 scripts/
 └── setup_webhook.py         # Pointe le webhook Telegram vers ce service
@@ -175,7 +176,7 @@ code ne les lit et ne les modifie plus. La liaison Telegram s'appuie uniquement
 sur Neon. Les anciens boutons reçoivent une réponse indiquant qu'ils ne sont
 plus actifs, sans action Gmail ni Sheet.
 
-### Dashboard Phase A
+### Dashboard Phases A et B
 
 FastAPI sert directement le dashboard à l'adresse `/dashboard` sur la même
 origine que l'API. L'interface utilise uniquement HTML, CSS et JavaScript
@@ -188,15 +189,35 @@ La Phase A comprend :
 - création de l'entreprise et accès à son Google Sheet ;
 - accueil sans données fictives, avec le nombre réel d'intégrations connectées ;
 - connexion Gmail, suivi Telegram par code temporaire et statuts réels ;
-- navigation mobile repliable et écrans Phase B explicitement marqués
-  « Bientôt ».
+- navigation mobile repliable et interface responsive.
+
+La Phase B ajoute des données réelles, sans backfill historique fictif :
+
+- `GET /api/v1/dashboard/overview` calcule, dans Neon et uniquement pour
+  l'entreprise du JWT, les emails analysés (`done + skipped`), traités (`done`),
+  ignorés (`skipped`), les brouillons en attente (`draft_status = pending`),
+  le volume des 14 derniers jours, les catégories, les priorités et l'activité ;
+- `GET /api/v1/dashboard/recent-emails` ouvre en lecture seule l'onglet
+  `Emails` du Sheet de cette même entreprise. Chaque `EM-<id>` doit appartenir
+  au registre Neon du tenant avant affichage ; le nom expéditeur est nettoyé et
+  aucune adresse, résumé, contenu, ID interne ou brouillon n'est retourné ;
+- `company_activity_events` conserve uniquement la référence interne, le type
+  d'une transition effectivement réussie et son horodatage. Une contrainte
+  `(processed_email_id, event_type)` empêche les doublons ;
+- le dashboard gère séparément les états chargement, vide, erreur et données,
+  afin qu'une panne du Sheet n'empêche pas l'affichage des agrégats Neon.
+
+La migration `b7d9e3f1a5c2` ajoute les colonnes nullable `category`, `priority`
+et `received_at` à `processed_emails`, ainsi que la table d'activité. Elle ne
+modifie aucun onglet Google Sheets et ne reconstitue aucun historique : les
+événements commencent après son application.
 
 Après le consentement Google, `/api/v1/gmail/callback` enregistre toujours le
 refresh token chiffré côté serveur, puis redirige le navigateur vers
 `/dashboard/?gmail=connected#integrations`. Le dashboard recharge ensuite le
 statut Gmail ; aucun token Google n'est envoyé au navigateur.
 
-#### Checklist de test manuel Phase A
+#### Checklist de test manuel du dashboard
 
 - [ ] Ouvrir `/dashboard` sur ordinateur puis sur un écran mobile étroit ;
       vérifier le menu repliable et l'absence de débordement horizontal.
@@ -211,12 +232,16 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
       vérifier le retour automatique sur Intégrations avec Gmail connecté.
 - [ ] Générer un code Telegram, envoyer la commande `/start …` au bot sans
       partager le code, puis vérifier le passage automatique à « Connecté ».
-- [ ] Vérifier l'indicateur `3/3` et le bandeau précisant que le traitement
-      attend encore le branchement du pipeline utilisateur.
+- [ ] Vérifier l'indicateur `3/3`, puis les quatre cartes et les graphiques
+      après au moins un email `done` ou `skipped`.
+- [ ] Vérifier qu'un Sheet vide affiche un état vide et qu'un Sheet inaccessible
+      affiche une erreur locale sans masquer les statistiques Neon.
+- [ ] Vérifier que les emails récents ne montrent aucune adresse expéditeur,
+      aucun résumé, contenu, brouillon ou identifiant technique.
 - [ ] Se déconnecter, se reconnecter et vérifier qu'un JWT invalide ou expiré
       renvoie vers la connexion.
-- [ ] Vérifier que l'accueil n'affiche ni statistiques, ni emails, ni activité
-      factices avant le démarrage réel du traitement.
+- [ ] Vérifier qu'un compte sans historique reste à zéro, sans statistiques,
+      emails ou activités factices.
 
 ### Pipeline multi-entreprises — Étape 3, PR 1 à PR 3
 

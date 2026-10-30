@@ -399,7 +399,11 @@ async def _process_reserved_email(
             )
             _with_record_session(
                 session_factory,
-                lambda db: mark_skipped(db, reservation),
+                lambda db: mark_skipped(
+                    db,
+                    reservation,
+                    received_at=email["received_at"],
+                ),
             )
             return "skipped", workbook
 
@@ -412,6 +416,16 @@ async def _process_reserved_email(
         )
         required_keys = {"urgence", "categorie", "resume", "brouillon"}
         if not isinstance(analysis, dict) or not required_keys.issubset(analysis):
+            raise ValueError("gemini_response_invalid")
+        if analysis["categorie"] not in {
+            "devis",
+            "support",
+            "facturation",
+            "partenariat",
+            "spam",
+            "newsletter",
+            "autre",
+        } or analysis["urgence"] not in {"haute", "moyenne", "basse"}:
             raise ValueError("gemini_response_invalid")
 
         workbook = workbook or get_company_workbook(context.sheet_id)
@@ -429,7 +443,13 @@ async def _process_reserved_email(
             )
             _with_record_session(
                 session_factory,
-                lambda db: mark_skipped(db, reservation),
+                lambda db: mark_skipped(
+                    db,
+                    reservation,
+                    category=analysis["categorie"],
+                    priority=analysis["urgence"],
+                    received_at=email["received_at"],
+                ),
             )
             return "skipped", workbook
 
@@ -493,7 +513,13 @@ async def _process_reserved_email(
         )
         _with_record_session(
             session_factory,
-            lambda db: mark_done(db, reservation),
+            lambda db: mark_done(
+                db,
+                reservation,
+                category=analysis["categorie"],
+                priority=analysis["urgence"],
+                received_at=email["received_at"],
+            ),
         )
         if reservation.callback_token is not None:
             try:
@@ -626,7 +652,11 @@ async def _run_company(
                 ):
                     _with_record_session(
                         session_factory,
-                        lambda db: mark_skipped(db, reservation),
+                        lambda db: mark_skipped(
+                            db,
+                            reservation,
+                            received_at=email["received_at"],
+                        ),
                     )
                     counters.skipped += 1
                     continue

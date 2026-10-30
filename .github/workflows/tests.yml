@@ -32,6 +32,7 @@ jobs:
         run: >-
           ruff check --select E,F,I
           app/modules/companies
+          app/modules/dashboard
           app/modules/telegram
           app/modules/pipeline
           app/modules/pipeline_selection
@@ -50,6 +51,7 @@ jobs:
           alembic/versions/c8d4e2f7a1b9_add_telegram_link_tables.py
           alembic/versions/a4f6c8d2e1b7_add_processed_emails.py
           alembic/versions/f2c4d6e8a0b1_add_company_telegram_actions.py
+          alembic/versions/b7d9e3f1a5c2_add_dashboard_phase_b_analytics.py
           scripts/setup_webhook.py
           scripts/share_company_sheets_with_service_account.py
           tests

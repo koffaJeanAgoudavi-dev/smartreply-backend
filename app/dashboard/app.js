@@ -10,6 +10,8 @@
     gmailStatus: "/api/v1/gmail/status",
     telegramCode: "/api/v1/telegram/link-code",
     telegramStatus: "/api/v1/telegram/status",
+    dashboardOverview: "/api/v1/dashboard/overview",
+    recentEmails: "/api/v1/dashboard/recent-emails",
   });
 
   const TOKEN_STORAGE_KEY = "smartreply_access_token";
@@ -37,6 +39,11 @@
     telegramCountdownId: null,
     telegramPollInFlight: false,
     telegramExpiresAt: null,
+    dashboard: {
+      overview: null,
+      emails: null,
+      loaded: false,
+    },
   };
 
   class ApiError extends Error {
@@ -253,6 +260,11 @@
       gmailError: false,
       telegramError: false,
     };
+    state.dashboard = {
+      overview: null,
+      emails: null,
+      loaded: false,
+    };
   }
 
   function logout(options = {}) {
@@ -420,7 +432,10 @@
     state.appReady = true;
     showScreen("dashboard-shell");
     renderRoute();
-    await loadIntegrationStatuses({ silent: true });
+    await Promise.allSettled([
+      loadIntegrationStatuses({ silent: true }),
+      loadDashboardData(),
+    ]);
     handleGmailReturn();
   }
 
@@ -484,8 +499,8 @@
       ? "Vos intégrations sont prêtes"
       : "Finalisez vos connexions";
     $("readiness-text").textContent = ready
-      ? "Les 3 intégrations sont connectées. Le traitement sera activé lorsque le pipeline sera branché à votre compte (Étape 3)."
-      : "Connectez les 3 services pour préparer votre compte. Le traitement n'est pas encore activé.";
+      ? "Les 3 intégrations sont connectées. Les indicateurs apparaîtront après les premiers traitements enregistrés."
+      : "Connectez les 3 services pour préparer votre compte. Le traitement dépend de la configuration du pipeline.";
 
     const gmailButton = $("connect-gmail");
     gmailButton.disabled = integrations.gmail;
@@ -544,6 +559,314 @@
       );
     } else {
       showAlert($("integrations-error"), "");
+    }
+  }
+
+  function formatCount(value) {
+    return new Intl.NumberFormat("fr-FR").format(Number(value) || 0);
+  }
+
+  function formatDashboardDate(value, options = {}) {
+    const parsed = new Date(value);
+    if (!Number.isFinite(parsed.getTime())) return "—";
+    const formatOptions = options.dateOnly
+      ? { day: "2-digit", month: "short", year: "numeric" }
+      : { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" };
+    return new Intl.DateTimeFormat("fr-FR", formatOptions).format(parsed);
+  }
+
+  function setLoadingContent(element, label) {
+    element.replaceChildren();
+    const wrapper = document.createElement("span");
+    wrapper.className = "data-loading";
+    const spinner = document.createElement("span");
+    spinner.className = "spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    wrapper.append(spinner, document.createTextNode(label));
+    element.append(wrapper);
+  }
+
+  function setDashboardLoading() {
+    $("dashboard-stats").setAttribute("aria-busy", "true");
+    ["metric-analyzed", "metric-processed", "metric-ignored", "metric-pending"].forEach((id) => {
+      $(id).textContent = "—";
+    });
+    setLoadingContent($("volume-chart"), "Chargement…");
+    setLoadingContent($("category-chart"), "Chargement…");
+    setLoadingContent($("priority-chart"), "Chargement…");
+    $("recent-activity-list").hidden = true;
+    $("recent-activity-state").hidden = false;
+    $("recent-activity-state").classList.remove("error");
+    $("recent-activity-state").replaceChildren();
+    const activitySpinner = document.createElement("span");
+    activitySpinner.className = "spinner";
+    $("recent-activity-state").append(activitySpinner, document.createTextNode("Chargement de l'activité…"));
+    $("recent-emails-table-wrap").hidden = true;
+    $("recent-emails-state").hidden = false;
+    $("recent-emails-state").classList.remove("error");
+    $("recent-emails-state").replaceChildren();
+    const emailSpinner = document.createElement("span");
+    emailSpinner.className = "spinner";
+    $("recent-emails-state").append(emailSpinner, document.createTextNode("Chargement des emails…"));
+    $("dashboard-empty-state").hidden = true;
+    showAlert($("dashboard-data-error"), "");
+  }
+
+  function renderVolumeChart(points) {
+    const container = $("volume-chart");
+    container.replaceChildren();
+    const total = points.reduce((sum, point) => sum + Number(point.count || 0), 0);
+    if (!points.length || total === 0) {
+      const empty = document.createElement("p");
+      empty.className = "chart-empty";
+      empty.textContent = "Aucun email analysé sur cette période.";
+      container.append(empty);
+      return;
+    }
+
+    const maximum = Math.max(...points.map((point) => Number(point.count || 0)), 1);
+    const chart = document.createElement("div");
+    chart.className = "volume-chart";
+    points.forEach((point) => {
+      const count = Number(point.count || 0);
+      const column = document.createElement("div");
+      column.className = "volume-column";
+      column.title = `${formatCount(count)} email${count > 1 ? "s" : ""}`;
+      const barWrap = document.createElement("div");
+      barWrap.className = "volume-bar-wrap";
+      const bar = document.createElement("span");
+      bar.className = "volume-bar";
+      bar.style.height = `${count === 0 ? 2 : Math.max(8, (count / maximum) * 100)}%`;
+      bar.setAttribute("aria-label", column.title);
+      barWrap.append(bar);
+      const label = document.createElement("small");
+      const day = new Date(`${point.day}T00:00:00`);
+      label.textContent = Number.isFinite(day.getTime()) ? String(day.getDate()) : "—";
+      column.append(barWrap, label);
+      chart.append(column);
+    });
+    container.append(chart);
+  }
+
+  function renderBreakdownChart(containerId, items, kind = "category") {
+    const container = $(containerId);
+    container.replaceChildren();
+    if (!items.length) {
+      const empty = document.createElement("p");
+      empty.className = "chart-empty";
+      empty.textContent = "Aucune donnée enregistrée pour le moment.";
+      container.append(empty);
+      return;
+    }
+
+    const maximum = Math.max(...items.map((item) => Number(item.count || 0)), 1);
+    const chart = document.createElement("div");
+    chart.className = "breakdown-chart";
+    items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "breakdown-row";
+      if (kind === "priority") {
+        const priorityClass = { haute: "high", moyenne: "medium", basse: "low" }[item.key];
+        if (priorityClass) row.classList.add(`priority-${priorityClass}`);
+      }
+      const label = document.createElement("span");
+      label.textContent = item.label;
+      const track = document.createElement("div");
+      track.className = "breakdown-track";
+      const fill = document.createElement("div");
+      fill.className = "breakdown-fill";
+      fill.style.width = `${Math.max(5, (Number(item.count || 0) / maximum) * 100)}%`;
+      track.append(fill);
+      const count = document.createElement("strong");
+      count.textContent = formatCount(item.count);
+      row.append(label, track, count);
+      chart.append(row);
+    });
+    container.append(chart);
+  }
+
+  function renderActivity(items) {
+    const list = $("recent-activity-list");
+    const stateElement = $("recent-activity-state");
+    list.replaceChildren();
+    if (!items.length) {
+      list.hidden = true;
+      stateElement.hidden = false;
+      stateElement.classList.remove("error");
+      stateElement.textContent = "Aucune activité enregistrée depuis l'activation de la Phase B.";
+      return;
+    }
+
+    items.forEach((item) => {
+      const entry = document.createElement("li");
+      const dot = document.createElement("span");
+      dot.className = "activity-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("span");
+      copy.className = "activity-copy";
+      const label = document.createElement("strong");
+      label.textContent = item.label;
+      const time = document.createElement("time");
+      time.dateTime = item.occurred_at;
+      time.textContent = formatDashboardDate(item.occurred_at);
+      copy.append(label, time);
+      entry.append(dot, copy);
+      list.append(entry);
+    });
+    stateElement.hidden = true;
+    list.hidden = false;
+  }
+
+  function renderOverview(overview) {
+    state.dashboard.overview = overview;
+    $("dashboard-stats").setAttribute("aria-busy", "false");
+    $("metric-analyzed").textContent = formatCount(overview.metrics.analyzed_emails);
+    $("metric-processed").textContent = formatCount(overview.metrics.processed_emails);
+    $("metric-ignored").textContent = formatCount(overview.metrics.ignored_emails);
+    $("metric-pending").textContent = formatCount(overview.metrics.pending_drafts);
+    renderVolumeChart(overview.volume || []);
+    renderBreakdownChart("category-chart", overview.categories || []);
+    renderBreakdownChart("priority-chart", overview.priorities || [], "priority");
+    renderActivity(overview.recent_activity || []);
+    $("analytics-history-note").hidden = Boolean(overview.history_started)
+      || Number(overview.metrics.analyzed_emails || 0) === 0;
+  }
+
+  function badgeClass(value) {
+    const normalized = String(value || "").toLocaleLowerCase("fr");
+    if (["haute", "envoyé"].includes(normalized)) return "danger";
+    if (["moyenne", "brouillon prêt", "analysé"].includes(normalized)) return "warning";
+    return "neutral";
+  }
+
+  function renderRecentEmails(emails) {
+    state.dashboard.emails = emails;
+    const body = $("recent-emails-body");
+    const stateElement = $("recent-emails-state");
+    const tableWrap = $("recent-emails-table-wrap");
+    body.replaceChildren();
+    if (!emails.length) {
+      tableWrap.hidden = true;
+      stateElement.hidden = false;
+      stateElement.classList.remove("error");
+      stateElement.textContent = "Aucun email n'est encore disponible dans votre Sheet.";
+      return;
+    }
+
+    emails.forEach((email) => {
+      const row = document.createElement("tr");
+      const values = [
+        email.sender,
+        email.subject,
+        email.received_at ? formatDashboardDate(email.received_at, { dateOnly: true }) : "—",
+        email.category || "—",
+        email.priority || "—",
+        email.status || "—",
+      ];
+      values.forEach((value, index) => {
+        const cell = document.createElement("td");
+        if (index === 1) cell.className = "subject-cell";
+        if (index >= 3) {
+          const badge = document.createElement("span");
+          badge.className = `data-badge ${badgeClass(value)}`;
+          badge.textContent = value;
+          cell.append(badge);
+        } else {
+          cell.textContent = value;
+        }
+        row.append(cell);
+      });
+      body.append(row);
+    });
+    stateElement.hidden = true;
+    tableWrap.hidden = false;
+  }
+
+  function renderOverviewError() {
+    $("dashboard-stats").setAttribute("aria-busy", "false");
+    ["volume-chart", "category-chart", "priority-chart"].forEach((id) => {
+      const element = $(id);
+      element.replaceChildren();
+      const error = document.createElement("p");
+      error.className = "chart-empty";
+      error.textContent = "Données temporairement indisponibles.";
+      element.append(error);
+    });
+    $("recent-activity-list").hidden = true;
+    $("recent-activity-state").hidden = false;
+    $("recent-activity-state").classList.add("error");
+    $("recent-activity-state").textContent = "Activité temporairement indisponible.";
+  }
+
+  function renderRecentEmailsError() {
+    $("recent-emails-table-wrap").hidden = true;
+    $("recent-emails-state").hidden = false;
+    $("recent-emails-state").classList.add("error");
+    $("recent-emails-state").textContent = "Connexion au Google Sheet impossible. Réessayez dans quelques instants.";
+  }
+
+  function updateDashboardEmptyState() {
+    const overview = state.dashboard.overview;
+    const emails = state.dashboard.emails;
+    if (!overview || !emails) {
+      $("dashboard-empty-state").hidden = true;
+      return;
+    }
+    $("dashboard-empty-state").hidden = !(
+      Number(overview.metrics.analyzed_emails || 0) === 0
+      && emails.length === 0
+      && (overview.recent_activity || []).length === 0
+    );
+  }
+
+  async function loadDashboardData(options = {}) {
+    const { showLoading = true } = options;
+    if (showLoading) setDashboardLoading();
+    const [overviewResult, emailsResult] = await Promise.allSettled([
+      apiRequest(API.dashboardOverview),
+      apiRequest(API.recentEmails),
+    ]);
+    const unavailable = [];
+
+    if (overviewResult.status === "fulfilled") {
+      renderOverview(overviewResult.value);
+    } else if (overviewResult.reason.status !== 401) {
+      state.dashboard.overview = null;
+      renderOverviewError();
+      unavailable.push("les statistiques");
+    }
+
+    if (emailsResult.status === "fulfilled") {
+      renderRecentEmails(emailsResult.value.emails || []);
+    } else if (emailsResult.reason.status !== 401) {
+      state.dashboard.emails = null;
+      renderRecentEmailsError();
+      unavailable.push("les emails récents");
+    }
+
+    state.dashboard.loaded = unavailable.length === 0;
+    updateDashboardEmptyState();
+    showAlert(
+      $("dashboard-data-error"),
+      unavailable.length
+        ? `Impossible de charger ${unavailable.join(" et ")}. Les autres données restent disponibles.`
+        : "",
+    );
+  }
+
+  async function refreshDashboard() {
+    const button = $("refresh-dashboard");
+    setBusy(button, true, "Actualisation…");
+    try {
+      await Promise.all([
+        loadIntegrationStatuses({ silent: true }),
+        loadDashboardData(),
+      ]);
+      if ($("dashboard-data-error").hidden) {
+        showToast("Les données du tableau de bord sont à jour.");
+      }
+    } finally {
+      setBusy(button, false);
     }
   }
 
@@ -749,6 +1072,7 @@
     $("close-sidebar").addEventListener("click", closeSidebar);
     $("sidebar-overlay").addEventListener("click", closeSidebar);
     $("connect-gmail").addEventListener("click", connectGmail);
+    $("refresh-dashboard").addEventListener("click", refreshDashboard);
     $("refresh-integrations").addEventListener("click", refreshIntegrations);
     $("generate-telegram-code").addEventListener("click", generateTelegramCode);
     $("copy-telegram-code").addEventListener("click", copyTelegramCode);

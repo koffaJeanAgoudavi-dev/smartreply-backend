@@ -46,6 +46,16 @@ class ProcessedEmail(Base):
             "notification_attempts >= 0 AND notification_attempts <= 3",
             name="ck_processed_emails_notification_attempts",
         ),
+        CheckConstraint(
+            "category IS NULL OR category IN "
+            "('devis', 'support', 'facturation', 'partenariat', "
+            "'spam', 'newsletter', 'autre')",
+            name="ck_processed_emails_category",
+        ),
+        CheckConstraint(
+            "priority IS NULL OR priority IN ('haute', 'moyenne', 'basse')",
+            name="ck_processed_emails_priority",
+        ),
         Index(
             "ix_processed_emails_company_status",
             "company_id",
@@ -72,6 +82,11 @@ class ProcessedEmail(Base):
     )
     gmail_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
     gmail_draft_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    priority: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     callback_token: Mapped[str | None] = mapped_column(String(43), nullable=True)
     draft_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     status: Mapped[str] = mapped_column(

@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.database import Base
 from app.modules.auth.models import User
 from app.modules.companies.models import Company
+from app.modules.dashboard.models import CompanyActivityEvent
 from app.modules.gmail.service import GmailTokenRevokedError
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.pipeline_execution import service
@@ -398,6 +399,30 @@ class PipelineExecutionTests(unittest.TestCase):
         self.assertEqual(summary.processed, 1)
         self.assertEqual(len(analyzed_bodies), 1)
         self.assertEqual(len(analyzed_bodies[0]), 12)
+        with self.session_factory() as db:
+            records = db.scalars(
+                select(ProcessedEmail).order_by(ProcessedEmail.id)
+            ).all()
+            events = db.scalars(
+                select(CompanyActivityEvent).order_by(CompanyActivityEvent.id)
+            ).all()
+        self.assertEqual(records[0].status, "skipped")
+        self.assertEqual(
+            records[0].received_at.replace(tzinfo=timezone.utc),
+            self.activation,
+        )
+        self.assertIsNone(records[0].category)
+        self.assertEqual(records[1].status, "done")
+        self.assertEqual(records[1].category, "support")
+        self.assertEqual(records[1].priority, "moyenne")
+        self.assertEqual(
+            records[1].received_at.replace(tzinfo=timezone.utc),
+            self.activation + timedelta(milliseconds=1),
+        )
+        self.assertEqual(
+            {event.event_type for event in events},
+            {"email_skipped", "draft_created", "email_processed"},
+        )
 
     def test_repeated_pass_does_not_process_the_same_email_twice(self):
         plan = self.create_company("Dedupe", activated_at=self.activation)
