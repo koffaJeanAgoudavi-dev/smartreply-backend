@@ -1,7 +1,10 @@
 """Tests du montage statique du dashboard et du retour OAuth Gmail."""
 
+import json
 import re
+import subprocess
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -51,7 +54,10 @@ class DashboardStaticTests(unittest.TestCase):
             self.assertNotIn(excluded_feature, response.text)
         self.assertNotRegex(
             response.text,
-            re.compile(r'<(?:script|link)[^>]+(?:src|href)=["\']https?://', re.I),
+            re.compile(
+                r'<(?:script|link)[^>]+(?:src|href)=["\']https?://',
+                re.IGNORECASE,
+            ),
         )
 
     def test_dashboard_keeps_counter_but_hides_duplicate_integration_section(self):
@@ -114,6 +120,9 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("--color-primary-700", css_response.text)
         self.assertIn("--radius-lg", css_response.text)
         self.assertIn("--shadow-card", css_response.text)
+        self.assertIn(".donut-chart", css_response.text)
+        self.assertIn(".donut-legend", css_response.text)
+        self.assertIn(".donut-segment", css_response.text)
         self.assertEqual(js_response.status_code, 200)
         self.assertIn("javascript", js_response.headers["content-type"])
         self.assertIn('"smartreply_access_token"', js_response.text)
@@ -124,7 +133,16 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("invitation_code", js_response.text)
         self.assertIn("Code d'invitation invalide.", js_response.text)
         self.assertIn("renderVolumeChart", js_response.text)
+        self.assertIn("renderDonutChart", js_response.text)
+        self.assertIn("prepareDonutData", js_response.text)
+        self.assertIn("document.createElementNS", js_response.text)
+        self.assertNotIn("renderBreakdownChart", js_response.text)
         self.assertIn("renderRecentEmails", js_response.text)
+        donut_source = js_response.text.split(
+            "function renderDonutChart", maxsplit=1
+        )[1]
+        donut_source = donut_source.split("function renderActivity", maxsplit=1)[0]
+        self.assertNotIn("innerHTML", donut_source)
         self.assertIn('setStatus($("gmail-status")', js_response.text)
         self.assertIn('setStatus($("sheet-status")', js_response.text)
         self.assertIn('setStatus($("telegram-status")', js_response.text)
@@ -136,6 +154,120 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertNotIn("dashboard-sheet-status", js_response.text)
         self.assertNotIn("dashboard-telegram-status", js_response.text)
         self.assertNotIn("pipeline sera branché à votre compte", js_response.text)
+
+    def test_donut_data_counts_percentages_and_unclassified_values(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r'''
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  marker,
+  '  globalThis.__donutTest = { prepareDonutData };\n})();',
+);
+const context = {
+  window: { localStorage: { getItem: () => null } },
+  console,
+  Intl,
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const prepare = context.__donutTest.prepareDonutData;
+const result = {
+  categories: prepare([
+    { key: "support", label: "Support", count: 4 },
+    { key: "spam", label: "Spam", count: 2 },
+    { key: "newsletter", label: "Newsletter", count: 0 },
+    { key: "autre", label: "Autre", count: null },
+  ], 10),
+  priorities: prepare([
+    { key: "haute", label: "Haute", count: 3 },
+    { key: "moyenne", label: "Moyenne", count: 2 },
+    { key: "basse", label: "Basse", count: 3 },
+  ], 10),
+  thirds: prepare([
+    { key: "devis", label: "Devis", count: 1 },
+    { key: "support", label: "Support", count: 1 },
+    { key: "autre", label: "Autre", count: 1 },
+  ], 3),
+  empty: prepare([], 0),
+  missingItems: prepare(null, 4),
+  nullValues: prepare([{ key: "support", label: "Support", count: null }], 0),
+  inconsistent: prepare([{ key: "support", label: "Support", count: 5 }], 4),
+  negative: prepare([{ key: "support", label: "Support", count: -1 }], 4),
+  negativeTotal: prepare([], -1),
+  fractional: prepare([{ key: "support", label: "Support", count: 1.5 }], 4),
+};
+process.stdout.write(JSON.stringify(result));
+'''
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        categories = result["categories"]
+        self.assertEqual(categories["state"], "ready")
+        self.assertEqual(categories["total"], 10)
+        self.assertEqual(
+            [
+                (item["key"], item["label"], item["count"])
+                for item in categories["segments"]
+            ],
+            [
+                ("support", "Support", 4),
+                ("spam", "Spam", 2),
+                ("unclassified", "Non classé", 4),
+            ],
+        )
+        self.assertEqual(
+            [item["percentage"] for item in categories["segments"]],
+            [40, 20, 40],
+        )
+        self.assertEqual(
+            [item["share"] for item in categories["segments"]],
+            [0.4, 0.2, 0.4],
+        )
+
+        priorities = result["priorities"]
+        self.assertEqual(priorities["state"], "ready")
+        self.assertEqual(
+            [(item["key"], item["count"]) for item in priorities["segments"]],
+            [("haute", 3), ("moyenne", 2), ("basse", 3), ("unclassified", 2)],
+        )
+        self.assertEqual(
+            [item["percentage"] for item in priorities["segments"]],
+            [30, 20, 30, 20],
+        )
+
+        self.assertAlmostEqual(
+            sum(item["percentage"] for item in result["thirds"]["segments"]),
+            100,
+        )
+        self.assertEqual(result["empty"]["state"], "empty")
+        self.assertEqual(result["nullValues"]["state"], "empty")
+        self.assertEqual(result["missingItems"]["state"], "ready")
+        self.assertEqual(
+            result["missingItems"]["segments"],
+            [
+                {
+                    "key": "unclassified",
+                    "label": "Non classé",
+                    "count": 4,
+                    "percentage": 100,
+                    "share": 1,
+                }
+            ],
+        )
+        self.assertEqual(result["inconsistent"]["state"], "inconsistent")
+        self.assertEqual(result["negative"]["state"], "inconsistent")
+        self.assertEqual(result["negativeTotal"]["state"], "inconsistent")
+        self.assertEqual(result["fractional"]["state"], "inconsistent")
 
     def test_existing_health_endpoint_is_unchanged(self):
         response = self.client.get("/health")
