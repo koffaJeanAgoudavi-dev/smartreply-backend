@@ -481,15 +481,11 @@
 
   function updateIntegrationUI() {
     const integrations = state.integrations;
-    setStatus($("dashboard-gmail-status"), integrations.gmail, integrations.gmailError);
-    setStatus($("dashboard-sheet-status"), integrations.sheet);
-    setStatus($("dashboard-telegram-status"), integrations.telegram, integrations.telegramError);
     setStatus($("gmail-status"), integrations.gmail, integrations.gmailError);
     setStatus($("sheet-status"), integrations.sheet);
     setStatus($("telegram-status"), integrations.telegram, integrations.telegramError);
 
     const count = connectedCount();
-    $("dashboard-connected-count").textContent = `${count}/3`;
     $("integrations-progress").textContent = `${count}/3`;
 
     const banner = $("readiness-banner");
