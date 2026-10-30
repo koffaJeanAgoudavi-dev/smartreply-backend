@@ -54,6 +54,57 @@ class DashboardStaticTests(unittest.TestCase):
             re.compile(r'<(?:script|link)[^>]+(?:src|href)=["\']https?://', re.I),
         )
 
+    def test_dashboard_keeps_counter_but_hides_duplicate_integration_section(self):
+        response = self.client.get("/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        dashboard_markup = response.text.split(
+            '<section id="dashboard-view"',
+            maxsplit=1,
+        )[1].split('<section id="integrations-view"', maxsplit=1)[0]
+        integrations_markup = response.text.split(
+            '<section id="integrations-view"',
+            maxsplit=1,
+        )[1]
+
+        for removed_dashboard_element in (
+            "integration-summary-title",
+            "dashboard-gmail-status",
+            "dashboard-sheet-status",
+            "dashboard-telegram-status",
+            "Gérer les intégrations",
+        ):
+            self.assertNotIn(removed_dashboard_element, dashboard_markup)
+
+        for preserved_dashboard_element in (
+            'id="dashboard-connected-count"',
+            "intégrations connectées",
+            'id="metric-analyzed"',
+            'id="metric-processed"',
+            'id="metric-ignored"',
+            'id="metric-pending"',
+            'id="volume-chart"',
+            'id="category-chart"',
+            'id="priority-chart"',
+            'id="recent-emails-title"',
+            'id="recent-activity-title"',
+            'id="dashboard-empty-state"',
+        ):
+            self.assertIn(preserved_dashboard_element, dashboard_markup)
+
+        self.assertIn('data-route="integrations"', response.text)
+        for integration_page_element in (
+            'id="integrations-title"',
+            'id="readiness-banner"',
+            'id="gmail-status"',
+            'id="sheet-status"',
+            'id="telegram-status"',
+            'id="connect-gmail"',
+            'id="open-sheet"',
+            'id="generate-telegram-code"',
+        ):
+            self.assertIn(integration_page_element, integrations_markup)
+
     def test_dashboard_css_and_javascript_are_served(self):
         css_response = self.client.get("/dashboard/styles.css")
         js_response = self.client.get("/dashboard/app.js")
@@ -74,6 +125,16 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("Code d'invitation invalide.", js_response.text)
         self.assertIn("renderVolumeChart", js_response.text)
         self.assertIn("renderRecentEmails", js_response.text)
+        self.assertIn('setStatus($("gmail-status")', js_response.text)
+        self.assertIn('setStatus($("sheet-status")', js_response.text)
+        self.assertIn('setStatus($("telegram-status")', js_response.text)
+        self.assertIn(
+            '$("dashboard-connected-count").textContent = `${count}/3`',
+            js_response.text,
+        )
+        self.assertNotIn("dashboard-gmail-status", js_response.text)
+        self.assertNotIn("dashboard-sheet-status", js_response.text)
+        self.assertNotIn("dashboard-telegram-status", js_response.text)
         self.assertNotIn("pipeline sera branché à votre compte", js_response.text)
 
     def test_existing_health_endpoint_is_unchanged(self):
