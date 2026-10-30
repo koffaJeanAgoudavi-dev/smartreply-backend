@@ -343,7 +343,7 @@ def _is_quota_error(exc: Exception) -> bool:
         return True
     if _status_code_from_exception(exc) == 429:
         return True
-    # Le service Gemini historique encode seulement le statut dans RuntimeError.
+    # Le service Gemini encode seulement le statut HTTP dans RuntimeError.
     return "HTTP 429" in str(exc)
 
 

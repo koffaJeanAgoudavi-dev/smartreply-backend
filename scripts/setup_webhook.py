@@ -1,50 +1,46 @@
-"""
-SmartReply Agent — Pointage du webhook Telegram vers Render
-===========================================================
-À lancer UNE FOIS après chaque redémarrage/ changement d'URL Render
-(les URL gratuites de Render changent si le service est supprimé/recréé).
+"""Configure le webhook Telegram avec son secret obligatoire."""
 
-Lancement (en local ou via un job Render one-off) :
-    python scripts/setup_webhook.py
-
-Prérequis : variables d'environnement TELEGRAM_BOT_TOKEN, BASE_URL et
-TELEGRAM_WEBHOOK_SECRET définies (mêmes valeurs que sur Render).
-"""
 import json
 import os
-import secrets
+import sys
 import urllib.request
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+BASE_URL = os.environ.get("BASE_URL", "").strip().rstrip("/")
+SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 WEBHOOK_PATH = "/api/v1/telegram/webhook"
 
-# Si aucun secret n'est défini, on en génère un et on l'affiche
-# pour que vous l'ajoutiez à Render (variable TELEGRAM_WEBHOOK_SECRET).
-secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
-if not secret:
-    secret = secrets.token_urlsafe(32)
-    print("⚠️  Aucun TELEGRAM_WEBHOOK_SECRET défini.")
-    print(f"    Secret généré : {secret}")
-    print("    → Ajoutez-le sur Render (Environment Variables) puis relancez ce script.")
-    print()
+missing = [
+    name
+    for name, value in (
+        ("TELEGRAM_BOT_TOKEN", TOKEN),
+        ("BASE_URL", BASE_URL),
+        ("TELEGRAM_WEBHOOK_SECRET", SECRET),
+    )
+    if not value
+]
+if missing:
+    print(
+        "Configuration Telegram incomplète : " + ", ".join(missing),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
 payload = {
     "url": webhook_url,
-    "secret_token": secret,
+    "secret_token": SECRET,
 }
-req = urllib.request.Request(
+request = urllib.request.Request(
     f"https://api.telegram.org/bot{TOKEN}/setWebhook",
     data=json.dumps(payload).encode("utf-8"),
     headers={"Content-Type": "application/json"},
     method="POST",
 )
-with urllib.request.urlopen(req, timeout=20) as resp:
-    result = json.loads(resp.read().decode("utf-8"))
+with urllib.request.urlopen(request, timeout=20) as response:
+    result = json.loads(response.read().decode("utf-8"))
 
-print("setWebhook :", result)
-if result.get("ok"):
-    print(f"✅ Webhook pointé vers {webhook_url}")
-else:
-    print("❌ Échec — vérifiez le token et l'URL.")
+if not result.get("ok"):
+    print("Échec de configuration du webhook.", file=sys.stderr)
+    raise SystemExit(1)
+print("Configuration du webhook terminée.")

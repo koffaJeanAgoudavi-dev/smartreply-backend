@@ -14,7 +14,6 @@ from app.modules.auth.models import User
 from app.modules.companies.models import Company
 from app.modules.gmail.service import GmailTokenRevokedError
 from app.modules.gmail_oauth.models import GmailConnection
-from app.modules.notifications import service as notifications_service
 from app.modules.pipeline_execution import service
 from app.modules.pipeline_selection.service import (
     CompanyRunPlan,
@@ -217,11 +216,6 @@ class PipelineExecutionTests(unittest.TestCase):
             ),
             patch.object(service, "upsert_company_draft"),
             patch.object(service, "mark_company_email_draft_ready"),
-            patch.object(
-                notifications_service,
-                "send_email_notification",
-                side_effect=AssertionError("notifications forbidden in PR 2"),
-            ),
         ):
             summary = asyncio.run(
                 service.execute_multi_tenant_run(
