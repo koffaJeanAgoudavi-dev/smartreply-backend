@@ -1888,6 +1888,27 @@ td.subject-cell {
   }
 }
 
+@media (min-width: 768px) {
+  .charts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .charts-grid .chart-card:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .charts-grid .chart-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .charts-grid .chart-content {
+    display: grid;
+    flex: 1;
+    align-items: center;
+  }
+}
+
 @media (min-width: 920px) {
   .auth-layout {
     display: grid;
@@ -2034,14 +2055,6 @@ td.subject-cell {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .charts-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .charts-grid .chart-card:first-child {
-    grid-column: 1 / -1;
-  }
-
   .dashboard-detail-grid {
     grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
   }
@@ -2068,6 +2081,21 @@ td.subject-cell {
 
   .integration-card-main {
     gap: 18px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .charts-grid {
+    grid-template-columns: minmax(0, 4fr) repeat(2, minmax(0, 3fr));
+    align-items: stretch;
+  }
+
+  .charts-grid .chart-card:first-child {
+    grid-column: auto;
+  }
+
+  .charts-grid .donut-visual {
+    width: min(160px, 100%);
   }
 }
 
