@@ -208,9 +208,9 @@ La Phase B ajoute des données réelles, sans backfill historique fictif :
   afin qu'une panne du Sheet n'empêche pas l'affichage des agrégats Neon.
 
 La migration `b7d9e3f1a5c2` ajoute les colonnes nullable `category`, `priority`
-et `received_at` à `processed_emails`, ainsi que la table d'activité. Elle ne
-modifie aucun onglet Google Sheets et ne reconstitue aucun historique : les
-événements commencent après son application.
+et `received_at` à `processed_emails`, le statut final `excluded`, ainsi que la
+table d'activité. Elle ne modifie aucun onglet Google Sheets et ne reconstitue
+aucun historique : les événements commencent après son application.
 
 Après le consentement Google, `/api/v1/gmail/callback` enregistre toujours le
 refresh token chiffré côté serveur, puis redirige le navigateur vers
@@ -248,8 +248,10 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 La migration de fondations `e1a5c7d9b3f2` ajoute le statut Gmail et les dates de
 coupure/équité. La migration PR 2 `a4f6c8d2e1b7` ajoute `processed_emails`,
 registre isolé par `company_id` avec unicité `(company_id, gmail_message_id)`,
-statut `processing`, `done`, `skipped` ou `failed`, nombre de tentatives, ID du
-brouillon Gmail nullable et code d'erreur court.
+statut `processing`, `done`, `skipped`, `excluded` ou `failed`, nombre de
+tentatives, ID du brouillon Gmail nullable et code d'erreur court. Le statut
+`excluded` distingue un message antérieur à l'activation, jamais soumis au
+filtre, d'un message `skipped` réellement analysé puis ignoré.
 
 Le endpoint exécute exclusivement le pipeline multi-utilisateur. Une entreprise
 reste éligible seulement si elle possède un Sheet, une connexion Telegram et
@@ -265,9 +267,11 @@ les messages reçus après l'activation sont admissibles. Le flux ne modifie plu
 le statut lu/non lu de Gmail.
 
 Chaque message est réservé atomiquement dans `processed_emails` avant son
-traitement. Un message `done` ou `skipped` n'est jamais retraité. Un échec est
-réessayé jusqu'à trois tentatives. Une réservation restée `processing` au-delà
-de `PIPELINE_PROCESSING_STALE_SECONDS` est reprise par la même transition
+traitement. Un message `done`, `skipped` ou `excluded` n'est jamais retraité.
+Un email `excluded` n'alimente ni les indicateurs, ni les graphiques, ni
+l'activité du dashboard. Un échec est réessayé jusqu'à trois tentatives. Une
+réservation restée `processing` au-delà de `PIPELINE_PROCESSING_STALE_SECONDS`
+est reprise par la même transition
 atomique, sans dépasser ce plafond. Un HTTP `429` ne consomme aucune tentative
 et arrête seulement l'entreprise concernée pour le passage. Un `invalid_grant`
 passe sa connexion Gmail à `revoked`. Chaque entreprise reste dans son propre

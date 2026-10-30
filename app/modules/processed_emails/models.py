@@ -16,7 +16,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
 
-PROCESSED_EMAIL_STATUSES = ("done", "skipped", "failed", "processing")
+PROCESSED_EMAIL_STATUSES = (
+    "done",
+    "skipped",
+    "excluded",
+    "failed",
+    "processing",
+)
 
 
 class ProcessedEmail(Base):
@@ -30,7 +36,7 @@ class ProcessedEmail(Base):
             name="uq_processed_emails_company_message",
         ),
         CheckConstraint(
-            "status IN ('done', 'skipped', 'failed', 'processing')",
+            "status IN ('done', 'skipped', 'excluded', 'failed', 'processing')",
             name="ck_processed_emails_status",
         ),
         CheckConstraint(

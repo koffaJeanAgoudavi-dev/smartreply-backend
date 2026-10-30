@@ -20,6 +20,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     with op.batch_alter_table("processed_emails") as batch_op:
+        batch_op.drop_constraint("ck_processed_emails_status", type_="check")
+        batch_op.create_check_constraint(
+            "ck_processed_emails_status",
+            "status IN ('done', 'skipped', 'excluded', 'failed', 'processing')",
+        )
         batch_op.add_column(sa.Column("category", sa.String(length=32), nullable=True))
         batch_op.add_column(sa.Column("priority", sa.String(length=16), nullable=True))
         batch_op.add_column(
@@ -88,6 +93,11 @@ def downgrade() -> None:
     op.drop_table("company_activity_events")
 
     with op.batch_alter_table("processed_emails") as batch_op:
+        batch_op.drop_constraint("ck_processed_emails_status", type_="check")
+        batch_op.create_check_constraint(
+            "ck_processed_emails_status",
+            "status IN ('done', 'skipped', 'failed', 'processing')",
+        )
         batch_op.drop_constraint("ck_processed_emails_priority", type_="check")
         batch_op.drop_constraint("ck_processed_emails_category", type_="check")
         batch_op.drop_column("received_at")

@@ -130,6 +130,12 @@ class DashboardPhaseBApiTests(unittest.TestCase):
                 priority="basse",
                 received_at=now - timedelta(hours=2),
             )
+            record_a_excluded = ProcessedEmail(
+                company_id=company_a.id,
+                gmail_message_id="message-a-before-activation",
+                status="excluded",
+                attempts=1,
+            )
             record_b = ProcessedEmail(
                 company_id=company_b.id,
                 gmail_message_id="message-b",
@@ -142,7 +148,9 @@ class DashboardPhaseBApiTests(unittest.TestCase):
                 priority="moyenne",
                 received_at=now - timedelta(minutes=30),
             )
-            db.add_all([record_a_done, record_a_skipped, record_b])
+            db.add_all(
+                [record_a_done, record_a_skipped, record_a_excluded, record_b]
+            )
             db.flush()
             db.add_all(
                 [

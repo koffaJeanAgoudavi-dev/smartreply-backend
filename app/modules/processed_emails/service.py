@@ -267,6 +267,16 @@ def mark_done(
     )
 
 
+def mark_excluded(db: Session, reservation: EmailReservation) -> None:
+    """Finalise un email hors fenêtre sans le qualifier comme analysé."""
+    _set_status(
+        db,
+        reservation,
+        status="excluded",
+        last_error_code=None,
+    )
+
+
 def mark_skipped(
     db: Session,
     reservation: EmailReservation,
