@@ -111,6 +111,41 @@ class DashboardStaticTests(unittest.TestCase):
         ):
             self.assertIn(integration_page_element, integrations_markup)
 
+    def test_integration_setup_dialog_is_accessible_and_concise(self):
+        response = self.client.get("/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        dialog_markup = response.text.split(
+            'id="integration-setup-dialog"', maxsplit=1
+        )[1].split("</dialog>", maxsplit=1)[0]
+        for accessibility_attribute in (
+            'role="dialog"',
+            'aria-modal="true"',
+            'aria-labelledby="integration-setup-title"',
+            'aria-describedby="integration-setup-description"',
+            'aria-label="Fermer cette fenêtre"',
+        ):
+            self.assertIn(accessibility_attribute, dialog_markup)
+        for expected_copy in (
+            "Configuration requise",
+            "Configurez vos intégrations",
+            "Gmail",
+            "Telegram",
+            "Google Sheets",
+            "Configurer mes intégrations",
+        ):
+            self.assertIn(expected_copy, dialog_markup)
+        for integration_card in (
+            "gmail-integration-card",
+            "sheet-integration-card",
+            "telegram-integration-card",
+        ):
+            self.assertIn(f'id="{integration_card}"', response.text)
+        opening_tag = response.text.split("<dialog", maxsplit=1)[1].split(
+            ">", maxsplit=1
+        )[0]
+        self.assertNotIn("open", opening_tag)
+
     def test_dashboard_css_and_javascript_are_served(self):
         css_response = self.client.get("/dashboard/styles.css")
         js_response = self.client.get("/dashboard/app.js")
@@ -123,6 +158,8 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn(".donut-chart", css_response.text)
         self.assertIn(".donut-legend", css_response.text)
         self.assertIn(".donut-segment", css_response.text)
+        self.assertIn(".integration-setup-dialog::backdrop", css_response.text)
+        self.assertIn(".integration-card.needs-configuration", css_response.text)
         self.assertEqual(js_response.status_code, 200)
         self.assertIn("javascript", js_response.headers["content-type"])
         self.assertIn('"smartreply_access_token"', js_response.text)
@@ -147,13 +184,213 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn('setStatus($("sheet-status")', js_response.text)
         self.assertIn('setStatus($("telegram-status")', js_response.text)
         self.assertIn(
-            '$("dashboard-connected-count").textContent = `${count}/3`',
+            '$("dashboard-connected-count").textContent = countLabel',
             js_response.text,
         )
+        self.assertIn(
+            'integrations.statusesAvailable ? `${count}/3` : "—/3"',
+            js_response.text,
+        )
+        self.assertIn("Vérification temporairement indisponible", js_response.text)
         self.assertNotIn("dashboard-gmail-status", js_response.text)
         self.assertNotIn("dashboard-sheet-status", js_response.text)
         self.assertNotIn("dashboard-telegram-status", js_response.text)
         self.assertNotIn("pipeline sera branché à votre compte", js_response.text)
+        self.assertIn("evaluateIntegrationSetup", js_response.text)
+        self.assertIn("maybeShowIntegrationSetupModal", js_response.text)
+        self.assertIn('typeof dialog.showModal !== "function"', js_response.text)
+        self.assertIn('window.location.hash = "integrations"', js_response.text)
+        self.assertIn("state.integrationSetup.dismissed = true", js_response.text)
+        self.assertIn(
+            "state.integrations.statusesAvailable = statusesAvailable",
+            js_response.text,
+        )
+
+    def test_integration_setup_decision_covers_status_and_visit_scenarios(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r'''
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  marker,
+  `  globalThis.__integrationSetupTest = {
+    evaluateIntegrationSetup,
+    maybeShowIntegrationSetupModal,
+    navigateToIntegrationSetup,
+    state,
+  };\n})();`,
+);
+const highlighted = {};
+const card = (key) => ({
+  classList: {
+    toggle: (_className, active) => { highlighted[key] = active; },
+  },
+});
+const elements = {
+  "integration-setup-dialog": {
+    open: false,
+    showModal() { this.open = true; },
+    close() { this.open = false; },
+  },
+  "configure-integrations": {
+    focused: false,
+    focus() { this.focused = true; },
+  },
+  "gmail-integration-card": card("gmail"),
+  "sheet-integration-card": card("sheet"),
+  "telegram-integration-card": card("telegram"),
+};
+const context = {
+  window: {
+    localStorage: { getItem: () => null },
+    location: { hash: "#dashboard" },
+  },
+  document: { getElementById: (id) => elements[id] || null },
+  console,
+  Intl,
+  Set,
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const integrationSetup = context.__integrationSetupTest;
+const evaluate = integrationSetup.evaluateIntegrationSetup;
+const options = {
+  statusesAvailable: true,
+  dismissed: false,
+  route: "dashboard",
+};
+const result = {
+  noneConfigured: evaluate(
+    { gmail: false, sheet: false, telegram: false },
+    options,
+  ),
+  oneMissing: evaluate(
+    { gmail: true, sheet: false, telegram: true },
+    options,
+  ),
+  multipleMissing: evaluate(
+    { gmail: false, sheet: true, telegram: false },
+    options,
+  ),
+  allConfigured: evaluate(
+    { gmail: true, sheet: true, telegram: true },
+    options,
+  ),
+  dismissed: evaluate(
+    { gmail: false, sheet: true, telegram: true },
+    { ...options, dismissed: true },
+  ),
+  newLogin: evaluate(
+    { gmail: false, sheet: true, telegram: true },
+    { ...options, dismissed: false },
+  ),
+  statusError: evaluate(
+    { gmail: false, sheet: false, telegram: false },
+    { ...options, statusesAvailable: false },
+  ),
+  integrationsRoute: evaluate(
+    { gmail: false, sheet: true, telegram: true },
+    { ...options, route: "integrations" },
+  ),
+};
+integrationSetup.state.appReady = true;
+integrationSetup.state.token = "authenticated";
+integrationSetup.state.integrations = {
+  gmail: false,
+  sheet: true,
+  telegram: false,
+};
+integrationSetup.maybeShowIntegrationSetupModal({ statusesAvailable: true });
+result.modalAction = {
+  opened: elements["integration-setup-dialog"].open,
+  focused: elements["configure-integrations"].focused,
+  missing: integrationSetup.state.integrationSetup.missing,
+};
+integrationSetup.navigateToIntegrationSetup();
+result.modalAction.closed = !elements["integration-setup-dialog"].open;
+result.modalAction.dismissed = integrationSetup.state.integrationSetup.dismissed;
+result.modalAction.hash = context.window.location.hash;
+result.modalAction.highlighted = highlighted;
+process.stdout.write(JSON.stringify(result));
+'''
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertTrue(result["noneConfigured"]["shouldShow"])
+        self.assertEqual(
+            result["noneConfigured"]["missing"],
+            ["gmail", "sheet", "telegram"],
+        )
+        self.assertTrue(result["oneMissing"]["shouldShow"])
+        self.assertEqual(result["oneMissing"]["missing"], ["sheet"])
+        self.assertTrue(result["multipleMissing"]["shouldShow"])
+        self.assertEqual(
+            result["multipleMissing"]["missing"], ["gmail", "telegram"]
+        )
+        self.assertFalse(result["allConfigured"]["shouldShow"])
+        self.assertEqual(result["allConfigured"]["missing"], [])
+        self.assertFalse(result["dismissed"]["shouldShow"])
+        self.assertTrue(result["newLogin"]["shouldShow"])
+        self.assertFalse(result["statusError"]["shouldShow"])
+        self.assertEqual(result["statusError"]["missing"], [])
+        self.assertFalse(result["integrationsRoute"]["shouldShow"])
+        self.assertEqual(
+            result["modalAction"],
+            {
+                "opened": True,
+                "focused": True,
+                "missing": ["gmail", "telegram"],
+                "closed": True,
+                "dismissed": True,
+                "hash": "integrations",
+                "highlighted": {
+                    "gmail": True,
+                    "sheet": False,
+                    "telegram": True,
+                },
+            },
+        )
+
+    def test_integration_setup_uses_authenticated_status_sources_only(self):
+        js_response = self.client.get("/dashboard/app.js")
+
+        self.assertEqual(js_response.status_code, 200)
+        status_loader = js_response.text.split(
+            "async function loadIntegrationStatuses", maxsplit=1
+        )[1].split("function formatCount", maxsplit=1)[0]
+        self.assertIn("apiRequest(API.gmailStatus)", status_loader)
+        self.assertIn("apiRequest(API.telegramStatus)", status_loader)
+        self.assertIn('gmailResult.status === "fulfilled"', status_loader)
+        self.assertIn('telegramResult.status === "fulfilled"', status_loader)
+        self.assertIn("return { statusesAvailable }", status_loader)
+        self.assertIn(
+            "Boolean(state.company && state.company.sheet_id)", status_loader
+        )
+        self.assertNotIn("company_id", status_loader)
+        self.assertIn('company: "/api/v1/companies/me"', js_response.text)
+
+    def test_integration_setup_dismissal_resets_with_the_authenticated_session(self):
+        js_response = self.client.get("/dashboard/app.js")
+
+        set_session_source = js_response.text.split(
+            "function setSession", maxsplit=1
+        )[1].split("function clearSession", maxsplit=1)[0]
+        clear_session_source = js_response.text.split(
+            "function clearSession", maxsplit=1
+        )[1].split("function logout", maxsplit=1)[0]
+        for source in (set_session_source, clear_session_source):
+            self.assertIn("state.integrationSetup", source)
+            self.assertIn("dismissed: false", source)
+            self.assertIn("missing: []", source)
 
     def test_donut_data_counts_percentages_and_unclassified_values(self):
         repository_root = Path(__file__).resolve().parents[1]
@@ -308,6 +545,26 @@ class GmailCallbackDashboardRedirectTests(unittest.TestCase):
             },
         )
         build_url.assert_called_once()
+
+    def test_gmail_status_is_isolated_by_authenticated_user(self):
+        authenticated_user = {"id": 42}
+        app.dependency_overrides[gmail_router.get_current_user_id] = (
+            lambda: authenticated_user["id"]
+        )
+        with patch.object(
+            gmail_router.service,
+            "is_connected",
+            side_effect=lambda _db, user_id: user_id == 42,
+        ) as is_connected:
+            first_response = self.client.get("/api/v1/gmail/status")
+            authenticated_user["id"] = 84
+            second_response = self.client.get("/api/v1/gmail/status")
+
+        self.assertEqual(first_response.json(), {"connected": True})
+        self.assertEqual(second_response.json(), {"connected": False})
+        self.assertEqual(
+            [call.args[1] for call in is_connected.call_args_list], [42, 84]
+        )
 
     def test_successful_callback_saves_token_then_redirects_to_integrations(self):
         with (

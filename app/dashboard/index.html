@@ -359,7 +359,7 @@
           <div id="integrations-error" class="form-alert error" role="alert" hidden></div>
 
           <div class="integration-list">
-            <article class="integration-card" aria-labelledby="gmail-card-title">
+            <article id="gmail-integration-card" class="integration-card" aria-labelledby="gmail-card-title">
               <div class="integration-card-main">
                 <span class="integration-logo gmail-logo large" aria-hidden="true">M</span>
                 <div class="integration-copy">
@@ -373,7 +373,7 @@
               </div>
             </article>
 
-            <article class="integration-card" aria-labelledby="sheet-card-title">
+            <article id="sheet-integration-card" class="integration-card" aria-labelledby="sheet-card-title">
               <div class="integration-card-main">
                 <span class="integration-logo sheets-logo large" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6z" fill="currentColor"/><path d="M15 2v5h5" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M9 11h7M9 15h7M12 10v8" fill="none" stroke="#fff" stroke-width="1.5"/></svg></span>
                 <div class="integration-copy">
@@ -387,7 +387,7 @@
               </div>
             </article>
 
-            <article class="integration-card telegram-card" aria-labelledby="telegram-card-title">
+            <article id="telegram-integration-card" class="integration-card telegram-card" aria-labelledby="telegram-card-title">
               <div class="integration-card-main">
                 <span class="integration-logo telegram-logo large" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 11 17-7-4 16-5-5-3 3v-5z" fill="currentColor"/><path d="m8 13 8-6-5 8" fill="none" stroke="#fff" stroke-width="1.3"/></svg></span>
                 <div class="integration-copy">
@@ -418,5 +418,53 @@
       </main>
     </div>
   </div>
+
+  <dialog
+    id="integration-setup-dialog"
+    class="integration-setup-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="integration-setup-title"
+    aria-describedby="integration-setup-description"
+  >
+    <div class="integration-setup-panel">
+      <button id="dismiss-integration-setup" class="icon-button integration-setup-close" type="button" aria-label="Fermer cette fenêtre">
+        <svg><use href="#icon-close"></use></svg>
+      </button>
+
+      <div class="integration-setup-heading">
+        <span class="integration-setup-mark" aria-hidden="true"><svg><use href="#icon-link"></use></svg></span>
+        <div>
+          <span class="integration-setup-badge">Configuration requise</span>
+          <h2 id="integration-setup-title">Configurez vos intégrations</h2>
+        </div>
+      </div>
+
+      <p id="integration-setup-description" class="integration-setup-description">
+        SmartReply a besoin de ces trois services pour analyser vos emails, préparer les données et vous notifier.
+      </p>
+
+      <ul class="integration-setup-services" aria-label="Services requis">
+        <li>
+          <span class="integration-logo gmail-logo" aria-hidden="true">M</span>
+          <span><strong>Gmail</strong><small>Analyser les emails et préparer les réponses.</small></span>
+        </li>
+        <li>
+          <span class="integration-logo telegram-logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 11 17-7-4 16-5-5-3 3v-5z" fill="currentColor"/><path d="m8 13 8-6-5 8" fill="none" stroke="#fff" stroke-width="1.3"/></svg></span>
+          <span><strong>Telegram</strong><small>Recevoir les notifications et valider les actions.</small></span>
+        </li>
+        <li>
+          <span class="integration-logo sheets-logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6z" fill="currentColor"/><path d="M15 2v5h5" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M9 11h7M9 15h7M12 10v8" fill="none" stroke="#fff" stroke-width="1.5"/></svg></span>
+          <span><strong>Google Sheets</strong><small>Centraliser les données de votre entreprise.</small></span>
+        </li>
+      </ul>
+
+      <div class="integration-setup-actions">
+        <button id="configure-integrations" class="button button-primary" type="button">
+          <span>Configurer mes intégrations</span><svg><use href="#icon-arrow"></use></svg>
+        </button>
+      </div>
+    </div>
+  </dialog>
 </body>
 </html>
