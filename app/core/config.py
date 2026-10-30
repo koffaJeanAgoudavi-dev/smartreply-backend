@@ -13,8 +13,7 @@ class Settings(BaseSettings):
     # URL publique du service (ex : https://smartreply-backend.onrender.com)
     BASE_URL: str = os.getenv("BASE_URL", "")
 
-    # Google Sheets
-    GOOGLE_SHEET_ID: str = os.getenv("GOOGLE_SHEET_ID", "")
+    # Google Sheets par entreprise
     # JSON complet du compte de service (Render) ; local = fichier credentials.json
     GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 
@@ -30,13 +29,9 @@ class Settings(BaseSettings):
     # Analyse IA (Module 3) — Gemini
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
-    # Gmail (Module 1) — compte unique, Étape 1
+    # Gmail OAuth par utilisateur
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
-    GOOGLE_REFRESH_TOKEN: str = os.getenv("GOOGLE_REFRESH_TOKEN", "")
-
-    # Sheet Data Entreprise (Module 4)
-    GOOGLE_DATA_SHEET_ID: str = os.getenv("GOOGLE_DATA_SHEET_ID", "")
 
     # PostgreSQL (Neon) — Étape 2 : couche multi-utilisateur (auth)
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
@@ -51,10 +46,7 @@ class Settings(BaseSettings):
     # Gmail OAuth par utilisateur (Étape 3) — chiffrement des refresh tokens (Fernet)
     TOKEN_ENCRYPTION_KEY: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")
 
-    # Pipeline multi-entreprises — Étape 3, fondations (désactivé par défaut)
-    MULTI_TENANT_PIPELINE_ENABLED: bool = os.getenv(
-        "MULTI_TENANT_PIPELINE_ENABLED", "false"
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    # Pipeline multi-entreprises
     MAX_EMAILS_PER_COMPANY_PER_RUN: int = int(
         os.getenv("MAX_EMAILS_PER_COMPANY_PER_RUN", "10")
     )

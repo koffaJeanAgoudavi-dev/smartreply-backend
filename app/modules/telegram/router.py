@@ -1,5 +1,6 @@
 """API JWT et webhook sécurisé de liaison Telegram."""
 
+import hmac
 from datetime import timezone
 from typing import Annotated
 
@@ -112,9 +113,11 @@ async def telegram_webhook(
     db: Session = Depends(get_db),
 ):
     """Reçoit les messages et callbacks Telegram après contrôle du secret."""
-    if (
-        settings.TELEGRAM_WEBHOOK_SECRET
-        and x_telegram_bot_api_secret_token != settings.TELEGRAM_WEBHOOK_SECRET
+    configured_secret = settings.TELEGRAM_WEBHOOK_SECRET
+    provided_secret = x_telegram_bot_api_secret_token or ""
+    if not configured_secret or not hmac.compare_digest(
+        provided_secret,
+        configured_secret,
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

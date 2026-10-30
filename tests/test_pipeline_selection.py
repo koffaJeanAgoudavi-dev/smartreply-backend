@@ -240,7 +240,7 @@ class PipelineSelectionTests(unittest.TestCase):
                 with (
                     patch.object(
                         gmail_service,
-                        "list_unread_emails",
+                        "list_company_message_page",
                         side_effect=AssertionError("Gmail must not be read"),
                     ),
                     patch.object(
@@ -255,17 +255,17 @@ class PipelineSelectionTests(unittest.TestCase):
                     ),
                     patch.object(
                         sheets_service,
-                        "append_analyzed_email",
-                        side_effect=AssertionError("Sheets must not be written"),
+                        "get_company_workbook",
+                        side_effect=AssertionError("Sheets must not be opened"),
                     ),
                     patch.object(
                         drafts_service,
-                        "create_gmail_draft",
+                        "create_company_gmail_draft",
                         side_effect=AssertionError("Drafts must not be created"),
                     ),
                     patch.object(
                         notifications_service,
-                        "send_email_notification",
+                        "send_company_email_notification",
                         side_effect=AssertionError("Telegram must not be called"),
                     ),
                 ):

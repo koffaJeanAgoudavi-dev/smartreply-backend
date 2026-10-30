@@ -4,17 +4,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.modules.actions.router import router as actions_router
-from app.modules.ai.router import router as ai_router
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
-from app.modules.drafts.router import router as drafts_router
-from app.modules.filtering.router import router as filtering_router
-from app.modules.gmail.router import router as gmail_router
 from app.modules.gmail_oauth.router import router as gmail_oauth_router
-from app.modules.notifications.router import router as notifications_router
 from app.modules.pipeline.router import router as pipeline_router
-from app.modules.sheets.router import router as sheets_router
 from app.modules.telegram.router import router as telegram_router
 
 app = FastAPI(
@@ -25,13 +18,6 @@ app = FastAPI(
 
 # Modules actifs
 app.include_router(telegram_router)
-app.include_router(ai_router)
-app.include_router(gmail_router)
-app.include_router(filtering_router)
-app.include_router(sheets_router)
-app.include_router(drafts_router)
-app.include_router(notifications_router)
-app.include_router(actions_router)
 app.include_router(pipeline_router)
 app.include_router(auth_router)
 app.include_router(gmail_oauth_router)

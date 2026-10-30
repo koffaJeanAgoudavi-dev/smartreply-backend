@@ -1,4 +1,4 @@
-"""Actions Telegram isolées par entreprise, parallèles au chemin historique."""
+"""Actions Telegram isolées par entreprise."""
 
 import re
 from dataclasses import dataclass, field

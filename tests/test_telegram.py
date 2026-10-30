@@ -232,13 +232,8 @@ class TelegramTests(unittest.TestCase):
         self.assertNotIn("chat", connected.text.lower())
         self.assertNotIn("telegram_user_id", connected.text)
 
-    def test_complete_api_flow_uses_neon_without_legacy_sheets(self):
+    def test_complete_api_flow_uses_neon(self):
         with (
-            patch.object(
-                service,
-                "get_central_workbook",
-                side_effect=AssertionError("legacy Sheet must not be used"),
-            ),
             patch.object(
                 service,
                 "_generate_link_code",
@@ -276,10 +271,24 @@ class TelegramTests(unittest.TestCase):
         self.assertIsNotNone(status_response.json()["connected_at"])
         self.assertIn("Connexion réussie", send_message.await_args.args[1])
 
-    def test_webhook_rejects_an_invalid_secret(self):
-        response = self.client.post(
+    def test_webhook_rejects_missing_and_invalid_secrets(self):
+        missing = self.client.post(
+            "/api/v1/telegram/webhook",
+            json=self.message_update("/help"),
+        )
+        invalid = self.client.post(
             "/api/v1/telegram/webhook",
             headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+            json=self.message_update("/help"),
+        )
+        self.assertEqual(missing.status_code, 401, missing.text)
+        self.assertEqual(invalid.status_code, 401, invalid.text)
+
+    def test_webhook_fails_closed_when_server_secret_is_empty(self):
+        settings.TELEGRAM_WEBHOOK_SECRET = ""
+        response = self.client.post(
+            "/api/v1/telegram/webhook",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "provided"},
             json=self.message_update("/help"),
         )
         self.assertEqual(response.status_code, 401, response.text)
@@ -427,7 +436,7 @@ class TelegramTests(unittest.TestCase):
         )
         self.assertEqual(second_code.status, "pending")
 
-    def test_bot_status_reads_neon_and_never_the_legacy_sheet(self):
+    def test_bot_status_reads_neon(self):
         with self.session_factory() as db:
             db.add(
                 TelegramConnection(
@@ -438,18 +447,11 @@ class TelegramTests(unittest.TestCase):
             )
             db.commit()
 
-        with (
-            patch.object(
-                service,
-                "get_central_workbook",
-                side_effect=AssertionError("legacy Sheet must not be read"),
-            ),
-            patch.object(
-                service,
-                "send_telegram_message",
-                new_callable=AsyncMock,
-            ) as send_message,
-        ):
+        with patch.object(
+            service,
+            "send_telegram_message",
+            new_callable=AsyncMock,
+        ) as send_message:
             response = self.client.post(
                 "/api/v1/telegram/webhook",
                 headers=self.webhook_headers,
@@ -459,40 +461,28 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIn("Connecté", send_message.await_args.args[1])
 
-    def test_callbacks_are_forwarded_unchanged_to_actions(self):
-        callback = {
-            "id": "callback-id",
-            "data": "ignore:email-id:draft-id",
-            "message": {"chat": {"id": 90001}},
-        }
-        with patch(
-            "app.modules.actions.service.handle_callback_query",
-            new_callable=AsyncMock,
-        ) as handle_callback:
-            response = self.client.post(
-                "/api/v1/telegram/webhook",
-                headers=self.webhook_headers,
-                json={"update_id": 2, "callback_query": callback},
-            )
-
-        self.assertEqual(response.status_code, 200, response.text)
-        handle_callback.assert_awaited_once_with(callback)
-
-    def test_explicit_historical_callback_prefixes_still_use_legacy_actions(self):
+    def test_historical_callbacks_are_answered_without_gmail_or_sheets(self):
         historical_values = (
+            "ignore:email-id:draft-id",
             "view_draft_legacy",
             "send_draft_legacy",
             "discard_legacy",
         )
         with (
-            patch(
-                "app.modules.actions.service.handle_callback_query",
+            patch.object(
+                service,
+                "answer_company_callback",
                 new_callable=AsyncMock,
-            ) as legacy_handler,
+            ) as answer_callback,
             patch(
                 "app.modules.actions.company_service.handle_company_callback_query",
                 new_callable=AsyncMock,
             ) as company_handler,
+            patch(
+                "app.modules.gmail.service.send_company_gmail_draft",
+                new_callable=AsyncMock,
+            ) as gmail_send,
+            patch("app.modules.sheets.service.get_company_workbook") as get_workbook,
         ):
             for index, data in enumerate(historical_values):
                 callback = {
@@ -507,8 +497,16 @@ class TelegramTests(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 200, response.text)
 
-        self.assertEqual(legacy_handler.await_count, 3)
+        self.assertEqual(answer_callback.await_count, len(historical_values))
+        self.assertTrue(
+            all(
+                "plus actif" in call.args[1]
+                for call in answer_callback.await_args_list
+            )
+        )
         company_handler.assert_not_awaited()
+        gmail_send.assert_not_awaited()
+        get_workbook.assert_not_called()
 
     def test_mt_callback_is_routed_to_company_handler_with_database(self):
         callback = {
@@ -518,10 +516,11 @@ class TelegramTests(unittest.TestCase):
             "message": {"chat": {"id": 91001}},
         }
         with (
-            patch(
-                "app.modules.actions.service.handle_callback_query",
+            patch.object(
+                service,
+                "answer_company_callback",
                 new_callable=AsyncMock,
-            ) as legacy_handler,
+            ) as expired_answer,
             patch(
                 "app.modules.actions.company_service.handle_company_callback_query",
                 new_callable=AsyncMock,
@@ -534,7 +533,7 @@ class TelegramTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200, response.text)
-        legacy_handler.assert_not_awaited()
+        expired_answer.assert_not_awaited()
         company_handler.assert_awaited_once()
         self.assertEqual(company_handler.await_args.args[0], callback)
         self.assertIsNotNone(company_handler.await_args.args[1])

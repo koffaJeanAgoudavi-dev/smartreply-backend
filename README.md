@@ -7,8 +7,8 @@ stockage Google Sheets → brouillon Gmail → notification Telegram avec action
 
 > Moins de temps dans votre boîte mail. Plus de temps pour votre activité.
 
-**Statut : MVP V1 — Étapes 1 et 2 complétées ✅** (authentification,
-OAuth Gmail et entreprise avec Sheet dédié)
+**Statut : MVP V1 multi-utilisateur opérationnel ✅** (authentification,
+OAuth Gmail, entreprise avec Sheet dédié et pipeline isolé)
 
 ---
 
@@ -45,8 +45,9 @@ Gmail ──→ Module 1 (Réception) ──→ Module 2 (Filtrage)
 - **PostgreSQL / Neon** — utilisateurs, connexions Gmail, entreprises et liaisons Telegram
 - **SQLAlchemy / Alembic** — accès aux données et migrations versionnées
 
-Le pipeline historique conserve ses données métier dans Google Sheets. La couche
-multi-utilisateur est stockée dans PostgreSQL sur Neon.
+Le registre d'idempotence et les intégrations multi-utilisateur sont stockés
+dans PostgreSQL sur Neon. Chaque entreprise conserve ses données métier dans
+son propre Google Sheet.
 
 ## 📁 Structure du projet
 
@@ -58,7 +59,7 @@ app/
 │   └── config.py            # Configuration (variables d'environnement)
 ├── db/
 │   ├── database.py          # Connexion SQLAlchemy vers Neon
-│   └── sheets_client.py     # Client gspread (pipeline historique)
+│   └── sheets_client.py     # Client gspread des Sheets d'entreprise
 └── modules/
     ├── auth/                # Comptes utilisateurs + JWT
     ├── gmail_oauth/         # Connexion Gmail chiffrée par utilisateur
@@ -71,7 +72,7 @@ app/
     ├── drafts/              # Module 5 : brouillons Gmail
     ├── notifications/       # Module 6 : notifications Telegram
     ├── actions/             # Module 7 : callbacks Envoyer / Ignorer
-    ├── pipeline/            # Orchestrateur historique + point d'entrée
+    ├── pipeline/            # Point d'entrée cron protégé
     ├── pipeline_selection/  # Sélection, allowlist, équité et verrou
     ├── pipeline_execution/  # Flux réel isolé Gmail → Sheet → brouillon
     └── processed_emails/    # Dédoublonnage et tentatives dans Neon
@@ -89,28 +90,24 @@ scripts/
 | Variable | Description |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Token du bot Telegram (@BotFather) |
-| `TELEGRAM_WEBHOOK_SECRET` | Secret du webhook (vérifié à chaque update) |
+| `TELEGRAM_WEBHOOK_SECRET` | Secret obligatoire du webhook, vérifié à chaque update en mode fail-closed |
 | `BASE_URL` | URL publique du service (ex. `https://xxx.onrender.com`) |
-| `GOOGLE_SHEET_ID` | ID du Google Sheet central |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON du compte de service ; son `client_email` reçoit l'accès writer à chaque Sheet d'entreprise |
-| `GOOGLE_DATA_SHEET_ID` | ID du Google Sheet Data Entreprise historique |
 | `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` | Client OAuth du compte propriétaire des copies d'entreprise |
 | `GOOGLE_DRIVE_REFRESH_TOKEN` | Refresh token OAuth Drive du compte propriétaire |
 | `GOOGLE_DRIVE_TEMPLATE_ID` | (Optionnel) ID du template à copier ; une valeur dédiée est fournie par défaut |
 | `GEMINI_API_KEY` | Clé API Google AI Studio |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Client OAuth Gmail par utilisateur |
-| `GOOGLE_REFRESH_TOKEN` | Refresh token historique du pipeline mono-utilisateur |
 | `DATABASE_URL` | URL PostgreSQL Neon |
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
 | `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
-| `MULTI_TENANT_PIPELINE_ENABLED` | Active le pipeline multi-tenant ; `false` par défaut conserve strictement le pipeline historique |
 | `PIPELINE_ALLOWED_COMPANY_IDS` | IDs internes autorisés au traitement réel, séparés par des virgules ; vide ou absent = aucune entreprise traitée |
 | `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond par entreprise et par passage (défaut : `10`) |
 | `PIPELINE_RUN_TIME_BUDGET_SECONDS` | Budget total d'un passage (défaut : `240` secondes) |
 | `PIPELINE_PROCESSING_STALE_SECONDS` | Délai avant reprise atomique d'une réservation `processing` ou vérification d'un envoi `sending` abandonné (défaut : `900` secondes) |
 | `GEMINI_MAX_EMAIL_BODY_CHARS` | Taille maximale du corps transmis à Gemini dans le flux multi-tenant (défaut : `6000`) |
-| `CRON_SECRET` | (Optionnel) Sécurise `POST /api/v1/pipeline/run` via l'en-tête `X-CRON-SECRET` |
+| `CRON_SECRET` | Secret obligatoire de `POST /api/v1/pipeline/run`, transmis via `X-CRON-SECRET` ; vide = requête refusée |
 
 3. **Webhook Telegram** : `python scripts/setup_webhook.py`
 4. **Cron externe** (ex. cron-job.org) : `POST /api/v1/pipeline/run`
@@ -173,10 +170,10 @@ Un utilisateur authentifié génère son code avec
 au bot. La consommation est atomique et le statut JWT n'expose jamais le
 `chat_id`. `/status` dans le bot lit également Neon.
 
-Les anciens onglets Google Sheets `telegram_connection_codes` et `Integrations`
-sont **dépréciés** pour la liaison Telegram : ils restent présents pour
-historique, mais le nouveau webhook ne les lit et ne les met plus à jour. La
-branche existante des callbacks **Envoyer/Ignorer** reste inchangée.
+Les éventuels onglets historiques restent dans les Sheets existants, mais le
+code ne les lit et ne les modifie plus. La liaison Telegram s'appuie uniquement
+sur Neon. Les anciens boutons reçoivent une réponse indiquant qu'ils ne sont
+plus actifs, sans action Gmail ni Sheet.
 
 ### Dashboard Phase A
 
@@ -229,8 +226,7 @@ registre isolé par `company_id` avec unicité `(company_id, gmail_message_id)`,
 statut `processing`, `done`, `skipped` ou `failed`, nombre de tentatives, ID du
 brouillon Gmail nullable et code d'erreur court.
 
-Avec `MULTI_TENANT_PIPELINE_ENABLED=false`, le endpoint conserve strictement le
-pipeline mono-utilisateur et sa réponse historique. Avec `true`, une entreprise
+Le endpoint exécute exclusivement le pipeline multi-utilisateur. Une entreprise
 reste éligible seulement si elle possède un Sheet, une connexion Telegram et
 une connexion Gmail `connected`. Seules les entreprises dont l'ID interne est
 dans `PIPELINE_ALLOWED_COMPANY_IDS` sont traitées réellement ; toutes les
@@ -270,13 +266,11 @@ le bon chat reçoit le résumé et un unique bouton **Voir le brouillon**. Un é
 Telegram ne rouvre jamais le traitement Gmail/Gemini : seule la notification
 est reprise. Un HTTP `403` arrête définitivement ses reprises.
 
-Les nouveaux callbacks ont le format `mt_<action>_<jeton opaque>` et restent
-sous la limite Telegram de 64 octets. Le jeton ne contient aucun ID métier. Le
+Les callbacks actifs ont le format `mt_<action>_<jeton opaque>` et restent sous
+la limite Telegram de 64 octets. Le jeton ne contient aucun ID métier. Le
 webhook résout à chaque clic le chat et l'utilisateur Telegram, leur entreprise,
-puis le brouillon de cette même entreprise. Les formats sans préfixe `mt_`, y
-compris les callbacks historiques, restent transmis au module `actions`
-historique et continuent d'utiliser le chemin mono-utilisateur inchangé. Le
-`CHAT_ID` historique n'est ni supprimé ni modifié dans cette PR.
+puis le brouillon de cette même entreprise. Tout autre format reçoit une réponse
+polie indiquant que le bouton n'est plus actif, sans action Gmail ni Sheet.
 
 **Voir** relit le brouillon dans le Sheet de l'entreprise et tronque le message
 sous 4096 caractères. **Envoyer** réserve atomiquement l'action dans Neon,
@@ -307,9 +301,9 @@ la fin du travail en arrière-plan.
 #### Test réel PR 2 après déploiement
 
 1. Récupérer l'ID interne de l'entreprise de test sans le publier.
-2. Définir `PIPELINE_ALLOWED_COMPANY_IDS` avec uniquement cet ID et conserver
-   `MULTI_TENANT_PIPELINE_ENABLED=true`.
-3. Lancer une première fois `POST /api/v1/pipeline/run` : ce passage doit fixer
+2. Définir `PIPELINE_ALLOWED_COMPANY_IDS` avec uniquement cet ID.
+3. Lancer une première fois `POST /api/v1/pipeline/run` avec le header cron :
+   ce passage doit fixer
    `pipeline_activated_at` et ne doit normalement créer aucun brouillon.
 4. Envoyer ensuite un nouvel email à la boîte Gmail liée.
 5. Lancer un second passage : vérifier un seul brouillon dans le même fil, une
@@ -343,9 +337,9 @@ la fin du travail en arrière-plan.
    Un blocage du bot (`403`) ne doit produire aucune reprise supplémentaire.
 8. Révoquer Gmail : vérifier un seul avis avec le lien vers Intégrations, aucun
    second avis avant reconnexion, puis la remise à zéro après reconnexion.
-9. Rejouer un callback historique avec l'interrupteur multi-tenant désactivé et
-   confirmer le comportement historique. Vérifier enfin que réponses et logs
-   ne contiennent ni adresse, contenu, jeton, Sheet ID ou identifiant Telegram.
+9. Rejouer un callback historique et confirmer la réponse « bouton inactif »,
+   sans appel Gmail ni Sheet. Vérifier enfin que réponses et logs ne contiennent
+   ni adresse, contenu, jeton, Sheet ID ou identifiant Telegram.
 
 ## 🧪 Endpoints API et de validation
 
@@ -363,15 +357,7 @@ la fin du travail en arrière-plan.
 | `POST /api/v1/companies` | Companies | Crée l'entreprise et sa copie de Sheet dédiée |
 | `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
-| `POST /api/v1/ai/test` | 3 | Analyse Gemini d'un email factice |
-| `GET /api/v1/gmail/test` | 1 | Liste les emails non lus |
-| `GET /api/v1/filter/test` | 1+2 | Filtre les emails non lus (traiter/ignorer) |
-| `POST /api/v1/sheets/test` | 4 | Écrit une ligne d'analyse factice |
-| `POST /api/v1/drafts/test` | 5 | Crée un brouillon Gmail factice |
-| `POST /api/v1/notifications/test` | 6 | Envoie une notification Telegram |
-| `POST /api/v1/actions/test-ignore` | 7 | Simule un clic « Ignorer » |
-| `POST /api/v1/actions/test-send` | 7 | Crée et envoie un vrai brouillon de test |
-| `POST /api/v1/pipeline/run` | Pipeline | Historique si désactivé ; plan sûr `202`, puis traitement allowlisté en arrière-plan si activé |
+| `POST /api/v1/pipeline/run` | Pipeline | Plan sûr `202`, puis traitement multi-utilisateur allowlisté en arrière-plan |
 
 ## 📊 Statuts (figés par le cadrage)
 
@@ -380,13 +366,13 @@ la fin du travail en arrière-plan.
 
 ## 🗺️ Roadmap
 
-- [x] **Étape 1** — Pipeline en code, mono-utilisateur (compte en dur) ✅
+- [x] **Étape 1** — Première version du pipeline ✅
 - [x] **Étape 2** — Couche multi-utilisateur ✅
   - [x] comptes utilisateurs et JWT
   - [x] OAuth2 Gmail par utilisateur
   - [x] entreprise unique et Sheet dynamique
   - [x] dashboard Phase A : onboarding et intégrations
-- [ ] **Étape 3** — Branchement du pipeline sur la couche multi-utilisateur
+- [x] **Étape 3** — Pipeline multi-utilisateur permanent
   - [x] PR 1 : sélection, plafonds, équité, verrou et simulation en lecture seule
   - [x] PR 2 : traitement réel isolé par entreprise, dédoublonnage et coupure
   - [x] PR 3 : notifications et actions Telegram isolées par entreprise
@@ -402,8 +388,10 @@ la fin du travail en arrière-plan.
   `O`, et les chiffres `2-9`. La saisie et la configuration sont normalisées
   avant comparaison (espaces et tirets retirés, majuscules). Le format n'est
   pas validé séparément : seule l'appartenance à la liste autorisée compte
-- Webhook Telegram vérifié par `X-Telegram-Bot-Api-Secret-Token`
-- Endpoint pipeline protégé par `X-CRON-SECRET` (si `CRON_SECRET` défini)
+- Webhook Telegram refusé si `TELEGRAM_WEBHOOK_SECRET` est vide, absent du
+  header `X-Telegram-Bot-Api-Secret-Token` ou incorrect
+- Endpoint pipeline refusé si `CRON_SECRET` est vide, absent du header
+  `X-CRON-SECRET` ou incorrect
 - Aucune clé en dur dans le code : 100 % variables d'environnement
 - ⚠️ Avant mise en production : régénérer les tokens de test,
   restreindre les scopes OAuth au strict nécessaire

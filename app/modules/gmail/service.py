@@ -1,15 +1,7 @@
-"""
-SmartReply Agent — MODULE 1 : Réception des emails (Gmail API)
-==============================================================
-Connexion au compte Gmail configuré (Étape 1 : compte unique en variables
-d'environnement) et lecture des messages.
+"""Adaptateurs Gmail isolés par entreprise."""
 
-Authentification : OAuth2 refresh token -> access token (flux standard Google).
-Aucune librairie Google nécessaire : httpx uniquement (déjà dans requirements).
-"""
 import base64
 import re
-import time
 from datetime import datetime, timezone
 
 import httpx
@@ -19,24 +11,8 @@ from app.core.config import settings
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
-# Cache simple de l'access token (évite un refresh à chaque appel)
-_token_cache: dict = {"access_token": None, "expires_at": 0.0}
-
-
-async def _get_access_token_for_refresh_token(
-    refresh_token: str,
-    *,
-    token_cache: dict | None = None,
-    legacy_errors: bool = False,
-) -> str:
-    """Cœur OAuth paramétré commun aux comptes historique et d'entreprise."""
-    if (
-        token_cache is not None
-        and token_cache["access_token"]
-        and time.time() < token_cache["expires_at"]
-    ):
-        return token_cache["access_token"]
-
+async def _get_access_token_for_refresh_token(refresh_token: str) -> str:
+    """Échange le refresh token explicite d'une entreprise."""
     payload = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "client_secret": settings.GOOGLE_CLIENT_SECRET,
@@ -46,36 +22,15 @@ async def _get_access_token_for_refresh_token(
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(GOOGLE_TOKEN_URL, data=payload)
 
-    if legacy_errors:
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"Refresh token échoué (HTTP {response.status_code}): {response.text}"
-            )
-        data = response.json()
-        access_token = data["access_token"]
-    else:
-        data = _safe_response_json(response)
-        if response.status_code == 400 and data.get("error") == "invalid_grant":
-            raise GmailTokenRevokedError("gmail_token_revoked", status_code=400)
-        if response.status_code != 200:
-            _raise_company_gmail_error(response, "token")
-        access_token = data.get("access_token")
-        if not isinstance(access_token, str) or not access_token:
-            raise CompanyGmailError("gmail_token_response_invalid")
-
-    if token_cache is not None:
-        token_cache["access_token"] = access_token
-        token_cache["expires_at"] = time.time() + data.get("expires_in", 3600) - 60
+    data = _safe_response_json(response)
+    if response.status_code == 400 and data.get("error") == "invalid_grant":
+        raise GmailTokenRevokedError("gmail_token_revoked", status_code=400)
+    if response.status_code != 200:
+        _raise_company_gmail_error(response, "token")
+    access_token = data.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise CompanyGmailError("gmail_token_response_invalid")
     return access_token
-
-
-async def _get_access_token() -> str:
-    """Récupère le token historique en conservant son cache et ses erreurs."""
-    return await _get_access_token_for_refresh_token(
-        settings.GOOGLE_REFRESH_TOKEN,
-        token_cache=_token_cache,
-        legacy_errors=True,
-    )
 
 
 def _strip_html(html: str) -> str:
@@ -86,78 +41,30 @@ def _strip_html(html: str) -> str:
     return text.strip()
 
 
+def _decode_body_data(data: str) -> str:
+    return base64.urlsafe_b64decode(data).decode(
+        "utf-8",
+        errors="replace",
+    )
+
+
 def _extract_text(payload: dict) -> str:
-    """Extrait le texte brut d'un message (text/plain prioritaire, HTML nettoyé en secours)."""
+    """Extrait le texte brut, avec HTML nettoyé en dernier recours."""
     if payload.get("mimeType", "").startswith("multipart"):
         for part in payload.get("parts", []):
-            if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
-                return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace").strip()
+            body_data = part.get("body", {}).get("data")
+            if part.get("mimeType") == "text/plain" and body_data:
+                return _decode_body_data(body_data).strip()
         for part in payload.get("parts", []):
-            if part.get("mimeType") == "text/html" and part.get("body", {}).get("data"):
-                html = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
-                return _strip_html(html)
+            body_data = part.get("body", {}).get("data")
+            if part.get("mimeType") == "text/html" and body_data:
+                return _strip_html(_decode_body_data(body_data))
     elif payload.get("body", {}).get("data"):
-        raw = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
+        raw = _decode_body_data(payload["body"]["data"])
         if payload.get("mimeType") == "text/html":
             return _strip_html(raw)
         return raw.strip()
     return ""
-
-
-async def _list_unread_emails_with_access_token(
-    access_token: str,
-    *,
-    max_results: int,
-) -> list[dict]:
-    """Cœur paramétré de la lecture historique des messages non lus."""
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        # 1. Liste des messages non lus
-        resp = await client.get(
-            f"{GMAIL_API}/messages",
-            headers=headers,
-            params={"q": "is:unread", "maxResults": max_results},
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(f"Gmail list échoué (HTTP {resp.status_code}): {resp.text}")
-        messages = resp.json().get("messages", [])
-
-        # 2. Détail de chaque message
-        emails = []
-        for m in messages:
-            detail = await client.get(
-                f"{GMAIL_API}/messages/{m['id']}",
-                headers=headers,
-                params={"format": "full"},
-            )
-            if detail.status_code != 200:
-                continue
-            msg = detail.json()
-
-            headers_map = {h["name"].lower(): h["value"] for h in msg["payload"].get("headers", [])}
-            emails.append({
-                "id_gmail": msg["id"],
-                "thread_id": msg.get("threadId"),
-                "expediteur": headers_map.get("from", ""),
-                "objet": headers_map.get("subject", "(sans objet)"),
-                "date": headers_map.get("date", ""),
-                "list_unsubscribe": headers_map.get("list-unsubscribe", ""),
-                "snippet": msg.get("snippet", ""),
-                "corps": _extract_text(msg["payload"]),
-            })
-        return emails
-
-
-async def list_unread_emails(max_results: int = 5) -> list[dict]:
-    """
-    Module 1 — Détection : retourne les emails non lus du compte configuré.
-    Chaque email : id_gmail, expediteur, objet, date, snippet, corps.
-    """
-    return await _list_unread_emails_with_access_token(
-        await _get_access_token(),
-        max_results=max_results,
-    )
 
 
 class CompanyGmailError(RuntimeError):

@@ -10,8 +10,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.sheets_client import get_central_workbook
 from app.modules.auth.models import User
+from app.modules.notifications.service import (
+    CompanyTelegramError,
+    answer_company_callback,
+)
 from app.modules.telegram.models import TelegramConnection, TelegramLinkCode
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
@@ -260,10 +263,15 @@ async def process_telegram_update(update: dict, db: Session) -> None:
 
             await handle_company_callback_query(query, db)
         else:
-            # Tous les formats historiques restent gérés sans modification.
-            from app.modules.actions.service import handle_callback_query
-
-            await handle_callback_query(query)
+            callback_id = query.get("id")
+            if isinstance(callback_id, str) and callback_id:
+                try:
+                    await answer_company_callback(
+                        callback_id,
+                        "Ce bouton n’est plus actif.",
+                    )
+                except CompanyTelegramError:
+                    pass
         return
 
     message = update.get("message")
@@ -365,107 +373,3 @@ async def check_user_status(chat_id: int, db: Session) -> None:
     else:
         message = "📊 *Statut :* ⚪ Non connecté. Envoyez votre code `SR-XXXXX`."
     await send_telegram_message(chat_id, message)
-
-
-# ---------------------------------------------------------------------------
-# IMPLÉMENTATION GOOGLE SHEETS DÉPRÉCIÉE
-# Conservée pour historique et migration uniquement. Le webhook et /status ne
-# l'appellent plus ; Neon est l'unique source de vérité du nouveau flux.
-# ---------------------------------------------------------------------------
-
-
-def _legacy_parse_dt(value: str) -> datetime | None:
-    try:
-        return datetime.strptime(str(value).strip(), "%Y-%m-%d %H:%M:%S").replace(
-            tzinfo=timezone.utc
-        )
-    except (ValueError, TypeError):
-        return None
-
-
-def _legacy_is_expired(record: dict) -> bool:
-    expiration = _legacy_parse_dt(record.get("expires_at", ""))
-    return expiration is not None and datetime.now(timezone.utc) > expiration
-
-
-def _legacy_find_user_integration_row(sheet_integrations, user_id) -> int | None:
-    records = sheet_integrations.get_all_records()
-    for index, record in enumerate(records, start=2):
-        if str(record.get("user_id")) == str(user_id):
-            return index
-    return None
-
-
-async def legacy_handle_connection_code_sheet(
-    chat_id: int, message: dict, code: str
-) -> None:
-    """DÉPRÉCIÉ — ancienne consommation non atomique dans Google Sheets."""
-    try:
-        workbook = get_central_workbook()
-        sheet = workbook.worksheet("telegram_connection_codes")
-        records = sheet.get_all_records()
-
-        row_index = None
-        target_record = None
-        for index, record in enumerate(records, start=2):
-            if str(record.get("connection_code", "")).strip() == code.strip():
-                row_index = index
-                target_record = record
-                break
-
-        if not target_record:
-            await send_telegram_message(chat_id, "❌ *Code invalide.*")
-            return
-
-        status = str(target_record.get("status", "")).strip().lower()
-        if status == "used":
-            await send_telegram_message(chat_id, "⚠️ *Code déjà utilisé.*")
-            return
-        if status in ("expired", "cancelled") or _legacy_is_expired(target_record):
-            if status not in ("expired", "cancelled"):
-                sheet.update_cell(row_index, 4, "expired")
-            await send_telegram_message(chat_id, "⏳ *Code expiré.*")
-            return
-        if status != "pending":
-            await send_telegram_message(chat_id, "❌ *Code invalide.*")
-            return
-
-        now_string = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        telegram_user_id = message["from"]["id"]
-        sheet.update_cell(row_index, 4, "used")
-        sheet.update_cell(row_index, 7, now_string)
-        sheet.update_cell(row_index, 8, str(telegram_user_id))
-        sheet.update_cell(row_index, 9, str(chat_id))
-
-        user_id = target_record.get("user_id")
-        integrations = workbook.worksheet("Integrations")
-        integration_row = _legacy_find_user_integration_row(integrations, user_id)
-        if integration_row:
-            integrations.update_cell(integration_row, 7, str(chat_id))
-            integrations.update_cell(integration_row, 8, "connecté")
-
-        await send_telegram_message(chat_id, "🎉 *Connexion réussie !*")
-    except Exception:
-        # Fonction dépréciée et non appelée ; aucun identifiant n'est journalisé.
-        await send_telegram_message(chat_id, "⚠️ Vérification indisponible.")
-
-
-async def legacy_check_user_status_sheet(chat_id: int) -> None:
-    """DÉPRÉCIÉ — ancien statut lu dans telegram_connection_codes."""
-    try:
-        workbook = get_central_workbook()
-        records = workbook.worksheet("telegram_connection_codes").get_all_records()
-        connected = any(
-            str(record.get("telegram_chat_id")) == str(chat_id)
-            and record.get("status") == "used"
-            for record in records
-        )
-        message = (
-            "📊 *Statut :* 🟢 Connecté à SmartReply Agent"
-            if connected
-            else "📊 *Statut :* ⚪ Non connecté."
-        )
-        await send_telegram_message(chat_id, message)
-    except Exception:
-        # Fonction dépréciée et non appelée ; aucun identifiant n'est journalisé.
-        await send_telegram_message(chat_id, "📊 *Statut indisponible.*")
