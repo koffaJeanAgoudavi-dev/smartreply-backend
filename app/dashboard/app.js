@@ -55,6 +55,31 @@
   }
 
   const $ = (id) => document.getElementById(id);
+  const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+  const DONUT_PALETTES = Object.freeze({
+    category: Object.freeze({
+      devis: "var(--color-primary-900)",
+      support: "var(--color-telegram)",
+      facturation: "#6d5bd0",
+      partenariat: "#c66a16",
+      spam: "var(--color-danger)",
+      newsletter: "var(--color-warning)",
+      autre: "var(--color-muted)",
+      unclassified: "var(--color-subtle)",
+    }),
+    priority: Object.freeze({
+      haute: "var(--color-danger)",
+      moyenne: "var(--color-warning)",
+      basse: "var(--color-success)",
+      unclassified: "var(--color-subtle)",
+    }),
+  });
+  const DONUT_FALLBACK_COLORS = Object.freeze([
+    "var(--color-primary-700)",
+    "var(--color-telegram)",
+    "var(--color-warning)",
+    "var(--color-danger)",
+  ]);
 
   function readStoredToken() {
     try {
@@ -645,10 +670,108 @@
     container.append(chart);
   }
 
-  function renderBreakdownChart(containerId, items, kind = "category") {
+  function allocateDonutPercentages(segments, total) {
+    const exactUnits = segments.map((segment) => (segment.count / total) * 1000);
+    const roundedUnits = exactUnits.map(Math.floor);
+    let remainingUnits = 1000 - roundedUnits.reduce((sum, value) => sum + value, 0);
+    const remainderOrder = exactUnits
+      .map((value, index) => ({ index, remainder: value - roundedUnits[index] }))
+      .sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+
+    for (let index = 0; index < remainingUnits; index += 1) {
+      roundedUnits[remainderOrder[index % remainderOrder.length].index] += 1;
+    }
+    return roundedUnits.map((value) => value / 10);
+  }
+
+  function prepareDonutData(items, total) {
+    const numericTotal = Number(total);
+    const hasValidTotal = total !== null
+      && total !== undefined
+      && Number.isSafeInteger(numericTotal)
+      && numericTotal >= 0;
+    const analyzedTotal = hasValidTotal ? numericTotal : 0;
+    const segments = [];
+    let invalidCount = false;
+
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      if (!item || item.count === null || item.count === undefined) return;
+      const numericCount = Number(item.count);
+      if (!Number.isSafeInteger(numericCount) || numericCount < 0) {
+        invalidCount = true;
+        return;
+      }
+      if (numericCount === 0) return;
+      segments.push({
+        key: String(item.key || ""),
+        label: String(item.label || item.key || ""),
+        count: numericCount,
+      });
+    });
+
+    const knownTotal = segments.reduce((sum, segment) => sum + segment.count, 0);
+    if (
+      invalidCount
+      || !hasValidTotal
+      || !Number.isSafeInteger(knownTotal)
+      || knownTotal > analyzedTotal
+    ) {
+      return {
+        state: "inconsistent",
+        total: analyzedTotal,
+        knownTotal,
+        segments: [],
+      };
+    }
+
+    if (analyzedTotal === 0) {
+      return { state: "empty", total: 0, knownTotal: 0, segments: [] };
+    }
+
+    const unclassified = analyzedTotal - knownTotal;
+    if (unclassified > 0) {
+      segments.push({
+        key: "unclassified",
+        label: "Non classé",
+        count: unclassified,
+      });
+    }
+
+    const percentages = allocateDonutPercentages(segments, analyzedTotal);
+    return {
+      state: "ready",
+      total: analyzedTotal,
+      knownTotal,
+      segments: segments.map((segment, index) => ({
+        ...segment,
+        percentage: percentages[index],
+        share: segment.count / analyzedTotal,
+      })),
+    };
+  }
+
+  function formatDonutPercentage(value) {
+    return `${new Intl.NumberFormat("fr-FR", {
+      minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
+      maximumFractionDigits: 1,
+    }).format(value)} %`;
+  }
+
+  function donutColor(kind, key, index) {
+    const palette = DONUT_PALETTES[kind] || DONUT_PALETTES.category;
+    return palette[key] || DONUT_FALLBACK_COLORS[index % DONUT_FALLBACK_COLORS.length];
+  }
+
+  function createSvgElement(name) {
+    return document.createElementNS(SVG_NAMESPACE, name);
+  }
+
+  function renderDonutChart(containerId, items, options) {
     const container = $(containerId);
     container.replaceChildren();
-    if (!items.length) {
+    const chartData = prepareDonutData(items, options.total);
+
+    if (chartData.state === "empty") {
       const empty = document.createElement("p");
       empty.className = "chart-empty";
       empty.textContent = "Aucune donnée enregistrée pour le moment.";
@@ -656,29 +779,101 @@
       return;
     }
 
-    const maximum = Math.max(...items.map((item) => Number(item.count || 0)), 1);
+    if (chartData.state === "inconsistent") {
+      const error = document.createElement("p");
+      error.className = "chart-empty donut-error";
+      error.setAttribute("role", "alert");
+      error.textContent = "Données de répartition incohérentes avec le total analysé.";
+      container.append(error);
+      return;
+    }
+
     const chart = document.createElement("div");
-    chart.className = "breakdown-chart";
-    items.forEach((item) => {
-      const row = document.createElement("div");
-      row.className = "breakdown-row";
-      if (kind === "priority") {
-        const priorityClass = { haute: "high", moyenne: "medium", basse: "low" }[item.key];
-        if (priorityClass) row.classList.add(`priority-${priorityClass}`);
-      }
-      const label = document.createElement("span");
-      label.textContent = item.label;
-      const track = document.createElement("div");
-      track.className = "breakdown-track";
-      const fill = document.createElement("div");
-      fill.className = "breakdown-fill";
-      fill.style.width = `${Math.max(5, (Number(item.count || 0) / maximum) * 100)}%`;
-      track.append(fill);
-      const count = document.createElement("strong");
-      count.textContent = formatCount(item.count);
-      row.append(label, track, count);
-      chart.append(row);
+    chart.className = "donut-chart";
+    const visual = document.createElement("div");
+    visual.className = "donut-visual";
+    const svg = createSvgElement("svg");
+    svg.classList.add("donut-svg");
+    svg.setAttribute("viewBox", "0 0 120 120");
+    svg.setAttribute("role", "img");
+    const titleId = `${containerId}-donut-title`;
+    const descriptionId = `${containerId}-donut-description`;
+    svg.setAttribute("aria-labelledby", `${titleId} ${descriptionId}`);
+
+    const title = createSvgElement("title");
+    title.id = titleId;
+    title.textContent = options.title;
+    const description = createSvgElement("desc");
+    description.id = descriptionId;
+    const segmentDescription = chartData.segments
+      .map((segment) => (
+        `${segment.label} : ${formatCount(segment.count)} emails, ${formatDonutPercentage(segment.percentage)}`
+      ))
+      .join(". ");
+    description.textContent = `Total : ${formatCount(chartData.total)} emails. ${segmentDescription}.`;
+    const track = createSvgElement("circle");
+    track.classList.add("donut-track");
+    track.setAttribute("cx", "60");
+    track.setAttribute("cy", "60");
+    track.setAttribute("r", "48");
+    track.setAttribute("pathLength", "100");
+    svg.append(title, description, track);
+
+    let offset = 0;
+    chartData.segments.forEach((segment, index) => {
+      const circle = createSvgElement("circle");
+      const segmentSize = segment.share * 100;
+      circle.classList.add("donut-segment");
+      circle.setAttribute("cx", "60");
+      circle.setAttribute("cy", "60");
+      circle.setAttribute("r", "48");
+      circle.setAttribute("pathLength", "100");
+      circle.setAttribute("transform", "rotate(-90 60 60)");
+      circle.setAttribute("stroke-dasharray", `${segmentSize} ${100 - segmentSize}`);
+      circle.setAttribute("stroke-dashoffset", String(-offset));
+      circle.style.stroke = donutColor(options.kind, segment.key, index);
+      offset += segmentSize;
+      svg.append(circle);
     });
+
+    const totalValue = createSvgElement("text");
+    totalValue.classList.add("donut-total-value");
+    totalValue.setAttribute("x", "60");
+    totalValue.setAttribute("y", "57");
+    totalValue.textContent = formatCount(chartData.total);
+    const totalLabel = createSvgElement("text");
+    totalLabel.classList.add("donut-total-label");
+    totalLabel.setAttribute("x", "60");
+    totalLabel.setAttribute("y", "72");
+    totalLabel.textContent = "emails";
+    svg.append(totalValue, totalLabel);
+    visual.append(svg);
+
+    const legend = document.createElement("ul");
+    legend.className = "donut-legend";
+    legend.setAttribute("aria-label", `Légende : ${options.title}`);
+    chartData.segments.forEach((segment, index) => {
+      const item = document.createElement("li");
+      item.className = "donut-legend-item";
+      const swatch = document.createElement("span");
+      swatch.className = "donut-legend-swatch";
+      swatch.style.backgroundColor = donutColor(options.kind, segment.key, index);
+      swatch.setAttribute("aria-hidden", "true");
+      const label = document.createElement("span");
+      label.className = "donut-legend-label";
+      label.textContent = segment.label;
+      const values = document.createElement("span");
+      values.className = "donut-legend-values";
+      const count = document.createElement("strong");
+      count.textContent = formatCount(segment.count);
+      const percentage = document.createElement("small");
+      percentage.textContent = formatDonutPercentage(segment.percentage);
+      values.append(count, percentage);
+      item.append(swatch, label, values);
+      legend.append(item);
+    });
+
+    chart.append(visual, legend);
     container.append(chart);
   }
 
@@ -722,8 +917,16 @@
     $("metric-ignored").textContent = formatCount(overview.metrics.ignored_emails);
     $("metric-pending").textContent = formatCount(overview.metrics.pending_drafts);
     renderVolumeChart(overview.volume || []);
-    renderBreakdownChart("category-chart", overview.categories || []);
-    renderBreakdownChart("priority-chart", overview.priorities || [], "priority");
+    renderDonutChart("category-chart", overview.categories || [], {
+      kind: "category",
+      title: "Répartition des emails par catégorie",
+      total: overview.metrics.analyzed_emails,
+    });
+    renderDonutChart("priority-chart", overview.priorities || [], {
+      kind: "priority",
+      title: "Répartition des emails par priorité",
+      total: overview.metrics.analyzed_emails,
+    });
     renderActivity(overview.recent_activity || []);
     $("analytics-history-note").hidden = Boolean(overview.history_started)
       || Number(overview.metrics.analyzed_emails || 0) === 0;
