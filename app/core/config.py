@@ -43,6 +43,24 @@ class Settings(BaseSettings):
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")
     )  # 24 h
 
+    # Protection anti-abus partagée. CLIENT_IP_HEADER doit uniquement nommer
+    # un en-tête remplacé par la plateforme (Render public : CF-Connecting-IP).
+    REDIS_URL: str = os.getenv("REDIS_URL", "")
+    RATE_LIMIT_HMAC_SECRET: str = os.getenv("RATE_LIMIT_HMAC_SECRET", "")
+    CLIENT_IP_HEADER: str = os.getenv("CLIENT_IP_HEADER", "")
+    LOGIN_IP_EMAIL_RATE_LIMIT: int = int(
+        os.getenv("LOGIN_IP_EMAIL_RATE_LIMIT", "5")
+    )
+    LOGIN_IP_RATE_LIMIT: int = int(os.getenv("LOGIN_IP_RATE_LIMIT", "20"))
+    LOGIN_EMAIL_RATE_LIMIT: int = int(os.getenv("LOGIN_EMAIL_RATE_LIMIT", "5"))
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = int(
+        os.getenv("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "900")
+    )
+    REGISTER_IP_RATE_LIMIT: int = int(os.getenv("REGISTER_IP_RATE_LIMIT", "5"))
+    REGISTER_RATE_LIMIT_WINDOW_SECONDS: int = int(
+        os.getenv("REGISTER_RATE_LIMIT_WINDOW_SECONDS", "3600")
+    )
+
     # Gmail OAuth par utilisateur (Étape 3) — chiffrement des refresh tokens (Fernet)
     TOKEN_ENCRYPTION_KEY: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")
 

@@ -1293,12 +1293,15 @@ svg {
   align-items: end;
 }
 
-.volume-bar {
+.volume-bar-svg {
+  display: block;
   width: 100%;
-  min-height: 3px;
-  border-radius: 7px 7px 2px 2px;
-  background: linear-gradient(180deg, var(--color-primary-500), var(--color-primary-800));
-  transition: height 240ms ease;
+  height: 100%;
+  overflow: visible;
+}
+
+.volume-bar {
+  fill: var(--color-primary-700);
 }
 
 .volume-column small {
@@ -1344,9 +1347,21 @@ svg {
 }
 
 .donut-segment {
+  stroke: var(--donut-color);
   stroke-linecap: butt;
   transition: stroke-dasharray 240ms ease, stroke-dashoffset 240ms ease;
 }
+
+.donut-color-primary-900 { --donut-color: var(--color-primary-900); }
+.donut-color-primary-700 { --donut-color: var(--color-primary-700); }
+.donut-color-telegram { --donut-color: var(--color-telegram); }
+.donut-color-purple { --donut-color: #6d5bd0; }
+.donut-color-orange { --donut-color: #c66a16; }
+.donut-color-danger { --donut-color: var(--color-danger); }
+.donut-color-warning { --donut-color: var(--color-warning); }
+.donut-color-success { --donut-color: var(--color-success); }
+.donut-color-muted { --donut-color: var(--color-muted); }
+.donut-color-subtle { --donut-color: var(--color-subtle); }
 
 .donut-total-value,
 .donut-total-label {
@@ -1390,6 +1405,7 @@ svg {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+  background-color: var(--donut-color);
   box-shadow: 0 0 0 2px var(--color-surface);
 }
 
@@ -1424,6 +1440,15 @@ svg {
 
 .donut-error {
   color: var(--color-danger);
+}
+
+.clipboard-fallback-input {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .history-note {

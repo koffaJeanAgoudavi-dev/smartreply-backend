@@ -10,9 +10,21 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
+from app.core.rate_limit import get_rate_limiter
 from app.db.database import Base, get_db
 from app.main import app
 from app.modules.auth.models import User
+
+
+class NoopRateLimiter:
+    def login_buckets(self, _client_ip, _normalized_email):
+        return ()
+
+    def register_buckets(self, _client_ip):
+        return ()
+
+    def consume(self, _buckets):
+        return None
 
 
 class InvitationRegistrationTests(unittest.TestCase):
@@ -37,10 +49,13 @@ class InvitationRegistrationTests(unittest.TestCase):
                 db.close()
 
         app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_rate_limiter] = lambda: NoopRateLimiter()
         self.original_jwt_secret = settings.JWT_SECRET
         self.original_invitation_codes = settings.INVITATION_CODES
+        self.original_client_ip_header = settings.CLIENT_IP_HEADER
         settings.JWT_SECRET = "invitation-tests-secret-at-least-32-bytes"
         settings.INVITATION_CODES = "invite-alpha"
+        settings.CLIENT_IP_HEADER = "X-Test-Client-IP"
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -48,6 +63,7 @@ class InvitationRegistrationTests(unittest.TestCase):
         app.dependency_overrides.clear()
         settings.JWT_SECRET = self.original_jwt_secret
         settings.INVITATION_CODES = self.original_invitation_codes
+        settings.CLIENT_IP_HEADER = self.original_client_ip_header
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
 
@@ -58,7 +74,11 @@ class InvitationRegistrationTests(unittest.TestCase):
         }
         if invitation_code is not ...:
             payload["invitation_code"] = invitation_code
-        return self.client.post("/api/v1/auth/register", json=payload)
+        return self.client.post(
+            "/api/v1/auth/register",
+            json=payload,
+            headers={"X-Test-Client-IP": "192.0.2.10"},
+        )
 
     def user_count(self) -> int:
         with self.session_factory() as db:
@@ -83,6 +103,7 @@ class InvitationRegistrationTests(unittest.TestCase):
                 "email": "valid@example.com",
                 "password": "motdepasse123",
             },
+            headers={"X-Test-Client-IP": "192.0.2.10"},
         )
         self.assertEqual(login_response.status_code, 200, login_response.text)
         self.assertIn("access_token", login_response.json())

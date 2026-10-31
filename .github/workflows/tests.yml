@@ -31,8 +31,13 @@ jobs:
       - name: Lint changed backend capability
         run: >-
           ruff check --select E,F,I
+          app/core
+          app/modules/auth/dependencies.py
+          app/modules/auth/router.py
           app/modules/companies
           app/modules/dashboard
+          app/modules/gmail_oauth/router.py
+          app/modules/gmail_oauth/service.py
           app/modules/telegram
           app/modules/pipeline
           app/modules/pipeline_selection
@@ -43,7 +48,6 @@ jobs:
           app/modules/gmail/service.py
           app/modules/notifications/service.py
           app/modules/sheets/service.py
-          app/core/config.py
           app/db/sheets_client.py
           app/main.py
           alembic/env.py

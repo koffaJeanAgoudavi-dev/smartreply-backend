@@ -21,10 +21,16 @@ Tests :
 
 import hmac
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.client_ip import ClientAddressError, get_client_ip
 from app.core.config import settings
+from app.core.rate_limit import (
+    RedisRateLimiter,
+    enforce_rate_limit,
+    get_rate_limiter,
+)
 from app.db.database import get_db
 from app.modules.auth.schemas import (
     RegisterResponse,
@@ -34,7 +40,7 @@ from app.modules.auth.schemas import (
     UserOut,
 )
 from app.modules.auth.security import create_access_token
-from app.modules.auth.service import authenticate_user, create_user
+from app.modules.auth.service import authenticate_user, create_user, normalize_email
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
@@ -58,11 +64,38 @@ def _invitation_code_is_valid(invitation_code: str | None) -> bool:
     return is_valid
 
 
+def _rate_limit_client_ip(
+    request: Request,
+    *,
+    required: bool,
+) -> str | None:
+    try:
+        return get_client_ip(request)
+    except ClientAddressError as exc:
+        if not required:
+            # Une IP douteuse ne doit jamais entrer dans une clé de confiance.
+            # La limite login par email reste alors la protection fail-safe.
+            return None
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Protection anti-abus temporairement indisponible",
+        ) from exc
+
+
 @router.post(
     "/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
 )
-def register(payload: UserCreate, db: Session = Depends(get_db)):
+def register(
+    payload: UserCreate,
+    request: Request,
+    limiter: RedisRateLimiter = Depends(get_rate_limiter),
+    db: Session = Depends(get_db),
+):
     """Crée un compte uniquement avec un code d'invitation autorisé."""
+    client_ip = _rate_limit_client_ip(request, required=True)
+    assert client_ip is not None
+    enforce_rate_limit(limiter, limiter.register_buckets(client_ip))
+
     if not _invitation_code_is_valid(payload.invitation_code):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -83,8 +116,19 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=Token)
-def login(payload: UserLogin, db: Session = Depends(get_db)):
+def login(
+    payload: UserLogin,
+    request: Request,
+    limiter: RedisRateLimiter = Depends(get_rate_limiter),
+    db: Session = Depends(get_db),
+):
     """Connexion : identifiants valides → JWT (HS256, validité 24 h)."""
+    client_ip = _rate_limit_client_ip(request, required=False)
+    enforce_rate_limit(
+        limiter,
+        limiter.login_buckets(client_ip, normalize_email(payload.email)),
+    )
+
     user = authenticate_user(db, payload.email, payload.password)
     if user is None:
         raise HTTPException(
