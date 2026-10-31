@@ -111,6 +111,40 @@ class DashboardStaticTests(unittest.TestCase):
         ):
             self.assertIn(integration_page_element, integrations_markup)
 
+    def test_telegram_code_instructions_link_to_the_bot_safely(self):
+        response = self.client.get("/dashboard/")
+        js_response = self.client.get("/dashboard/app.js")
+
+        self.assertEqual(response.status_code, 200)
+        telegram_panel = response.text.split(
+            'id="telegram-code-panel"', maxsplit=1
+        )[1].split("</article>", maxsplit=1)[0]
+        self.assertIn(
+            (
+                'Ouvrez le bot SmartReply dans Telegram : '
+                '<a href="https://t.me/SmartReply_Agent_Bot" target="_blank" '
+                'rel="noopener noreferrer">Ouvrir le bot Telegram</a>'
+            ),
+            telegram_panel,
+        )
+        for preserved_element in (
+            'id="telegram-code"',
+            'id="copy-telegram-code"',
+            'id="telegram-command"',
+            'id="telegram-expiry"',
+            "Cette page vérifiera automatiquement la connexion.",
+        ):
+            self.assertIn(preserved_element, telegram_panel)
+        self.assertIn(
+            '$("telegram-command").textContent = `/start ${response.code}`',
+            js_response.text,
+        )
+        self.assertIn("startTelegramPolling(response.expires_at)", js_response.text)
+        self.assertIn(
+            '$("copy-telegram-code").addEventListener("click", copyTelegramCode)',
+            js_response.text,
+        )
+
     def test_integration_setup_dialog_is_accessible_and_concise(self):
         response = self.client.get("/dashboard/")
 
