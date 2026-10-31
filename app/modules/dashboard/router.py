@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
+from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
-from app.modules.companies.router import get_current_user
 from app.modules.companies.service import get_company_by_user_id
 from app.modules.dashboard import service
 from app.modules.dashboard.schemas import (
