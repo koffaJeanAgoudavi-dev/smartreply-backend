@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app.core.config import settings
@@ -332,6 +333,50 @@ class AuthRateLimitTests(unittest.TestCase):
             [401] * 5,
         )
         self.assertEqual(responses[5].status_code, 429)
+        self.assertEqual(responses[5].headers["Retry-After"], "900")
+        self.assertEqual(authenticate_user.call_count, 5)
+
+    def test_invalid_redis_url_uses_the_same_closed_in_process_limit(self):
+        invalid_redis_url = "not-a-redis-url"
+        with self.assertRaises(ValueError):
+            Redis.from_url(invalid_redis_url)
+
+        settings.REDIS_URL = invalid_redis_url
+        settings.RATE_LIMIT_HMAC_SECRET = (
+            "hardening-test-rate-limit-secret-at-least-32-bytes"
+        )
+        app.dependency_overrides.pop(get_rate_limiter)
+        _build_rate_limiter.cache_clear()
+
+        with patch("app.core.rate_limit.logger.warning") as warning:
+            fallback_limiter = get_rate_limiter()
+
+        self.assertIsInstance(fallback_limiter, ResilientRateLimiter)
+        self.assertIsNone(fallback_limiter._client)
+        self.assertIsInstance(fallback_limiter._memory, InMemoryRateLimiter)
+        buckets = fallback_limiter.login_buckets(
+            "192.0.2.10",
+            "alice@example.com",
+        )
+        self.assertEqual(
+            [(bucket.limit, bucket.window_seconds) for bucket in buckets],
+            [(5, 900), (20, 900)],
+        )
+        warning.assert_called_once_with(
+            "Configuration Redis invalide; repli mémoire par processus actif"
+        )
+
+        with patch(
+            "app.modules.auth.router.authenticate_user",
+            return_value=None,
+        ) as authenticate_user:
+            responses = [self.login("alice@example.com") for _ in range(6)]
+
+        self.assertEqual(
+            [response.status_code for response in responses],
+            [401, 401, 401, 401, 401, 429],
+        )
+        self.assertNotIn(503, [response.status_code for response in responses])
         self.assertEqual(responses[5].headers["Retry-After"], "900")
         self.assertEqual(authenticate_user.call_count, 5)
 
