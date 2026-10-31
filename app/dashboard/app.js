@@ -473,14 +473,18 @@
     state.appReady = true;
     showScreen("dashboard-shell");
     renderRoute();
-    const [integrationResult] = await Promise.allSettled([
-      loadIntegrationStatuses({ silent: true }),
-      loadDashboardData(),
-    ]);
+    await loadDashboardResourcesIndependently();
     handleGmailReturn();
-    if (integrationResult.status === "fulfilled") {
-      maybeShowIntegrationSetupModal(integrationResult.value);
-    }
+  }
+
+  async function loadDashboardResourcesIndependently(
+    integrationLoader = () => checkIntegrationStatuses({ silent: true }),
+    analyticsLoader = loadDashboardData,
+  ) {
+    const integrationPromise = integrationLoader().catch(() => null);
+    const analyticsPromise = analyticsLoader().catch(() => undefined);
+    await integrationPromise;
+    await analyticsPromise;
   }
 
   function renderIdentity() {
@@ -527,11 +531,8 @@
     return REQUIRED_INTEGRATIONS.filter((key) => integrations[key] !== true);
   }
 
-  function evaluateIntegrationSetup(integrations, options = {}) {
-    if (options.statusesAvailable !== true) {
-      return { missing: [], shouldShow: false };
-    }
-    const missing = missingRequiredIntegrations(integrations);
+  function evaluateIntegrationSetup(statusSnapshot, options = {}) {
+    const missing = missingRequiredIntegrations(statusSnapshot);
     return {
       missing,
       shouldShow: (
@@ -579,9 +580,8 @@
   }
 
   function maybeShowIntegrationSetupModal(statusSnapshot) {
-    if (!state.appReady || !state.token) return;
-    const decision = evaluateIntegrationSetup(state.integrations, {
-      statusesAvailable: statusSnapshot.statusesAvailable,
+    if (!statusSnapshot || !state.appReady || !state.token) return;
+    const decision = evaluateIntegrationSetup(statusSnapshot, {
       dismissed: state.integrationSetup.dismissed,
       route: currentRoute(),
     });
@@ -691,7 +691,21 @@
     } else {
       showAlert($("integrations-error"), "");
     }
-    return { statusesAvailable };
+    if (!statusesAvailable) return null;
+    return Object.freeze({
+      gmail: state.integrations.gmail,
+      sheet: state.integrations.sheet,
+      telegram: state.integrations.telegram,
+    });
+  }
+
+  async function checkIntegrationStatuses(
+    options = {},
+    statusLoader = loadIntegrationStatuses,
+  ) {
+    const statusSnapshot = await statusLoader(options);
+    maybeShowIntegrationSetupModal(statusSnapshot);
+    return statusSnapshot;
   }
 
   function formatCount(value) {
@@ -1168,10 +1182,7 @@
     const button = $("refresh-dashboard");
     setBusy(button, true, "Actualisation…");
     try {
-      await Promise.all([
-        loadIntegrationStatuses({ silent: true }),
-        loadDashboardData(),
-      ]);
+      await loadDashboardResourcesIndependently();
       if ($("dashboard-data-error").hidden) {
         showToast("Les données du tableau de bord sont à jour.");
       }
@@ -1201,7 +1212,7 @@
     const button = $("refresh-integrations");
     setBusy(button, true, "Actualisation…");
     try {
-      await loadIntegrationStatuses();
+      await checkIntegrationStatuses();
       if (!$("integrations-error").hidden) return;
       showToast("Les statuts des intégrations sont à jour.");
     } finally {
@@ -1223,7 +1234,7 @@
       showToast("Code Telegram généré. Il reste valide pendant 15 minutes.");
     } catch (error) {
       if (error.status === 409) {
-        await loadIntegrationStatuses({ silent: true });
+        await checkIntegrationStatuses({ silent: true });
         showToast("Ce compte est déjà connecté à Telegram.");
       } else {
         showAlert(
@@ -1339,7 +1350,7 @@
     });
     closeSidebar();
     if (route === "integrations") {
-      loadIntegrationStatuses({ silent: true });
+      checkIntegrationStatuses({ silent: true });
     }
     window.setTimeout(() => $("main-content").focus({ preventScroll: true }), 0);
   }
@@ -1365,7 +1376,7 @@
     }
     window.history.replaceState(null, "", "/dashboard/#integrations");
     showToast("Gmail a été connecté avec succès.");
-    loadIntegrationStatuses({ silent: true });
+    checkIntegrationStatuses({ silent: true });
   }
 
   function bindEvents() {

@@ -217,7 +217,9 @@ if (!source.includes(marker)) throw new Error("Dashboard test export marker miss
 source = source.replace(
   marker,
   `  globalThis.__integrationSetupTest = {
+    checkIntegrationStatuses,
     evaluateIntegrationSetup,
+    loadDashboardResourcesIndependently,
     maybeShowIntegrationSetupModal,
     navigateToIntegrationSetup,
     state,
@@ -258,7 +260,6 @@ vm.runInContext(source, context);
 const integrationSetup = context.__integrationSetupTest;
 const evaluate = integrationSetup.evaluateIntegrationSetup;
 const options = {
-  statusesAvailable: true,
   dismissed: false,
   route: "dashboard",
 };
@@ -287,34 +288,57 @@ const result = {
     { gmail: false, sheet: true, telegram: true },
     { ...options, dismissed: false },
   ),
-  statusError: evaluate(
-    { gmail: false, sheet: false, telegram: false },
-    { ...options, statusesAvailable: false },
-  ),
   integrationsRoute: evaluate(
     { gmail: false, sheet: true, telegram: true },
     { ...options, route: "integrations" },
   ),
 };
-integrationSetup.state.appReady = true;
-integrationSetup.state.token = "authenticated";
-integrationSetup.state.integrations = {
-  gmail: false,
-  sheet: true,
-  telegram: false,
-};
-integrationSetup.maybeShowIntegrationSetupModal({ statusesAvailable: true });
-result.modalAction = {
-  opened: elements["integration-setup-dialog"].open,
-  focused: elements["configure-integrations"].focused,
-  missing: integrationSetup.state.integrationSetup.missing,
-};
-integrationSetup.navigateToIntegrationSetup();
-result.modalAction.closed = !elements["integration-setup-dialog"].open;
-result.modalAction.dismissed = integrationSetup.state.integrationSetup.dismissed;
-result.modalAction.hash = context.window.location.hash;
-result.modalAction.highlighted = highlighted;
-process.stdout.write(JSON.stringify(result));
+
+(async () => {
+  integrationSetup.state.appReady = true;
+  integrationSetup.state.token = "authenticated";
+  const missingSnapshot = {
+    gmail: false,
+    sheet: true,
+    telegram: false,
+  };
+  await integrationSetup.checkIntegrationStatuses({}, async () => null);
+  result.statusFailureSuppressed = !elements["integration-setup-dialog"].open;
+  await integrationSetup.checkIntegrationStatuses(
+    {},
+    async () => missingSnapshot,
+  );
+  result.successfulRetryOpened = elements["integration-setup-dialog"].open;
+  elements["integration-setup-dialog"].close();
+  await integrationSetup.checkIntegrationStatuses(
+    {},
+    async () => ({ gmail: true, sheet: true, telegram: true }),
+  );
+  result.allConfiguredStayedClosed = !elements["integration-setup-dialog"].open;
+  await integrationSetup.checkIntegrationStatuses(
+    {},
+    async () => missingSnapshot,
+  );
+  result.modalAction = {
+    opened: elements["integration-setup-dialog"].open,
+    focused: elements["configure-integrations"].focused,
+    missing: integrationSetup.state.integrationSetup.missing,
+  };
+  integrationSetup.navigateToIntegrationSetup();
+  result.modalAction.closed = !elements["integration-setup-dialog"].open;
+  result.modalAction.dismissed = integrationSetup.state.integrationSetup.dismissed;
+  result.modalAction.hash = context.window.location.hash;
+  result.modalAction.highlighted = highlighted;
+  await integrationSetup.checkIntegrationStatuses(
+    {},
+    async () => missingSnapshot,
+  );
+  result.modalAction.reopenedAfterDismissal = elements["integration-setup-dialog"].open;
+  process.stdout.write(JSON.stringify(result));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 '''
         completed = subprocess.run(
             ["node", "-e", script],
@@ -340,9 +364,10 @@ process.stdout.write(JSON.stringify(result));
         self.assertEqual(result["allConfigured"]["missing"], [])
         self.assertFalse(result["dismissed"]["shouldShow"])
         self.assertTrue(result["newLogin"]["shouldShow"])
-        self.assertFalse(result["statusError"]["shouldShow"])
-        self.assertEqual(result["statusError"]["missing"], [])
         self.assertFalse(result["integrationsRoute"]["shouldShow"])
+        self.assertTrue(result["statusFailureSuppressed"])
+        self.assertTrue(result["successfulRetryOpened"])
+        self.assertTrue(result["allConfiguredStayedClosed"])
         self.assertEqual(
             result["modalAction"],
             {
@@ -357,8 +382,100 @@ process.stdout.write(JSON.stringify(result));
                     "sheet": False,
                     "telegram": True,
                 },
+                "reopenedAfterDismissal": False,
             },
         )
+
+    def test_integration_statuses_complete_before_slow_or_failed_analytics(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r'''
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  marker,
+  `  globalThis.__dashboardLoadTest = {
+    checkIntegrationStatuses,
+    loadDashboardResourcesIndependently,
+    state,
+  };\n})();`,
+);
+const elements = {
+  "integration-setup-dialog": {
+    open: false,
+    showModal() { this.open = true; },
+    close() { this.open = false; },
+  },
+  "configure-integrations": { focus() {} },
+};
+const context = {
+  window: {
+    localStorage: { getItem: () => null },
+    location: { hash: "#dashboard" },
+  },
+  document: { getElementById: (id) => elements[id] || null },
+  console,
+  Intl,
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const dashboardLoad = context.__dashboardLoadTest;
+const missingSnapshot = { gmail: false, sheet: true, telegram: true };
+dashboardLoad.state.appReady = true;
+dashboardLoad.state.token = "authenticated";
+
+(async () => {
+  let resolveAnalytics;
+  let slowLoadFinished = false;
+  const slowLoad = dashboardLoad.loadDashboardResourcesIndependently(
+    () => dashboardLoad.checkIntegrationStatuses(
+      {},
+      async () => missingSnapshot,
+    ),
+    () => new Promise((resolve) => { resolveAnalytics = resolve; }),
+  ).then(() => { slowLoadFinished = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  const beforeAnalytics = {
+    modalOpen: elements["integration-setup-dialog"].open,
+    slowLoadFinished,
+  };
+  resolveAnalytics();
+  await slowLoad;
+
+  elements["integration-setup-dialog"].close();
+  await dashboardLoad.loadDashboardResourcesIndependently(
+    () => dashboardLoad.checkIntegrationStatuses(
+      {},
+      async () => missingSnapshot,
+    ),
+    async () => { throw new Error("analytics unavailable"); },
+  );
+
+  process.stdout.write(JSON.stringify({
+    beforeAnalytics,
+    slowLoadFinished,
+    modalOpenAfterAnalyticsFailure: elements["integration-setup-dialog"].open,
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+'''
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertTrue(result["beforeAnalytics"]["modalOpen"])
+        self.assertFalse(result["beforeAnalytics"]["slowLoadFinished"])
+        self.assertTrue(result["slowLoadFinished"])
+        self.assertTrue(result["modalOpenAfterAnalyticsFailure"])
 
     def test_integration_setup_uses_authenticated_status_sources_only(self):
         js_response = self.client.get("/dashboard/app.js")
@@ -371,12 +488,29 @@ process.stdout.write(JSON.stringify(result));
         self.assertIn("apiRequest(API.telegramStatus)", status_loader)
         self.assertIn('gmailResult.status === "fulfilled"', status_loader)
         self.assertIn('telegramResult.status === "fulfilled"', status_loader)
-        self.assertIn("return { statusesAvailable }", status_loader)
+        self.assertIn("if (!statusesAvailable) return null", status_loader)
+        self.assertIn("return Object.freeze", status_loader)
         self.assertIn(
             "Boolean(state.company && state.company.sheet_id)", status_loader
         )
         self.assertNotIn("company_id", status_loader)
         self.assertIn('company: "/api/v1/companies/me"', js_response.text)
+
+        status_check = js_response.text.split(
+            "async function checkIntegrationStatuses", maxsplit=1
+        )[1].split("function formatCount", maxsplit=1)[0]
+        self.assertIn("maybeShowIntegrationSetupModal(statusSnapshot)", status_check)
+
+        entry_source = js_response.text.split(
+            "async function enterDashboard", maxsplit=1
+        )[1].split("function renderIdentity", maxsplit=1)[0]
+        self.assertIn("loadDashboardResourcesIndependently", entry_source)
+        self.assertNotIn("Promise.allSettled", entry_source)
+
+        refresh_source = js_response.text.split(
+            "async function refreshDashboard", maxsplit=1
+        )[1].split("async function connectGmail", maxsplit=1)[0]
+        self.assertIn("loadDashboardResourcesIndependently", refresh_source)
 
     def test_integration_setup_dismissal_resets_with_the_authenticated_session(self):
         js_response = self.client.get("/dashboard/app.js")
