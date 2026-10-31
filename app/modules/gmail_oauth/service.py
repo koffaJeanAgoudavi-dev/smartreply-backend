@@ -5,6 +5,7 @@ Liaison utilisateur ↔ Gmail : URL de consentement (scope gmail.modify UNIQUEME
 échange code → refresh token, stockage chiffré dans la table gmail_connections.
 Le refresh token n'apparaît jamais dans une réponse API ni dans un log.
 """
+
 import urllib.parse
 
 import httpx
@@ -13,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.modules.auth.models import User
 from app.modules.companies.models import Company
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.gmail_oauth.security import encrypt_token
@@ -24,12 +26,18 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
 def redirect_uri() -> str:
-    """URI de redirection enregistrée dans le client OAuth Google (dérivée de BASE_URL)."""
+    """Construit l'URI de redirection OAuth depuis BASE_URL."""
     if not settings.BASE_URL:
         raise RuntimeError(
             "BASE_URL manquant : définissez l'URL publique du service (Render)."
         )
-    return settings.BASE_URL.rstrip("/") + "/api/v1/gmail/callback"
+    base_url = settings.BASE_URL.rstrip("/")
+    parsed_base_url = urllib.parse.urlsplit(base_url)
+    if settings.ENVIRONMENT.strip().lower() == "production" and (
+        parsed_base_url.scheme != "https" or not parsed_base_url.netloc
+    ):
+        raise RuntimeError("BASE_URL doit être une URL HTTPS en production.")
+    return base_url + "/api/v1/gmail/callback"
 
 
 def build_authorization_url(state: str) -> str:
@@ -62,7 +70,9 @@ async def exchange_code_for_refresh_token(code: str) -> str:
             },
         )
     if resp.status_code != 200:
-        raise ValueError(f"Échange du code OAuth refusé par Google (HTTP {resp.status_code})")
+        raise ValueError(
+            f"Échange du code OAuth refusé par Google (HTTP {resp.status_code})"
+        )
     data = resp.json()
     refresh_token = data.get("refresh_token")
     if not refresh_token:
@@ -73,7 +83,9 @@ async def exchange_code_for_refresh_token(code: str) -> str:
 
 
 def save_refresh_token(db: Session, user_id: int, refresh_token: str) -> None:
-    """Stocke (ou remplace) le refresh token CHIFFRÉ de l'utilisateur."""
+    """Stocke (ou remplace) le token uniquement si l'utilisateur existe encore."""
+    if db.get(User, user_id) is None:
+        raise ValueError("Utilisateur introuvable")
     encrypted = encrypt_token(refresh_token)
     existing = db.execute(
         select(GmailConnection).where(GmailConnection.user_id == user_id)

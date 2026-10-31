@@ -84,9 +84,59 @@ scripts/
 
 ## 🚀 Déploiement (Render)
 
-1. **Push** sur `main` → Render déploie automatiquement (`procfile` :
-   `uvicorn app.main:app --host 0.0.0.0 --port $PORT`)
-2. **Variables d'environnement** (dashboard Render) :
+### Ordre de déploiement
+
+1. Créer PostgreSQL/Neon et le service web Render, sans lancer le premier
+   déploiement applicatif.
+2. Définir dans **Render > Service > Environment** toutes les variables
+   obligatoires listées ci-dessous. En particulier, définir
+   `ENVIRONMENT=production`, une `BASE_URL` en `https://` et
+   `CLIENT_IP_HEADER=CF-Connecting-IP` **avant** de démarrer Uvicorn.
+3. Ajouter éventuellement `REDIS_URL`. Redis améliore la cohérence entre
+   instances, mais son absence ou sa panne n'empêche pas les connexions : la
+   limite locale au processus prend automatiquement le relais.
+4. Déployer la révision validée. Le `procfile` exécute d'abord
+   `alembic upgrade head`, puis :
+   `uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers`.
+5. Vérifier `/health`, l'absence de `/docs`, `/redoc` et `/openapi.json`, la
+   redirection relative `/dashboard` → `/dashboard/`, et les en-têtes CSP/HSTS.
+6. Enregistrer dans Google OAuth l'URI exacte
+   `https://<service>.onrender.com/api/v1/gmail/callback`, puis configurer le
+   webhook Telegram et enfin le cron externe.
+
+### Variables obligatoires avant le déploiement de production
+
+Pour le service complet décrit dans ce dépôt, la liste exacte est :
+
+```text
+ENVIRONMENT=production
+BASE_URL=https://<service>.onrender.com
+DATABASE_URL=<URL Neon>
+JWT_SECRET=<secret aléatoire>
+RATE_LIMIT_HMAC_SECRET=<secret aléatoire distinct>
+CLIENT_IP_HEADER=CF-Connecting-IP
+TOKEN_ENCRYPTION_KEY=<clé Fernet>
+INVITATION_CODES=<au moins un code actif>
+TELEGRAM_BOT_TOKEN=<token BotFather>
+TELEGRAM_WEBHOOK_SECRET=<secret webhook>
+GOOGLE_CLIENT_ID=<client OAuth Gmail>
+GOOGLE_CLIENT_SECRET=<secret OAuth Gmail>
+GOOGLE_SERVICE_ACCOUNT_JSON=<JSON complet>
+GOOGLE_DRIVE_CLIENT_ID=<client OAuth Drive propriétaire>
+GOOGLE_DRIVE_CLIENT_SECRET=<secret OAuth Drive>
+GOOGLE_DRIVE_REFRESH_TOKEN=<refresh token propriétaire>
+GEMINI_API_KEY=<clé Google AI Studio>
+CRON_SECRET=<secret du cron>
+```
+
+`REDIS_URL` est **optionnelle**. `PIPELINE_ALLOWED_COMPANY_IDS` est nécessaire
+uniquement pour activer le traitement réel ; vide, le pipeline reste en
+simulation. `GOOGLE_DRIVE_TEMPLATE_ID`, `ACCESS_TOKEN_EXPIRE_MINUTES`, les
+limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
+valeur vide de `INVITATION_CODES` ferme volontairement les inscriptions ; elle
+n'est acceptable que si cette fermeture est souhaitée.
+
+### Référence des variables d'environnement
 
 | Variable | Description |
 |---|---|
@@ -102,6 +152,16 @@ scripts/
 | `DATABASE_URL` | URL PostgreSQL Neon |
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
+| `ENVIRONMENT` | Utiliser exactement `production` sur Render ; cette valeur seule désactive `/docs`, `/redoc` et `/openapi.json` |
+| `REDIS_URL` | Optionnelle : Redis partagé pour les limites login/register ; absence, configuration invalide ou panne = repli automatique sur les compteurs mémoire du processus |
+| `RATE_LIMIT_HMAC_SECRET` | Obligatoire en production : HMAC des identités sans email/IP en clair ; s'il manque, Redis est désactivé et le repli mémoire utilise un secret éphémère |
+| `CLIENT_IP_HEADER` | En-tête client remplacé par la plateforme ; sur un service web public Render, utiliser `CF-Connecting-IP` (requis en production) |
+| `LOGIN_IP_EMAIL_RATE_LIMIT` | Tentatives login par couple IP + email (défaut : `5`) |
+| `LOGIN_IP_RATE_LIMIT` | Tentatives login globales par IP (défaut : `20`) |
+| `LOGIN_EMAIL_RATE_LIMIT` | Tentatives login par email lorsque l'IP n'est pas fiable (défaut : `5`) |
+| `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre des trois limites login (défaut : `900`, soit 15 minutes) |
+| `REGISTER_IP_RATE_LIMIT` | Tentatives d'inscription par IP (défaut : `5`) |
+| `REGISTER_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre de la limite d'inscription (défaut : `3600`, soit une heure) |
 | `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
 | `PIPELINE_ALLOWED_COMPANY_IDS` | IDs internes autorisés au traitement réel, séparés par des virgules ; vide ou absent = aucune entreprise traitée |
 | `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond par entreprise et par passage (défaut : `10`) |
@@ -110,9 +170,65 @@ scripts/
 | `GEMINI_MAX_EMAIL_BODY_CHARS` | Taille maximale du corps transmis à Gemini dans le flux multi-tenant (défaut : `6000`) |
 | `CRON_SECRET` | Secret obligatoire de `POST /api/v1/pipeline/run`, transmis via `X-CRON-SECRET` ; vide = requête refusée |
 
-3. **Webhook Telegram** : `python scripts/setup_webhook.py`
-4. **Cron externe** (ex. cron-job.org) : `POST /api/v1/pipeline/run`
-   toutes les 5 min avec l'en-tête `X-CRON-SECRET`
+### Frontière proxy et hardening HTTP
+
+Le processus Uvicorn démarre avec `--no-proxy-headers` : une valeur fournie par
+le client dans `X-Forwarded-For` n'est donc jamais transformée en adresse
+cliente de confiance. Sur le service web public Render, configurer
+`CLIENT_IP_HEADER=CF-Connecting-IP`. Render/Cloudflare remplace cet en-tête à
+l'entrée ; il peut alors servir aux limites par IP. Sur une autre plateforme,
+ne renseigner cette variable qu'avec un en-tête que l'ingress **remplace** (et
+non un en-tête qu'il se contente de transmettre ou d'ajouter). Si l'en-tête
+configuré manque ou n'est pas une IP unique valide, l'inscription échoue en
+HTTP 503, car sa limite exige une IP fiable. Le login conserve alors uniquement
+sa limite par email : une IP douteuse n'est jamais intégrée à un compteur de
+confiance. En production, l'absence de `CLIENT_IP_HEADER` est elle aussi traitée
+comme une IP douteuse ; hors production seulement, l'adresse TCP directe est
+utilisée.
+
+Les limites sont évaluées avant le code d'invitation et avant Argon2. Redis rend
+les incréments atomiques entre processus/instances et supprime les compteurs par
+TTL à la fin de leur fenêtre. Chaque tentative acceptée ou refusée par Redis est
+aussi reportée dans un miroir mémoire local. Si `REDIS_URL` est absente ou
+invalide, ou si Redis devient injoignable, ce miroir applique immédiatement les
+mêmes fenêtres et seuils : les cinq premières tentatives restent traitées puis
+la suivante reçoit `429` avec `Retry-After`. Il n'existe ni accès ouvert ni
+blocage général en `503` pour une panne Redis. Les compteurs mémoire sont
+protégés par un verrou, purgés après expiration, propres à chaque processus et
+perdus à son redémarrage ; ils ne remplacent donc pas Redis pour plusieurs
+instances. Une panne Redis produit un avertissement sans journaliser d'email ou
+d'IP.
+
+**Neon n'est pas nécessaire ni recommandé** pour ces compteurs éphémères et très
+sollicités. Toutes les valeurs de limite et de fenêtre doivent être des entiers
+strictement positifs ; une configuration invalide échoue en HTTP 503 plutôt que
+de désactiver la protection.
+
+`ENVIRONMENT=production` désactive Swagger, ReDoc et OpenAPI. Avec
+`--no-proxy-headers`, Uvicorn ne reconstruit volontairement aucune URL depuis les
+en-têtes transmis. Les deux redirections applicatives (`/dashboard` et retour
+OAuth Gmail) utilisent donc des `Location` relatifs : le navigateur conserve le
+schéma HTTPS de la requête publique. L'URI fournie à Google est construite depuis
+`BASE_URL`, qui doit être absolue et en HTTPS en production ; une valeur HTTP est
+refusée.
+
+HSTS est ajouté seulement en production lorsque la requête ASGI est directement
+en HTTPS, ou lorsque l'en-tête fiable configuré (`CF-Connecting-IP` sur Render)
+contient une IP valide **et** que `X-Forwarded-Proto=https`. La politique exacte
+est `Strict-Transport-Security: max-age=31536000`, sans `preload` et sans
+`includeSubDomains`. Toutes les autres valeurs d'environnement conservent la
+documentation. Le dépôt ne peut pas lire la valeur effective du dashboard
+Render : vérifier avant déploiement qu'elle vaut exactement `production`.
+
+Le dashboard reste sous une CSP stricte sans script/style inline ; ses ressources
+applicatives sont locales. Les CDN épinglés de Swagger/ReDoc sont autorisés
+uniquement par la CSP des pages de documentation hors production.
+
+Après le déploiement :
+
+- webhook Telegram : `python scripts/setup_webhook.py` ;
+- cron externe : `POST /api/v1/pipeline/run` toutes les cinq minutes avec
+  l'en-tête `X-CRON-SECRET`.
 
 ### Accès du pipeline aux Sheets d'entreprise
 

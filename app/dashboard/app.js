@@ -64,27 +64,27 @@
   const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
   const DONUT_PALETTES = Object.freeze({
     category: Object.freeze({
-      devis: "var(--color-primary-900)",
-      support: "var(--color-telegram)",
-      facturation: "#6d5bd0",
-      partenariat: "#c66a16",
-      spam: "var(--color-danger)",
-      newsletter: "var(--color-warning)",
-      autre: "var(--color-muted)",
-      unclassified: "var(--color-subtle)",
+      devis: "donut-color-primary-900",
+      support: "donut-color-telegram",
+      facturation: "donut-color-purple",
+      partenariat: "donut-color-orange",
+      spam: "donut-color-danger",
+      newsletter: "donut-color-warning",
+      autre: "donut-color-muted",
+      unclassified: "donut-color-subtle",
     }),
     priority: Object.freeze({
-      haute: "var(--color-danger)",
-      moyenne: "var(--color-warning)",
-      basse: "var(--color-success)",
-      unclassified: "var(--color-subtle)",
+      haute: "donut-color-danger",
+      moyenne: "donut-color-warning",
+      basse: "donut-color-success",
+      unclassified: "donut-color-subtle",
     }),
   });
   const DONUT_FALLBACK_COLORS = Object.freeze([
-    "var(--color-primary-700)",
-    "var(--color-telegram)",
-    "var(--color-warning)",
-    "var(--color-danger)",
+    "donut-color-primary-700",
+    "donut-color-telegram",
+    "donut-color-warning",
+    "donut-color-danger",
   ]);
 
   function readStoredToken() {
@@ -780,11 +780,22 @@
       column.title = `${formatCount(count)} email${count > 1 ? "s" : ""}`;
       const barWrap = document.createElement("div");
       barWrap.className = "volume-bar-wrap";
-      const bar = document.createElement("span");
-      bar.className = "volume-bar";
-      bar.style.height = `${count === 0 ? 2 : Math.max(8, (count / maximum) * 100)}%`;
-      bar.setAttribute("aria-label", column.title);
-      barWrap.append(bar);
+      const barSvg = createSvgElement("svg");
+      barSvg.classList.add("volume-bar-svg");
+      barSvg.setAttribute("viewBox", "0 0 10 100");
+      barSvg.setAttribute("preserveAspectRatio", "none");
+      barSvg.setAttribute("aria-label", column.title);
+      barSvg.setAttribute("role", "img");
+      const bar = createSvgElement("rect");
+      const barHeight = count === 0 ? 2 : Math.max(8, (count / maximum) * 100);
+      bar.classList.add("volume-bar");
+      bar.setAttribute("x", "0");
+      bar.setAttribute("y", String(100 - barHeight));
+      bar.setAttribute("width", "10");
+      bar.setAttribute("height", String(barHeight));
+      bar.setAttribute("rx", "1.5");
+      barSvg.append(bar);
+      barWrap.append(barSvg);
       const label = document.createElement("small");
       const day = new Date(`${point.day}T00:00:00`);
       label.textContent = Number.isFinite(day.getTime()) ? String(day.getDate()) : "—";
@@ -881,7 +892,7 @@
     }).format(value)} %`;
   }
 
-  function donutColor(kind, key, index) {
+  function donutColorClass(kind, key, index) {
     const palette = DONUT_PALETTES[kind] || DONUT_PALETTES.category;
     return palette[key] || DONUT_FALLBACK_COLORS[index % DONUT_FALLBACK_COLORS.length];
   }
@@ -955,7 +966,7 @@
       circle.setAttribute("transform", "rotate(-90 60 60)");
       circle.setAttribute("stroke-dasharray", `${segmentSize} ${100 - segmentSize}`);
       circle.setAttribute("stroke-dashoffset", String(-offset));
-      circle.style.stroke = donutColor(options.kind, segment.key, index);
+      circle.classList.add(donutColorClass(options.kind, segment.key, index));
       offset += segmentSize;
       svg.append(circle);
     });
@@ -981,7 +992,7 @@
       item.className = "donut-legend-item";
       const swatch = document.createElement("span");
       swatch.className = "donut-legend-swatch";
-      swatch.style.backgroundColor = donutColor(options.kind, segment.key, index);
+      swatch.classList.add(donutColorClass(options.kind, segment.key, index));
       swatch.setAttribute("aria-hidden", "true");
       const label = document.createElement("span");
       label.className = "donut-legend-label";
@@ -1259,8 +1270,7 @@
         const input = document.createElement("textarea");
         input.value = code;
         input.setAttribute("readonly", "");
-        input.style.position = "fixed";
-        input.style.opacity = "0";
+        input.className = "clipboard-fallback-input";
         document.body.append(input);
         input.select();
         document.execCommand("copy");

@@ -5,7 +5,9 @@ import re
 import subprocess
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urljoin
 
 from fastapi.testclient import TestClient
 
@@ -27,7 +29,7 @@ class DashboardStaticTests(unittest.TestCase):
         response = self.client.get("/dashboard", follow_redirects=False)
 
         self.assertEqual(response.status_code, 307)
-        self.assertEqual(response.headers["location"], "http://testserver/dashboard/")
+        self.assertEqual(response.headers["location"], "/dashboard/")
 
     def test_dashboard_index_is_served_in_french_without_external_assets(self):
         response = self.client.get("/dashboard/")
@@ -116,12 +118,12 @@ class DashboardStaticTests(unittest.TestCase):
         js_response = self.client.get("/dashboard/app.js")
 
         self.assertEqual(response.status_code, 200)
-        telegram_panel = response.text.split(
-            'id="telegram-code-panel"', maxsplit=1
-        )[1].split("</article>", maxsplit=1)[0]
+        telegram_panel = response.text.split('id="telegram-code-panel"', maxsplit=1)[
+            1
+        ].split("</article>", maxsplit=1)[0]
         self.assertIn(
             (
-                'Ouvrez le bot SmartReply dans Telegram : '
+                "Ouvrez le bot SmartReply dans Telegram : "
                 '<a href="https://t.me/SmartReply_Agent_Bot" target="_blank" '
                 'rel="noopener noreferrer">Ouvrir le bot Telegram</a>'
             ),
@@ -209,9 +211,9 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("document.createElementNS", js_response.text)
         self.assertNotIn("renderBreakdownChart", js_response.text)
         self.assertIn("renderRecentEmails", js_response.text)
-        donut_source = js_response.text.split(
-            "function renderDonutChart", maxsplit=1
-        )[1]
+        donut_source = js_response.text.split("function renderDonutChart", maxsplit=1)[
+            1
+        ]
         donut_source = donut_source.split("function renderActivity", maxsplit=1)[0]
         self.assertNotIn("innerHTML", donut_source)
         self.assertIn('setStatus($("gmail-status")', js_response.text)
@@ -242,7 +244,7 @@ class DashboardStaticTests(unittest.TestCase):
 
     def test_integration_setup_decision_covers_status_and_visit_scenarios(self):
         repository_root = Path(__file__).resolve().parents[1]
-        script = r'''
+        script = r"""
 const fs = require("fs");
 const vm = require("vm");
 let source = fs.readFileSync("app/dashboard/app.js", "utf8");
@@ -373,7 +375,7 @@ const result = {
   console.error(error);
   process.exitCode = 1;
 });
-'''
+"""
         completed = subprocess.run(
             ["node", "-e", script],
             cwd=repository_root,
@@ -391,9 +393,7 @@ const result = {
         self.assertTrue(result["oneMissing"]["shouldShow"])
         self.assertEqual(result["oneMissing"]["missing"], ["sheet"])
         self.assertTrue(result["multipleMissing"]["shouldShow"])
-        self.assertEqual(
-            result["multipleMissing"]["missing"], ["gmail", "telegram"]
-        )
+        self.assertEqual(result["multipleMissing"]["missing"], ["gmail", "telegram"])
         self.assertFalse(result["allConfigured"]["shouldShow"])
         self.assertEqual(result["allConfigured"]["missing"], [])
         self.assertFalse(result["dismissed"]["shouldShow"])
@@ -422,7 +422,7 @@ const result = {
 
     def test_integration_statuses_complete_before_slow_or_failed_analytics(self):
         repository_root = Path(__file__).resolve().parents[1]
-        script = r'''
+        script = r"""
 const fs = require("fs");
 const vm = require("vm");
 let source = fs.readFileSync("app/dashboard/app.js", "utf8");
@@ -496,7 +496,7 @@ dashboardLoad.state.token = "authenticated";
   console.error(error);
   process.exitCode = 1;
 });
-'''
+"""
         completed = subprocess.run(
             ["node", "-e", script],
             cwd=repository_root,
@@ -524,9 +524,7 @@ dashboardLoad.state.token = "authenticated";
         self.assertIn('telegramResult.status === "fulfilled"', status_loader)
         self.assertIn("if (!statusesAvailable) return null", status_loader)
         self.assertIn("return Object.freeze", status_loader)
-        self.assertIn(
-            "Boolean(state.company && state.company.sheet_id)", status_loader
-        )
+        self.assertIn("Boolean(state.company && state.company.sheet_id)", status_loader)
         self.assertNotIn("company_id", status_loader)
         self.assertIn('company: "/api/v1/companies/me"', js_response.text)
 
@@ -549,9 +547,9 @@ dashboardLoad.state.token = "authenticated";
     def test_integration_setup_dismissal_resets_with_the_authenticated_session(self):
         js_response = self.client.get("/dashboard/app.js")
 
-        set_session_source = js_response.text.split(
-            "function setSession", maxsplit=1
-        )[1].split("function clearSession", maxsplit=1)[0]
+        set_session_source = js_response.text.split("function setSession", maxsplit=1)[
+            1
+        ].split("function clearSession", maxsplit=1)[0]
         clear_session_source = js_response.text.split(
             "function clearSession", maxsplit=1
         )[1].split("function logout", maxsplit=1)[0]
@@ -562,7 +560,7 @@ dashboardLoad.state.token = "authenticated";
 
     def test_donut_data_counts_percentages_and_unclassified_values(self):
         repository_root = Path(__file__).resolve().parents[1]
-        script = r'''
+        script = r"""
 const fs = require("fs");
 const vm = require("vm");
 let source = fs.readFileSync("app/dashboard/app.js", "utf8");
@@ -606,7 +604,7 @@ const result = {
   fractional: prepare([{ key: "support", label: "Support", count: 1.5 }], 4),
 };
 process.stdout.write(JSON.stringify(result));
-'''
+"""
         completed = subprocess.run(
             ["node", "-e", script],
             cwd=repository_root,
@@ -695,7 +693,9 @@ class GmailCallbackDashboardRedirectTests(unittest.TestCase):
         app.dependency_overrides.clear()
 
     def test_connect_still_returns_an_authorization_url_as_json(self):
-        app.dependency_overrides[gmail_router.get_current_user_id] = lambda: 42
+        app.dependency_overrides[gmail_router.get_current_user] = lambda: (
+            SimpleNamespace(id=42)
+        )
         with patch.object(
             gmail_router.service,
             "build_authorization_url",
@@ -715,9 +715,9 @@ class GmailCallbackDashboardRedirectTests(unittest.TestCase):
         build_url.assert_called_once()
 
     def test_gmail_status_is_isolated_by_authenticated_user(self):
-        authenticated_user = {"id": 42}
-        app.dependency_overrides[gmail_router.get_current_user_id] = (
-            lambda: authenticated_user["id"]
+        authenticated_user = SimpleNamespace(id=42)
+        app.dependency_overrides[gmail_router.get_current_user] = lambda: (
+            authenticated_user
         )
         with patch.object(
             gmail_router.service,
@@ -725,7 +725,7 @@ class GmailCallbackDashboardRedirectTests(unittest.TestCase):
             side_effect=lambda _db, user_id: user_id == 42,
         ) as is_connected:
             first_response = self.client.get("/api/v1/gmail/status")
-            authenticated_user["id"] = 84
+            authenticated_user.id = 84
             second_response = self.client.get("/api/v1/gmail/status")
 
         self.assertEqual(first_response.json(), {"connected": True})
@@ -754,9 +754,34 @@ class GmailCallbackDashboardRedirectTests(unittest.TestCase):
             response.headers["location"],
             "/dashboard/?gmail=connected#integrations",
         )
+        self.assertEqual(
+            urljoin("https://smartreply.example/", response.headers["location"]),
+            "https://smartreply.example/dashboard/?gmail=connected#integrations",
+        )
         self.assertNotIn("test-refresh-token", response.headers["location"])
         exchange.assert_awaited_once_with("google-code")
         save.assert_called_once_with(self.db, 42, "test-refresh-token")
+
+    def test_deleted_user_callback_stops_before_google_exchange_or_token_save(self):
+        self.db.get.return_value = None
+        with (
+            patch.object(gmail_router, "verify_state", return_value=42),
+            patch.object(
+                gmail_router.service,
+                "exchange_code_for_refresh_token",
+                new=AsyncMock(),
+            ) as exchange,
+            patch.object(gmail_router.service, "save_refresh_token") as save,
+        ):
+            response = self.client.get(
+                "/api/v1/gmail/callback?code=google-code&state=signed-state",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json(), {"detail": "Utilisateur introuvable"})
+        exchange.assert_not_awaited()
+        save.assert_not_called()
 
     def test_callback_keeps_an_explicit_error_for_invalid_state(self):
         with patch.object(gmail_router, "verify_state", return_value=None):
