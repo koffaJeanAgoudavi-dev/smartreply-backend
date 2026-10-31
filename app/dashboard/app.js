@@ -22,6 +22,7 @@
     "company-screen",
     "dashboard-shell",
   ];
+  const REQUIRED_INTEGRATIONS = Object.freeze(["gmail", "sheet", "telegram"]);
 
   const state = {
     token: readStoredToken(),
@@ -34,6 +35,11 @@
       telegram: false,
       gmailError: false,
       telegramError: false,
+      statusesAvailable: false,
+    },
+    integrationSetup: {
+      dismissed: false,
+      missing: [],
     },
     telegramPollId: null,
     telegramCountdownId: null,
@@ -269,10 +275,15 @@
       id: payload.sub,
       email: payload.email,
     };
+    state.integrationSetup = {
+      dismissed: false,
+      missing: [],
+    };
   }
 
   function clearSession() {
     stopTelegramPolling();
+    closeIntegrationSetupModal();
     removeStoredToken();
     state.token = null;
     state.user = null;
@@ -284,6 +295,11 @@
       telegram: false,
       gmailError: false,
       telegramError: false,
+      statusesAvailable: false,
+    };
+    state.integrationSetup = {
+      dismissed: false,
+      missing: [],
     };
     state.dashboard = {
       overview: null,
@@ -457,11 +473,18 @@
     state.appReady = true;
     showScreen("dashboard-shell");
     renderRoute();
-    await Promise.allSettled([
-      loadIntegrationStatuses({ silent: true }),
-      loadDashboardData(),
-    ]);
+    await loadDashboardResourcesIndependently();
     handleGmailReturn();
+  }
+
+  async function loadDashboardResourcesIndependently(
+    integrationLoader = () => checkIntegrationStatuses({ silent: true }),
+    analyticsLoader = loadDashboardData,
+  ) {
+    const integrationPromise = integrationLoader().catch(() => null);
+    const analyticsPromise = analyticsLoader().catch(() => undefined);
+    await integrationPromise;
+    await analyticsPromise;
   }
 
   function renderIdentity() {
@@ -504,41 +527,121 @@
     ].filter(Boolean).length;
   }
 
+  function missingRequiredIntegrations(integrations) {
+    return REQUIRED_INTEGRATIONS.filter((key) => integrations[key] !== true);
+  }
+
+  function evaluateIntegrationSetup(statusSnapshot, options = {}) {
+    const missing = missingRequiredIntegrations(statusSnapshot);
+    return {
+      missing,
+      shouldShow: (
+        options.dismissed !== true
+        && options.route === "dashboard"
+        && missing.length > 0
+      ),
+    };
+  }
+
+  function setIntegrationConfigurationHighlights(missingKeys) {
+    const missing = new Set(missingKeys);
+    REQUIRED_INTEGRATIONS.forEach((key) => {
+      const card = $(`${key}-integration-card`);
+      if (card) card.classList.toggle("needs-configuration", missing.has(key));
+    });
+  }
+
+  function openIntegrationSetupModal() {
+    const dialog = $("integration-setup-dialog");
+    if (!dialog || dialog.open || typeof dialog.showModal !== "function") return;
+    dialog.showModal();
+    $("configure-integrations").focus();
+  }
+
+  function closeIntegrationSetupModal() {
+    const dialog = $("integration-setup-dialog");
+    if (dialog && dialog.open) dialog.close();
+  }
+
+  function dismissIntegrationSetupModal() {
+    state.integrationSetup.dismissed = true;
+    closeIntegrationSetupModal();
+  }
+
+  function navigateToIntegrationSetup() {
+    const missing = [...state.integrationSetup.missing];
+    dismissIntegrationSetupModal();
+    setIntegrationConfigurationHighlights(missing);
+    if (window.location.hash === "#integrations") {
+      renderRoute();
+    } else {
+      window.location.hash = "integrations";
+    }
+  }
+
+  function maybeShowIntegrationSetupModal(statusSnapshot) {
+    if (!statusSnapshot || !state.appReady || !state.token) return;
+    const decision = evaluateIntegrationSetup(statusSnapshot, {
+      dismissed: state.integrationSetup.dismissed,
+      route: currentRoute(),
+    });
+    if (!decision.shouldShow) return;
+    state.integrationSetup.missing = decision.missing;
+    openIntegrationSetupModal();
+  }
+
   function updateIntegrationUI() {
     const integrations = state.integrations;
     setStatus($("gmail-status"), integrations.gmail, integrations.gmailError);
     setStatus($("sheet-status"), integrations.sheet);
     setStatus($("telegram-status"), integrations.telegram, integrations.telegramError);
+    setIntegrationConfigurationHighlights(
+      integrations.statusesAvailable ? missingRequiredIntegrations(integrations) : [],
+    );
 
     const count = connectedCount();
-    $("dashboard-connected-count").textContent = `${count}/3`;
-    $("integrations-progress").textContent = `${count}/3`;
+    const countLabel = integrations.statusesAvailable ? `${count}/3` : "—/3";
+    $("dashboard-connected-count").textContent = countLabel;
+    $("integrations-progress").textContent = countLabel;
 
     const banner = $("readiness-banner");
-    const ready = count === 3;
+    const ready = integrations.statusesAvailable && count === 3;
     banner.classList.toggle("ready", ready);
-    $("readiness-title").textContent = ready
-      ? "Vos intégrations sont prêtes"
-      : "Finalisez vos connexions";
-    $("readiness-text").textContent = ready
-      ? "Les 3 intégrations sont connectées. Les indicateurs apparaîtront après les premiers traitements enregistrés."
-      : "Connectez les 3 services pour préparer votre compte. Le traitement dépend de la configuration du pipeline.";
+    if (!integrations.statusesAvailable) {
+      $("readiness-title").textContent = "Vérification temporairement indisponible";
+      $("readiness-text").textContent = "Le statut de certaines intégrations n'a pas pu être confirmé. Réessayez dans quelques instants.";
+    } else {
+      $("readiness-title").textContent = ready
+        ? "Vos intégrations sont prêtes"
+        : "Finalisez vos connexions";
+      $("readiness-text").textContent = ready
+        ? "Les 3 intégrations sont connectées. Les indicateurs apparaîtront après les premiers traitements enregistrés."
+        : "Connectez les 3 services pour préparer votre compte. Le traitement dépend de la configuration du pipeline.";
+    }
 
     const gmailButton = $("connect-gmail");
-    gmailButton.disabled = integrations.gmail;
-    gmailButton.innerHTML = integrations.gmail
-      ? '<svg><use href="#icon-check"></use></svg><span>Gmail connecté</span>'
-      : '<span>Connecter Gmail</span><svg><use href="#icon-arrow"></use></svg>';
+    gmailButton.disabled = integrations.gmail || integrations.gmailError;
+    if (integrations.gmailError) {
+      gmailButton.innerHTML = "<span>Statut Gmail indisponible</span>";
+    } else {
+      gmailButton.innerHTML = integrations.gmail
+        ? '<svg><use href="#icon-check"></use></svg><span>Gmail connecté</span>'
+        : '<span>Connecter Gmail</span><svg><use href="#icon-arrow"></use></svg>';
+    }
 
     const sheetLink = $("open-sheet");
     sheetLink.setAttribute("aria-disabled", String(!integrations.sheet));
     sheetLink.tabIndex = integrations.sheet ? 0 : -1;
 
     const telegramButton = $("generate-telegram-code");
-    telegramButton.disabled = integrations.telegram;
-    telegramButton.innerHTML = integrations.telegram
-      ? '<svg><use href="#icon-check"></use></svg><span>Telegram connecté</span>'
-      : '<span>Générer un code</span><svg><use href="#icon-arrow"></use></svg>';
+    telegramButton.disabled = integrations.telegram || integrations.telegramError;
+    if (integrations.telegramError) {
+      telegramButton.innerHTML = "<span>Statut Telegram indisponible</span>";
+    } else {
+      telegramButton.innerHTML = integrations.telegram
+        ? '<svg><use href="#icon-check"></use></svg><span>Telegram connecté</span>'
+        : '<span>Générer un code</span><svg><use href="#icon-arrow"></use></svg>';
+    }
     if (integrations.telegram) {
       $("telegram-code-panel").hidden = true;
       stopTelegramPolling();
@@ -551,11 +654,17 @@
     state.integrations.sheet = Boolean(state.company && state.company.sheet_id);
     state.integrations.gmailError = false;
     state.integrations.telegramError = false;
+    state.integrations.statusesAvailable = false;
 
     const [gmailResult, telegramResult] = await Promise.allSettled([
       apiRequest(API.gmailStatus),
       apiRequest(API.telegramStatus),
     ]);
+    const statusesAvailable = (
+      gmailResult.status === "fulfilled"
+      && telegramResult.status === "fulfilled"
+    );
+    state.integrations.statusesAvailable = statusesAvailable;
 
     if (gmailResult.status === "fulfilled") {
       state.integrations.gmail = Boolean(gmailResult.value.connected);
@@ -582,6 +691,21 @@
     } else {
       showAlert($("integrations-error"), "");
     }
+    if (!statusesAvailable) return null;
+    return Object.freeze({
+      gmail: state.integrations.gmail,
+      sheet: state.integrations.sheet,
+      telegram: state.integrations.telegram,
+    });
+  }
+
+  async function checkIntegrationStatuses(
+    options = {},
+    statusLoader = loadIntegrationStatuses,
+  ) {
+    const statusSnapshot = await statusLoader(options);
+    maybeShowIntegrationSetupModal(statusSnapshot);
+    return statusSnapshot;
   }
 
   function formatCount(value) {
@@ -1058,10 +1182,7 @@
     const button = $("refresh-dashboard");
     setBusy(button, true, "Actualisation…");
     try {
-      await Promise.all([
-        loadIntegrationStatuses({ silent: true }),
-        loadDashboardData(),
-      ]);
+      await loadDashboardResourcesIndependently();
       if ($("dashboard-data-error").hidden) {
         showToast("Les données du tableau de bord sont à jour.");
       }
@@ -1091,7 +1212,7 @@
     const button = $("refresh-integrations");
     setBusy(button, true, "Actualisation…");
     try {
-      await loadIntegrationStatuses();
+      await checkIntegrationStatuses();
       if (!$("integrations-error").hidden) return;
       showToast("Les statuts des intégrations sont à jour.");
     } finally {
@@ -1113,7 +1234,7 @@
       showToast("Code Telegram généré. Il reste valide pendant 15 minutes.");
     } catch (error) {
       if (error.status === 409) {
-        await loadIntegrationStatuses({ silent: true });
+        await checkIntegrationStatuses({ silent: true });
         showToast("Ce compte est déjà connecté à Telegram.");
       } else {
         showAlert(
@@ -1229,7 +1350,7 @@
     });
     closeSidebar();
     if (route === "integrations") {
-      loadIntegrationStatuses({ silent: true });
+      checkIntegrationStatuses({ silent: true });
     }
     window.setTimeout(() => $("main-content").focus({ preventScroll: true }), 0);
   }
@@ -1255,7 +1376,7 @@
     }
     window.history.replaceState(null, "", "/dashboard/#integrations");
     showToast("Gmail a été connecté avec succès.");
-    loadIntegrationStatuses({ silent: true });
+    checkIntegrationStatuses({ silent: true });
   }
 
   function bindEvents() {
@@ -1276,6 +1397,15 @@
     $("refresh-integrations").addEventListener("click", refreshIntegrations);
     $("generate-telegram-code").addEventListener("click", generateTelegramCode);
     $("copy-telegram-code").addEventListener("click", copyTelegramCode);
+    $("dismiss-integration-setup").addEventListener("click", dismissIntegrationSetupModal);
+    $("configure-integrations").addEventListener("click", navigateToIntegrationSetup);
+    $("integration-setup-dialog").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      dismissIntegrationSetupModal();
+    });
+    $("integration-setup-dialog").addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) dismissIntegrationSetupModal();
+    });
     window.addEventListener("hashchange", renderRoute);
     window.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeSidebar();

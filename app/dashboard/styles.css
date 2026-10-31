@@ -1635,6 +1635,13 @@ td.subject-cell {
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
+  scroll-margin-top: 20px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.integration-card.needs-configuration {
+  border-color: #e7c66e;
+  box-shadow: 0 0 0 3px rgba(231, 198, 110, 0.22), var(--shadow-card);
 }
 
 .integration-card-main {
@@ -1753,6 +1760,140 @@ td.subject-cell {
   margin-top: 12px;
 }
 
+/* Information de configuration des intégrations */
+.integration-setup-dialog {
+  width: min(calc(100% - 28px), 650px);
+  max-height: min(90vh, 720px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid rgba(8, 96, 75, 0.16);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-shadow: 0 28px 90px rgba(7, 37, 29, 0.26);
+}
+
+.integration-setup-dialog::backdrop {
+  background: rgba(7, 27, 22, 0.58);
+  backdrop-filter: blur(3px);
+}
+
+.integration-setup-panel {
+  position: relative;
+  padding: 24px 20px 20px;
+}
+
+.integration-setup-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+}
+
+.integration-setup-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding-right: 44px;
+}
+
+.integration-setup-mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 15px;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.integration-setup-mark svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.integration-setup-badge {
+  display: inline-flex;
+  margin-bottom: 7px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.integration-setup-heading h2 {
+  margin: 0;
+  font-size: clamp(23px, 6vw, 30px);
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+}
+
+.integration-setup-description {
+  margin: 18px 0;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.integration-setup-services {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.integration-setup-services li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+
+.integration-setup-services li > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.integration-setup-services strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.integration-setup-services small {
+  color: var(--color-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.integration-setup-actions {
+  display: flex;
+  margin-top: 20px;
+}
+
+.integration-setup-actions .button {
+  width: 100%;
+}
+
 /* Notifications légères */
 .toast-region {
   position: fixed;
@@ -1806,6 +1947,19 @@ td.subject-cell {
 }
 
 @media (min-width: 540px) {
+  .integration-setup-panel {
+    padding: 32px;
+  }
+
+  .integration-setup-close {
+    top: 20px;
+    right: 20px;
+  }
+
+  .integration-setup-description {
+    font-size: 14px;
+  }
+
   .auth-panel,
   .onboarding-layout {
     padding: 36px;

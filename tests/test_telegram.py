@@ -232,6 +232,30 @@ class TelegramTests(unittest.TestCase):
         self.assertNotIn("chat", connected.text.lower())
         self.assertNotIn("telegram_user_id", connected.text)
 
+    def test_status_endpoint_is_isolated_by_authenticated_user(self):
+        with self.session_factory() as db:
+            db.add(
+                TelegramConnection(
+                    user_id=self.first_user_id,
+                    telegram_chat_id=30002,
+                    telegram_user_id=40002,
+                )
+            )
+            db.commit()
+
+        first_response = self.client.get(
+            "/api/v1/telegram/status",
+            headers=self.authorization(self.first_token),
+        )
+        second_response = self.client.get(
+            "/api/v1/telegram/status",
+            headers=self.authorization(self.second_token),
+        )
+
+        self.assertTrue(first_response.json()["connected"])
+        self.assertFalse(second_response.json()["connected"])
+        self.assertIsNone(second_response.json()["connected_at"])
+
     def test_complete_api_flow_uses_neon(self):
         with (
             patch.object(

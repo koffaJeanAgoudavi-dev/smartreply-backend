@@ -622,12 +622,23 @@ class CompaniesApiTests(unittest.TestCase):
                 json={"nom_entreprise": "Deuxième", "secteur": "Commerce"},
             )
 
+        first_get = self.client.get(
+            "/api/v1/companies/me",
+            headers=self.authorization,
+        )
+        second_get = self.client.get(
+            "/api/v1/companies/me",
+            headers={"Authorization": f"Bearer {second_token}"},
+        )
+
         self.assertEqual(first_response.status_code, 201, first_response.text)
         self.assertEqual(second_response.status_code, 201, second_response.text)
         self.assertNotEqual(
             first_response.json()["sheet_id"],
             second_response.json()["sheet_id"],
         )
+        self.assertEqual(first_get.json()["sheet_id"], "sheet-user-one")
+        self.assertEqual(second_get.json()["sheet_id"], "sheet-user-two")
 
     def test_get_returns_404_when_no_company_exists(self):
         response = self.client.get(
