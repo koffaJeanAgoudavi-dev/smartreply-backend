@@ -73,7 +73,7 @@ class CompanyExecutionContext:
     company_id: int
     sheet_id: str = field(repr=False)
     encrypted_refresh_token: str = field(repr=False)
-    telegram_chat_id: int = field(repr=False)
+    telegram_chat_id: int | None = field(repr=False)
     pipeline_activated_at: datetime
     email_limit: int
 
@@ -128,12 +128,15 @@ def _activate_and_load_context(
     session_factory: Callable[[], Session],
     plan: CompanyRunPlan,
 ) -> CompanyExecutionContext | None:
-    """Active avant tout accès externe et recharge les trois intégrations."""
+    """Active puis recharge Gmail, Sheets et l'éventuelle connexion Telegram."""
     with session_factory() as db:
         row = db.execute(
             select(Company, GmailConnection, TelegramConnection)
             .join(GmailConnection, GmailConnection.user_id == Company.user_id)
-            .join(TelegramConnection, TelegramConnection.user_id == Company.user_id)
+            .outerjoin(
+                TelegramConnection,
+                TelegramConnection.user_id == Company.user_id,
+            )
             .where(
                 Company.id == plan.company_id,
                 GmailConnection.status == "connected",
@@ -158,7 +161,11 @@ def _activate_and_load_context(
             company_id=company_id,
             sheet_id=sheet_id,
             encrypted_refresh_token=encrypted_refresh_token,
-            telegram_chat_id=telegram_connection.telegram_chat_id,
+            telegram_chat_id=(
+                telegram_connection.telegram_chat_id
+                if telegram_connection is not None
+                else None
+            ),
             pipeline_activated_at=_as_utc(activated_at),
             email_limit=plan.email_limit,
         )
@@ -173,7 +180,7 @@ async def _revoke_company_gmail(
             db,
             company_id=context.company_id,
         )
-    if not should_notify:
+    if not should_notify or context.telegram_chat_id is None:
         return
     try:
         await send_company_gmail_revoked_notification(context.telegram_chat_id)
@@ -237,6 +244,8 @@ async def _attempt_company_notification(
     callback_token: str,
     notification_data: dict,
 ) -> bool:
+    if context.telegram_chat_id is None:
+        return False
     with session_factory() as db:
         claimed = claim_notification_attempt(
             db,
@@ -298,6 +307,8 @@ async def _retry_pending_notifications(
     context: CompanyExecutionContext,
     workbook,
 ):
+    if context.telegram_chat_id is None:
+        return workbook
     with session_factory() as db:
         pending = list_pending_notifications(db, company_id=context.company_id)
     if not pending:

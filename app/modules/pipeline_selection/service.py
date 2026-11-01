@@ -12,7 +12,6 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.modules.companies.models import Company
 from app.modules.gmail_oauth.models import GmailConnection
-from app.modules.telegram.models import TelegramConnection
 
 # 0x53524D54 = "SRMT". Le verrou est global à la base PostgreSQL.
 MULTI_TENANT_PIPELINE_LOCK_KEY = 0x53524D54
@@ -124,7 +123,7 @@ def select_eligible_company_plans(
     *,
     max_emails_per_company: int,
 ) -> tuple[CompanyRunPlan, ...]:
-    """Sélectionne les entreprises 3/3, les moins récentes en premier."""
+    """Sélectionne Gmail + Sheets, sans rendre Telegram obligatoire."""
     email_limit = max(0, max_emails_per_company)
     rows = db.execute(
         select(
@@ -136,10 +135,6 @@ def select_eligible_company_plans(
         .join(
             GmailConnection,
             GmailConnection.user_id == Company.user_id,
-        )
-        .join(
-            TelegramConnection,
-            TelegramConnection.user_id == Company.user_id,
         )
         .where(
             GmailConnection.status == "connected",

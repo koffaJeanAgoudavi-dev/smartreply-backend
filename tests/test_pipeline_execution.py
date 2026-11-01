@@ -69,6 +69,7 @@ class PipelineExecutionTests(unittest.TestCase):
         *,
         activated_at: datetime | None = None,
         email_limit: int = 10,
+        with_telegram: bool = True,
     ) -> CompanyRunPlan:
         self.sequence += 1
         with self.session_factory() as db:
@@ -94,13 +95,14 @@ class PipelineExecutionTests(unittest.TestCase):
                     status="connected",
                 )
             )
-            db.add(
-                TelegramConnection(
-                    user_id=user.id,
-                    telegram_chat_id=100_000 + self.sequence,
-                    telegram_user_id=200_000 + self.sequence,
+            if with_telegram:
+                db.add(
+                    TelegramConnection(
+                        user_id=user.id,
+                        telegram_chat_id=100_000 + self.sequence,
+                        telegram_user_id=200_000 + self.sequence,
+                    )
                 )
-            )
             db.commit()
             return CompanyRunPlan(
                 company_id=company.id,
@@ -343,6 +345,87 @@ class PipelineExecutionTests(unittest.TestCase):
             self.assertIsNotNone(company.pipeline_activated_at)
             self.assertIsNotNone(company.pipeline_last_processed_at)
             self.assertEqual(db.scalar(select(func.count(ProcessedEmail.id))), 0)
+
+    def test_company_without_telegram_processes_without_notification_attempt(self):
+        plan = self.create_company(
+            "NoTelegram",
+            activated_at=self.activation,
+            with_telegram=False,
+        )
+        notify = AsyncMock()
+        upsert_email = Mock()
+        upsert_draft = Mock()
+        mark_draft_ready = Mock()
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("message-no-telegram",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("no-telegram")),
+            ),
+            patch.object(
+                service,
+                "should_process",
+                return_value={"decision": "traiter"},
+            ),
+            patch.object(
+                service,
+                "analyze_email",
+                side_effect=self.successful_analysis,
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email", upsert_email),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(
+                service,
+                "create_company_gmail_draft",
+                new=AsyncMock(return_value="draft-no-telegram"),
+            ),
+            patch.object(service, "upsert_company_draft", upsert_draft),
+            patch.object(
+                service,
+                "mark_company_email_draft_ready",
+                mark_draft_ready,
+            ),
+            patch.object(service, "send_company_email_notification", notify),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.processed, 1)
+        self.assertEqual(summary.failed, 0)
+        notify.assert_not_awaited()
+        upsert_email.assert_called()
+        upsert_draft.assert_called_once()
+        mark_draft_ready.assert_called_once()
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+        self.assertEqual(record.status, "done")
+        self.assertEqual(record.draft_status, "pending")
+        self.assertEqual(record.gmail_draft_id, "draft-no-telegram")
+        self.assertIsNotNone(record.callback_token)
+        self.assertIsNone(record.notified_at)
+        self.assertEqual(record.notification_attempts, 0)
+        self.assertIsNone(record.notification_claimed_at)
+        self.assertIsNone(record.notification_blocked_at)
 
     def test_cutoff_is_strict_and_body_is_truncated_for_gemini(self):
         plan = self.create_company("Cutoff", activated_at=self.activation)
