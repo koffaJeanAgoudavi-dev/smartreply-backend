@@ -12,5 +12,6 @@ class TelegramLinkCodeResponse(BaseModel):
 
 
 class TelegramStatusResponse(BaseModel):
+    available: bool
     connected: bool
     connected_at: datetime | None = None

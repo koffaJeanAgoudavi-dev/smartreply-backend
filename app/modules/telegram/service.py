@@ -14,10 +14,10 @@ from app.modules.auth.models import User
 from app.modules.notifications.service import (
     CompanyTelegramError,
     answer_company_callback,
+    telegram_is_configured,
 )
 from app.modules.telegram.models import TelegramConnection, TelegramLinkCode
 
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 LINK_CODE_TTL = timedelta(minutes=15)
 LINK_CODE_GENERATION_ATTEMPTS = 10
 
@@ -45,14 +45,19 @@ class LinkCodeUseResult(str, Enum):
 
 async def send_telegram_message(chat_id: int, text: str) -> None:
     """Envoie un message Telegram sans journaliser son destinataire."""
-    url = f"{TELEGRAM_API_URL}/sendMessage"
+    if not telegram_is_configured():
+        raise CompanyTelegramError("telegram_not_configured")
+    token = settings.TELEGRAM_BOT_TOKEN.strip()
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown",
     }
     async with httpx.AsyncClient(timeout=30) as client:
-        await client.post(url, json=payload)
+        response = await client.post(url, json=payload)
+    if response.status_code >= 400:
+        raise CompanyTelegramError(f"telegram_http_{response.status_code}")
 
 
 def _generate_link_code() -> str:

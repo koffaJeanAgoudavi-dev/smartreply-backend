@@ -434,6 +434,7 @@ class DashboardActivityTransitionTests(unittest.TestCase):
                 db,
                 reservation,
                 gmail_draft_id=f"draft-{label}",
+                draft_created_at=datetime.now(UTC),
             )
         with self.session_factory() as db:
             mark_done(

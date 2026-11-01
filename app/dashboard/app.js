@@ -22,7 +22,8 @@
     "company-screen",
     "dashboard-shell",
   ];
-  const REQUIRED_INTEGRATIONS = Object.freeze(["gmail", "sheet", "telegram"]);
+  const ALL_INTEGRATIONS = Object.freeze(["gmail", "sheet", "telegram"]);
+  const REQUIRED_INTEGRATIONS = Object.freeze(["gmail", "sheet"]);
 
   const state = {
     token: readStoredToken(),
@@ -35,6 +36,7 @@
       telegram: false,
       gmailError: false,
       telegramError: false,
+      telegramAvailable: null,
       statusesAvailable: false,
     },
     integrationSetup: {
@@ -295,6 +297,7 @@
       telegram: false,
       gmailError: false,
       telegramError: false,
+      telegramAvailable: null,
       statusesAvailable: false,
     };
     state.integrationSetup = {
@@ -519,16 +522,24 @@
     }
   }
 
-  function connectedCount() {
-    return [
-      state.integrations.gmail,
-      state.integrations.sheet,
-      state.integrations.telegram,
-    ].filter(Boolean).length;
+  function connectedCount(integrations = state.integrations) {
+    return ALL_INTEGRATIONS.filter((key) => integrations[key] === true).length;
   }
 
   function missingRequiredIntegrations(integrations) {
     return REQUIRED_INTEGRATIONS.filter((key) => integrations[key] !== true);
+  }
+
+  function getIntegrationDisplayState(integrations) {
+    const count = connectedCount(integrations);
+    const missingRequired = missingRequiredIntegrations(integrations);
+    const statusesAvailable = integrations.statusesAvailable === true;
+    return Object.freeze({
+      count,
+      countLabel: statusesAvailable ? `${count}/3` : "—/3",
+      missingRequired,
+      ready: statusesAvailable && missingRequired.length === 0,
+    });
   }
 
   function evaluateIntegrationSetup(statusSnapshot, options = {}) {
@@ -545,7 +556,7 @@
 
   function setIntegrationConfigurationHighlights(missingKeys) {
     const missing = new Set(missingKeys);
-    REQUIRED_INTEGRATIONS.forEach((key) => {
+    ALL_INTEGRATIONS.forEach((key) => {
       const card = $(`${key}-integration-card`);
       if (card) card.classList.toggle("needs-configuration", missing.has(key));
     });
@@ -592,31 +603,37 @@
 
   function updateIntegrationUI() {
     const integrations = state.integrations;
+    const telegramUnavailable = (
+      integrations.telegramError || integrations.telegramAvailable === false
+    );
+    const display = getIntegrationDisplayState(integrations);
     setStatus($("gmail-status"), integrations.gmail, integrations.gmailError);
     setStatus($("sheet-status"), integrations.sheet);
-    setStatus($("telegram-status"), integrations.telegram, integrations.telegramError);
+    setStatus(
+      $("telegram-status"),
+      integrations.telegram,
+      !integrations.telegram && telegramUnavailable,
+    );
     setIntegrationConfigurationHighlights(
-      integrations.statusesAvailable ? missingRequiredIntegrations(integrations) : [],
+      integrations.statusesAvailable ? display.missingRequired : [],
     );
 
-    const count = connectedCount();
-    const countLabel = integrations.statusesAvailable ? `${count}/3` : "—/3";
-    $("dashboard-connected-count").textContent = countLabel;
-    $("integrations-progress").textContent = countLabel;
+    $("dashboard-connected-count").textContent = display.countLabel;
+    $("integrations-progress").textContent = display.countLabel;
 
     const banner = $("readiness-banner");
-    const ready = integrations.statusesAvailable && count === 3;
-    banner.classList.toggle("ready", ready);
+    banner.classList.toggle("ready", display.ready);
     if (!integrations.statusesAvailable) {
-      $("readiness-title").textContent = "Vérification temporairement indisponible";
-      $("readiness-text").textContent = "Le statut de certaines intégrations n'a pas pu être confirmé. Réessayez dans quelques instants.";
+      $("readiness-title").textContent = "Statut Gmail temporairement indisponible";
+      $("readiness-text").textContent = "Google Sheets reste configuré, mais le statut Gmail n'a pas pu être confirmé. Réessayez dans quelques instants.";
+    } else if (display.ready) {
+      $("readiness-title").textContent = "SmartReply est prêt";
+      $("readiness-text").textContent = integrations.telegram
+        ? "Gmail, Google Sheets et Telegram sont connectés."
+        : "Gmail et Google Sheets sont connectés. Telegram reste optionnel.";
     } else {
-      $("readiness-title").textContent = ready
-        ? "Vos intégrations sont prêtes"
-        : "Finalisez vos connexions";
-      $("readiness-text").textContent = ready
-        ? "Les 3 intégrations sont connectées. Les indicateurs apparaîtront après les premiers traitements enregistrés."
-        : "Connectez les 3 services pour préparer votre compte. Le traitement dépend de la configuration du pipeline.";
+      $("readiness-title").textContent = "Finalisez les services requis";
+      $("readiness-text").textContent = "Connectez Gmail et Google Sheets pour rendre SmartReply disponible. Telegram est optionnel.";
     }
 
     const gmailButton = $("connect-gmail");
@@ -634,13 +651,13 @@
     sheetLink.tabIndex = integrations.sheet ? 0 : -1;
 
     const telegramButton = $("generate-telegram-code");
-    telegramButton.disabled = integrations.telegram || integrations.telegramError;
-    if (integrations.telegramError) {
-      telegramButton.innerHTML = "<span>Statut Telegram indisponible</span>";
+    telegramButton.disabled = integrations.telegram || telegramUnavailable;
+    if (integrations.telegram) {
+      telegramButton.innerHTML = '<svg><use href="#icon-check"></use></svg><span>Telegram connecté</span>';
+    } else if (telegramUnavailable) {
+      telegramButton.innerHTML = "<span>Telegram indisponible</span>";
     } else {
-      telegramButton.innerHTML = integrations.telegram
-        ? '<svg><use href="#icon-check"></use></svg><span>Telegram connecté</span>'
-        : '<span>Générer un code</span><svg><use href="#icon-arrow"></use></svg>';
+      telegramButton.innerHTML = '<span>Générer un code</span><svg><use href="#icon-arrow"></use></svg>';
     }
     if (integrations.telegram) {
       $("telegram-code-panel").hidden = true;
@@ -648,22 +665,9 @@
     }
   }
 
-  async function loadIntegrationStatuses(options = {}) {
-    const { silent = false } = options;
+  function applyIntegrationStatusResults(gmailResult, telegramResult) {
     const errors = [];
-    state.integrations.sheet = Boolean(state.company && state.company.sheet_id);
-    state.integrations.gmailError = false;
-    state.integrations.telegramError = false;
-    state.integrations.statusesAvailable = false;
-
-    const [gmailResult, telegramResult] = await Promise.allSettled([
-      apiRequest(API.gmailStatus),
-      apiRequest(API.telegramStatus),
-    ]);
-    const statusesAvailable = (
-      gmailResult.status === "fulfilled"
-      && telegramResult.status === "fulfilled"
-    );
+    const statusesAvailable = gmailResult.status === "fulfilled";
     state.integrations.statusesAvailable = statusesAvailable;
 
     if (gmailResult.status === "fulfilled") {
@@ -676,11 +680,31 @@
 
     if (telegramResult.status === "fulfilled") {
       state.integrations.telegram = Boolean(telegramResult.value.connected);
+      state.integrations.telegramAvailable = telegramResult.value.available !== false;
     } else if (telegramResult.reason.status !== 401) {
       state.integrations.telegram = false;
       state.integrations.telegramError = true;
       errors.push("Telegram");
     }
+    return Object.freeze({ errors, statusesAvailable });
+  }
+
+  async function loadIntegrationStatuses(options = {}) {
+    const { silent = false } = options;
+    state.integrations.sheet = Boolean(state.company && state.company.sheet_id);
+    state.integrations.gmailError = false;
+    state.integrations.telegramError = false;
+    state.integrations.telegramAvailable = null;
+    state.integrations.statusesAvailable = false;
+
+    const [gmailResult, telegramResult] = await Promise.allSettled([
+      apiRequest(API.gmailStatus),
+      apiRequest(API.telegramStatus),
+    ]);
+    const { errors, statusesAvailable } = applyIntegrationStatusResults(
+      gmailResult,
+      telegramResult,
+    );
 
     updateIntegrationUI();
     if (!silent && errors.length) {
@@ -1325,6 +1349,7 @@
     state.telegramPollInFlight = true;
     try {
       const response = await apiRequest(API.telegramStatus);
+      state.integrations.telegramAvailable = response.available !== false;
       if (response.connected) {
         state.integrations.telegram = true;
         state.integrations.telegramError = false;

@@ -89,10 +89,23 @@ class PipelineSelectionTests(unittest.TestCase):
             db.commit()
             return user.id, company.id if company else None
 
-    def test_only_companies_with_all_three_integrations_are_eligible(self):
+    def test_gmail_and_sheets_without_telegram_are_eligible(self):
         self.create_candidate(0)
         self.create_candidate(1)
-        self.create_candidate(2)
+        _, eligible_company_id = self.create_candidate(2)
+
+        with self.session_factory() as db:
+            plans = service.select_eligible_company_plans(
+                db,
+                max_emails_per_company=10,
+            )
+
+        self.assertEqual(
+            [plan.company_id for plan in plans],
+            [eligible_company_id],
+        )
+
+    def test_gmail_and_sheets_with_telegram_are_eligible(self):
         _, eligible_company_id = self.create_candidate(3)
 
         with self.session_factory() as db:

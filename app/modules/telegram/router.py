@@ -25,6 +25,11 @@ def create_telegram_link_code(
     current_user: User = Depends(get_current_user),
 ) -> TelegramLinkCodeResponse:
     """Crée un code SR-XXXXX à usage unique, valable quinze minutes."""
+    if not service.telegram_is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Telegram est temporairement indisponible.",
+        )
     try:
         link_code = service.create_link_code(db, current_user.id)
     except service.TelegramAlreadyConnectedError as exc:
@@ -59,6 +64,7 @@ def get_telegram_status(
     """Retourne le statut sans jamais exposer les identifiants Telegram."""
     connected, connected_at = service.get_connection_status(db, current_user.id)
     return TelegramStatusResponse(
+        available=service.telegram_is_configured(),
         connected=connected,
         connected_at=connected_at,
     )

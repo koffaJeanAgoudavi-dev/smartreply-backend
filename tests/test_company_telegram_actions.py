@@ -569,6 +569,263 @@ class CompanyTelegramActionTests(unittest.TestCase):
         self.assertIsNotNone(connection.revocation_notified_at)
         self.assertEqual(record.draft_status, "pending")
 
+    def test_old_invalid_grant_cannot_revoke_reconnected_gmail(self):
+        query = self.callback("send", self.tenant_a)
+
+        async def reconnect_then_reject(_refresh_token):
+            with self.session_factory() as reconnect_db:
+                gmail_oauth_service.save_refresh_token(
+                    reconnect_db,
+                    self.tenant_a["user_id"],
+                    "new-private-refresh-token",
+                )
+            raise GmailTokenRevokedError(
+                "gmail_token_revoked",
+                status_code=400,
+            )
+
+        revoked_notification = AsyncMock()
+        with (
+            patch.object(
+                company_service,
+                "answer_company_callback",
+                new_callable=AsyncMock,
+            ),
+            patch.object(company_service, "decrypt_token", return_value="old-refresh"),
+            patch.object(
+                gmail_oauth_service,
+                "encrypt_token",
+                return_value="new-encrypted-token",
+            ),
+            patch.object(
+                company_service,
+                "get_company_access_token",
+                new=AsyncMock(side_effect=reconnect_then_reject),
+            ),
+            patch.object(
+                company_service,
+                "send_company_gmail_revoked_notification",
+                revoked_notification,
+            ),
+        ):
+            with self.session_factory() as db:
+                asyncio.run(company_service.handle_company_callback_query(query, db))
+
+        revoked_notification.assert_not_awaited()
+        with self.session_factory() as db:
+            connection = db.scalar(
+                select(GmailConnection).where(
+                    GmailConnection.user_id == self.tenant_a["user_id"]
+                )
+            )
+            record = db.get(ProcessedEmail, self.tenant_a["record_id"])
+        self.assertEqual(connection.status, "connected")
+        self.assertEqual(connection.encrypted_refresh_token, "new-encrypted-token")
+        self.assertIsNone(connection.revocation_notified_at)
+        self.assertEqual(record.draft_status, "pending")
+
+    def test_delayed_old_notice_cannot_mark_a_new_revocation(self):
+        first_notice_started = asyncio.Event()
+        release_first_notice = asyncio.Event()
+        notice_calls = 0
+
+        async def controlled_notice(_chat_id):
+            nonlocal notice_calls
+            notice_calls += 1
+            if notice_calls == 1:
+                first_notice_started.set()
+                await release_first_notice.wait()
+                return
+            raise company_service.CompanyTelegramError("telegram_transport_error")
+
+        async def exercise():
+            with self.session_factory() as db:
+                old_context = company_service._resolve_context(
+                    db,
+                    telegram_chat_id=self.tenant_a["chat_id"],
+                    telegram_user_id=self.tenant_a["telegram_user_id"],
+                    callback_token=self.tenant_a["token"],
+                )
+            self.assertIsNotNone(old_context)
+
+            async def notify_old_generation():
+                with self.session_factory() as db:
+                    await company_service._notify_revocation_once(
+                        db,
+                        old_context,
+                        chat_id=self.tenant_a["chat_id"],
+                    )
+
+            old_notice = asyncio.create_task(notify_old_generation())
+            await first_notice_started.wait()
+
+            with patch.object(
+                gmail_oauth_service,
+                "encrypt_token",
+                return_value="new-encrypted-token",
+            ):
+                with self.session_factory() as db:
+                    gmail_oauth_service.save_refresh_token(
+                        db,
+                        self.tenant_a["user_id"],
+                        "new-private-refresh-token",
+                    )
+
+            with self.session_factory() as db:
+                new_context = company_service._resolve_context(
+                    db,
+                    telegram_chat_id=self.tenant_a["chat_id"],
+                    telegram_user_id=self.tenant_a["telegram_user_id"],
+                    callback_token=self.tenant_a["token"],
+                )
+            self.assertIsNotNone(new_context)
+            with self.session_factory() as db:
+                await company_service._notify_revocation_once(
+                    db,
+                    new_context,
+                    chat_id=self.tenant_a["chat_id"],
+                )
+
+            release_first_notice.set()
+            await old_notice
+
+        notice = AsyncMock(side_effect=controlled_notice)
+        with patch.object(
+            company_service,
+            "send_company_gmail_revoked_notification",
+            notice,
+        ):
+            asyncio.run(exercise())
+
+        self.assertEqual(notice.await_count, 2)
+        with self.session_factory() as db:
+            connection = db.scalar(
+                select(GmailConnection).where(
+                    GmailConnection.user_id == self.tenant_a["user_id"]
+                )
+            )
+        self.assertEqual(connection.status, "revoked")
+        self.assertEqual(connection.encrypted_refresh_token, "new-encrypted-token")
+        self.assertIsNone(connection.revocation_notified_at)
+
+    def test_concurrent_revocations_only_match_the_current_token_generation(self):
+        async def exercise():
+            with self.session_factory() as db:
+                old_context = company_service._resolve_context(
+                    db,
+                    telegram_chat_id=self.tenant_a["chat_id"],
+                    telegram_user_id=self.tenant_a["telegram_user_id"],
+                    callback_token=self.tenant_a["token"],
+                )
+            self.assertIsNotNone(old_context)
+
+            with patch.object(
+                gmail_oauth_service,
+                "encrypt_token",
+                return_value="new-encrypted-token",
+            ):
+                with self.session_factory() as db:
+                    gmail_oauth_service.save_refresh_token(
+                        db,
+                        self.tenant_a["user_id"],
+                        "new-private-refresh-token",
+                    )
+
+            with self.session_factory() as db:
+                new_context = company_service._resolve_context(
+                    db,
+                    telegram_chat_id=self.tenant_a["chat_id"],
+                    telegram_user_id=self.tenant_a["telegram_user_id"],
+                    callback_token=self.tenant_a["token"],
+                )
+            self.assertIsNotNone(new_context)
+            start = asyncio.Event()
+
+            async def revoke(context):
+                await start.wait()
+                with self.session_factory() as db:
+                    await company_service._notify_revocation_once(
+                        db,
+                        context,
+                        chat_id=self.tenant_a["chat_id"],
+                    )
+
+            operations = [
+                asyncio.create_task(revoke(old_context)),
+                asyncio.create_task(revoke(new_context)),
+            ]
+            start.set()
+            await asyncio.gather(*operations)
+
+        notice = AsyncMock()
+        with patch.object(
+            company_service,
+            "send_company_gmail_revoked_notification",
+            notice,
+        ):
+            asyncio.run(exercise())
+
+        notice.assert_awaited_once_with(self.tenant_a["chat_id"])
+        with self.session_factory() as db:
+            connection = db.scalar(
+                select(GmailConnection).where(
+                    GmailConnection.user_id == self.tenant_a["user_id"]
+                )
+            )
+        self.assertEqual(connection.status, "revoked")
+        self.assertEqual(connection.encrypted_refresh_token, "new-encrypted-token")
+        self.assertIsNotNone(connection.revocation_notified_at)
+
+    def test_failed_revocation_notice_does_not_set_notification_marker(self):
+        query = self.callback("send", self.tenant_a)
+
+        async def exercise():
+            for _ in range(2):
+                with self.session_factory() as db:
+                    await company_service.handle_company_callback_query(query, db)
+
+        with (
+            patch.object(
+                company_service,
+                "answer_company_callback",
+                new_callable=AsyncMock,
+            ),
+            patch.object(company_service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                company_service,
+                "get_company_access_token",
+                new=AsyncMock(
+                    side_effect=GmailTokenRevokedError(
+                        "gmail_token_revoked",
+                        status_code=400,
+                    )
+                ),
+            ) as get_token,
+            patch.object(
+                company_service,
+                "send_company_gmail_revoked_notification",
+                new=AsyncMock(
+                    side_effect=company_service.CompanyTelegramError(
+                        "telegram_transport_error"
+                    )
+                ),
+            ) as revoked_notification,
+        ):
+            asyncio.run(exercise())
+
+        self.assertEqual(get_token.await_count, 1)
+        revoked_notification.assert_awaited_once_with(self.tenant_a["chat_id"])
+        with self.session_factory() as db:
+            connection = db.scalar(
+                select(GmailConnection).where(
+                    GmailConnection.user_id == self.tenant_a["user_id"]
+                )
+            )
+            record = db.get(ProcessedEmail, self.tenant_a["record_id"])
+        self.assertEqual(connection.status, "revoked")
+        self.assertIsNone(connection.revocation_notified_at)
+        self.assertEqual(record.draft_status, "pending")
+
     def test_gmail_reconnection_resets_revocation_notification_marker(self):
         with self.session_factory() as db:
             connection = db.scalar(

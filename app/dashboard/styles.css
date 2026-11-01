@@ -1694,6 +1694,21 @@ td.subject-cell {
   letter-spacing: -0.02em;
 }
 
+.optional-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid #b9ddec;
+  border-radius: 999px;
+  background: #eef8fc;
+  color: #176f98;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .integration-copy p {
   margin: 7px 0 6px;
   color: var(--color-text);
