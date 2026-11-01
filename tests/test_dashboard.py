@@ -112,6 +112,11 @@ class DashboardStaticTests(unittest.TestCase):
             'id="generate-telegram-code"',
         ):
             self.assertIn(integration_page_element, integrations_markup)
+        self.assertIn(
+            '<span class="optional-badge">Optionnel</span>',
+            integrations_markup,
+        )
+        self.assertIn("Telegram est optionnel", integrations_markup)
 
     def test_telegram_code_instructions_link_to_the_bot_safely(self):
         response = self.client.get("/dashboard/")
@@ -164,13 +169,17 @@ class DashboardStaticTests(unittest.TestCase):
             self.assertIn(accessibility_attribute, dialog_markup)
         for expected_copy in (
             "Configuration requise",
-            "Configurez vos intégrations",
+            "Configurez les services requis",
             "Gmail",
-            "Telegram",
             "Google Sheets",
-            "Configurer mes intégrations",
+            "Telegram pourra être ajouté ensuite, de façon optionnelle.",
+            "Configurer les services requis",
         ):
             self.assertIn(expected_copy, dialog_markup)
+        required_services = dialog_markup.split(
+            '<ul class="integration-setup-services"', maxsplit=1
+        )[1].split("</ul>", maxsplit=1)[0]
+        self.assertNotIn("telegram-logo", required_services)
         for integration_card in (
             "gmail-integration-card",
             "sheet-integration-card",
@@ -196,6 +205,7 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn(".donut-segment", css_response.text)
         self.assertIn(".integration-setup-dialog::backdrop", css_response.text)
         self.assertIn(".integration-card.needs-configuration", css_response.text)
+        self.assertIn(".optional-badge", css_response.text)
         self.assertEqual(js_response.status_code, 200)
         self.assertIn("javascript", js_response.headers["content-type"])
         self.assertIn('"smartreply_access_token"', js_response.text)
@@ -218,16 +228,17 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertNotIn("innerHTML", donut_source)
         self.assertIn('setStatus($("gmail-status")', js_response.text)
         self.assertIn('setStatus($("sheet-status")', js_response.text)
-        self.assertIn('setStatus($("telegram-status")', js_response.text)
+        self.assertIn('$("telegram-status")', js_response.text)
         self.assertIn(
-            '$("dashboard-connected-count").textContent = countLabel',
+            '$("dashboard-connected-count").textContent = display.countLabel',
             js_response.text,
         )
         self.assertIn(
-            'integrations.statusesAvailable ? `${count}/3` : "—/3"',
+            'countLabel: statusesAvailable ? `${count}/3` : "—/3"',
             js_response.text,
         )
-        self.assertIn("Vérification temporairement indisponible", js_response.text)
+        self.assertIn("Statut Gmail temporairement indisponible", js_response.text)
+        self.assertIn("Telegram reste optionnel", js_response.text)
         self.assertNotIn("dashboard-gmail-status", js_response.text)
         self.assertNotIn("dashboard-sheet-status", js_response.text)
         self.assertNotIn("dashboard-telegram-status", js_response.text)
@@ -316,6 +327,10 @@ const result = {
     { gmail: true, sheet: true, telegram: true },
     options,
   ),
+  requiredConfiguredWithoutTelegram: evaluate(
+    { gmail: true, sheet: true, telegram: false },
+    options,
+  ),
   dismissed: evaluate(
     { gmail: false, sheet: true, telegram: true },
     { ...options, dismissed: true },
@@ -388,14 +403,21 @@ const result = {
         self.assertTrue(result["noneConfigured"]["shouldShow"])
         self.assertEqual(
             result["noneConfigured"]["missing"],
-            ["gmail", "sheet", "telegram"],
+            ["gmail", "sheet"],
         )
         self.assertTrue(result["oneMissing"]["shouldShow"])
         self.assertEqual(result["oneMissing"]["missing"], ["sheet"])
         self.assertTrue(result["multipleMissing"]["shouldShow"])
-        self.assertEqual(result["multipleMissing"]["missing"], ["gmail", "telegram"])
+        self.assertEqual(result["multipleMissing"]["missing"], ["gmail"])
         self.assertFalse(result["allConfigured"]["shouldShow"])
         self.assertEqual(result["allConfigured"]["missing"], [])
+        self.assertFalse(
+            result["requiredConfiguredWithoutTelegram"]["shouldShow"]
+        )
+        self.assertEqual(
+            result["requiredConfiguredWithoutTelegram"]["missing"],
+            [],
+        )
         self.assertFalse(result["dismissed"]["shouldShow"])
         self.assertTrue(result["newLogin"]["shouldShow"])
         self.assertFalse(result["integrationsRoute"]["shouldShow"])
@@ -407,14 +429,14 @@ const result = {
             {
                 "opened": True,
                 "focused": True,
-                "missing": ["gmail", "telegram"],
+                "missing": ["gmail"],
                 "closed": True,
                 "dismissed": True,
                 "hash": "integrations",
                 "highlighted": {
                     "gmail": True,
                     "sheet": False,
-                    "telegram": True,
+                    "telegram": False,
                 },
                 "reopenedAfterDismissal": False,
             },
@@ -516,11 +538,14 @@ dashboardLoad.state.token = "authenticated";
 
         self.assertEqual(js_response.status_code, 200)
         status_loader = js_response.text.split(
-            "async function loadIntegrationStatuses", maxsplit=1
+            "function applyIntegrationStatusResults", maxsplit=1
         )[1].split("function formatCount", maxsplit=1)[0]
         self.assertIn("apiRequest(API.gmailStatus)", status_loader)
         self.assertIn("apiRequest(API.telegramStatus)", status_loader)
-        self.assertIn('gmailResult.status === "fulfilled"', status_loader)
+        self.assertIn(
+            'const statusesAvailable = gmailResult.status === "fulfilled"',
+            status_loader,
+        )
         self.assertIn('telegramResult.status === "fulfilled"', status_loader)
         self.assertIn("if (!statusesAvailable) return null", status_loader)
         self.assertIn("return Object.freeze", status_loader)
@@ -543,6 +568,117 @@ dashboardLoad.state.token = "authenticated";
             "async function refreshDashboard", maxsplit=1
         )[1].split("async function connectGmail", maxsplit=1)[0]
         self.assertIn("loadDashboardResourcesIndependently", refresh_source)
+
+    def test_optional_telegram_status_does_not_block_required_readiness(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r"""
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  marker,
+  `  globalThis.__integrationReadinessTest = {
+    applyIntegrationStatusResults,
+    getIntegrationDisplayState,
+    state,
+  };\n})();`,
+);
+const context = {
+  window: { localStorage: { getItem: () => null } },
+  console,
+  Intl,
+  Set,
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const subject = context.__integrationReadinessTest;
+const reset = () => {
+  subject.state.integrations = {
+    gmail: false,
+    sheet: true,
+    telegram: false,
+    gmailError: false,
+    telegramError: false,
+    telegramAvailable: null,
+    statusesAvailable: false,
+  };
+};
+const fulfilled = (value) => ({ status: "fulfilled", value });
+const rejected = (status) => ({ status: "rejected", reason: { status } });
+
+reset();
+subject.applyIntegrationStatusResults(
+  fulfilled({ connected: true }),
+  rejected(503),
+);
+const telegramOutage = {
+  integrations: subject.state.integrations,
+  display: subject.getIntegrationDisplayState(subject.state.integrations),
+};
+
+reset();
+subject.applyIntegrationStatusResults(
+  fulfilled({ connected: true }),
+  fulfilled({ connected: false, available: false }),
+);
+const telegramDisabled = {
+  integrations: subject.state.integrations,
+  display: subject.getIntegrationDisplayState(subject.state.integrations),
+};
+
+reset();
+subject.applyIntegrationStatusResults(
+  fulfilled({ connected: true }),
+  fulfilled({ connected: true, available: true }),
+);
+const allConnected = subject.getIntegrationDisplayState(
+  subject.state.integrations,
+);
+
+reset();
+subject.state.integrations.sheet = false;
+subject.applyIntegrationStatusResults(
+  fulfilled({ connected: true }),
+  fulfilled({ connected: true, available: true }),
+);
+const requiredServiceMissing = subject.getIntegrationDisplayState(
+  subject.state.integrations,
+);
+
+process.stdout.write(JSON.stringify({
+  telegramOutage,
+  telegramDisabled,
+  allConnected,
+  requiredServiceMissing,
+}));
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        for case in ("telegramOutage", "telegramDisabled"):
+            self.assertTrue(result[case]["integrations"]["statusesAvailable"])
+            self.assertTrue(result[case]["display"]["ready"])
+            self.assertEqual(result[case]["display"]["countLabel"], "2/3")
+            self.assertEqual(result[case]["display"]["missingRequired"], [])
+        self.assertTrue(result["telegramOutage"]["integrations"]["telegramError"])
+        self.assertFalse(
+            result["telegramDisabled"]["integrations"]["telegramAvailable"]
+        )
+        self.assertTrue(result["allConnected"]["ready"])
+        self.assertEqual(result["allConnected"]["countLabel"], "3/3")
+        self.assertFalse(result["requiredServiceMissing"]["ready"])
+        self.assertEqual(
+            result["requiredServiceMissing"]["missingRequired"],
+            ["sheet"],
+        )
 
     def test_integration_setup_dismissal_resets_with_the_authenticated_session(self):
         js_response = self.client.get("/dashboard/app.js")

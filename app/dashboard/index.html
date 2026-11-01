@@ -55,7 +55,7 @@
       <div class="auth-promise">
         <span class="eyebrow eyebrow-light">Votre assistant email intelligent</span>
         <h1>Concentrez-vous sur vos clients, SmartReply prépare le reste.</h1>
-        <p>Connectez Gmail, votre espace Google Sheets et Telegram depuis une interface simple et sécurisée.</p>
+        <p>Connectez Gmail et votre espace Google Sheets, puis ajoutez Telegram si vous le souhaitez.</p>
         <ul class="promise-list">
           <li><span><svg><use href="#icon-check"></use></svg></span>Configuration guidée en quelques minutes</li>
           <li><span><svg><use href="#icon-check"></use></svg></span>Vos intégrations réunies au même endroit</li>
@@ -343,7 +343,7 @@
             <div>
               <span class="eyebrow">Configuration</span>
               <h1 id="integrations-title">Intégrations</h1>
-              <p>Connectez les services indispensables au fonctionnement de SmartReply.</p>
+              <p>Gmail et Google Sheets sont requis. Telegram complète le service de façon optionnelle.</p>
             </div>
             <button id="refresh-integrations" class="button button-ghost" type="button">
               <svg><use href="#icon-refresh"></use></svg><span>Actualiser</span>
@@ -352,7 +352,7 @@
 
           <section id="readiness-banner" class="readiness-banner" aria-live="polite">
             <div class="readiness-icon"><svg><use href="#icon-link"></use></svg></div>
-            <div><strong id="readiness-title">Finalisez vos connexions</strong><p id="readiness-text">Connectez les 3 services pour préparer votre compte. Le traitement n'est pas encore activé.</p></div>
+            <div><strong id="readiness-title">Finalisez les services requis</strong><p id="readiness-text">Connectez Gmail et Google Sheets pour rendre SmartReply disponible. Telegram est optionnel.</p></div>
             <span id="integrations-progress" class="progress-count">0/3</span>
           </section>
 
@@ -391,9 +391,9 @@
               <div class="integration-card-main">
                 <span class="integration-logo telegram-logo large" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 11 17-7-4 16-5-5-3 3v-5z" fill="currentColor"/><path d="m8 13 8-6-5 8" fill="none" stroke="#fff" stroke-width="1.3"/></svg></span>
                 <div class="integration-copy">
-                  <div class="integration-title-row"><h2 id="telegram-card-title">Telegram</h2><span id="telegram-status" class="status-pill neutral">Vérification…</span></div>
-                  <p>Recevez les notifications SmartReply et validez les actions depuis Telegram.</p>
-                  <small>Code temporaire sécurisé · valable 15 minutes</small>
+                  <div class="integration-title-row"><h2 id="telegram-card-title">Telegram</h2><span class="optional-badge">Optionnel</span><span id="telegram-status" class="status-pill neutral">Vérification…</span></div>
+                  <p>Recevez les notifications SmartReply et validez les actions depuis Telegram, sans bloquer le traitement des emails.</p>
+                  <small>Connexion facultative · code temporaire valable 15 minutes</small>
                 </div>
               </div>
               <div class="integration-action">
@@ -436,22 +436,18 @@
         <span class="integration-setup-mark" aria-hidden="true"><svg><use href="#icon-link"></use></svg></span>
         <div>
           <span class="integration-setup-badge">Configuration requise</span>
-          <h2 id="integration-setup-title">Configurez vos intégrations</h2>
+          <h2 id="integration-setup-title">Configurez les services requis</h2>
         </div>
       </div>
 
       <p id="integration-setup-description" class="integration-setup-description">
-        SmartReply a besoin de ces trois services pour analyser vos emails, préparer les données et vous notifier.
+        SmartReply a besoin de Gmail et Google Sheets pour traiter vos emails. Telegram pourra être ajouté ensuite, de façon optionnelle.
       </p>
 
       <ul class="integration-setup-services" aria-label="Services requis">
         <li>
           <span class="integration-logo gmail-logo" aria-hidden="true">M</span>
           <span><strong>Gmail</strong><small>Analyser les emails et préparer les réponses.</small></span>
-        </li>
-        <li>
-          <span class="integration-logo telegram-logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 11 17-7-4 16-5-5-3 3v-5z" fill="currentColor"/><path d="m8 13 8-6-5 8" fill="none" stroke="#fff" stroke-width="1.3"/></svg></span>
-          <span><strong>Telegram</strong><small>Recevoir les notifications et valider les actions.</small></span>
         </li>
         <li>
           <span class="integration-logo sheets-logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6z" fill="currentColor"/><path d="M15 2v5h5" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M9 11h7M9 15h7M12 10v8" fill="none" stroke="#fff" stroke-width="1.5"/></svg></span>
@@ -461,7 +457,7 @@
 
       <div class="integration-setup-actions">
         <button id="configure-integrations" class="button button-primary" type="button">
-          <span>Configurer mes intégrations</span><svg><use href="#icon-arrow"></use></svg>
+          <span>Configurer les services requis</span><svg><use href="#icon-arrow"></use></svg>
         </button>
       </div>
     </div>
