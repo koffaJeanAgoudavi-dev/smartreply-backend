@@ -1,11 +1,16 @@
 """Tests du flux multi-entreprises réel et de son isolation stricte."""
 
 import asyncio
+import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 from sqlalchemy import create_engine, func, select, update
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -500,15 +505,440 @@ class PipelineExecutionTests(unittest.TestCase):
                     TelegramConnection.user_id == plan.user_id
                 )
             )
+            draft_created = db.scalar(
+                select(CompanyActivityEvent).where(
+                    CompanyActivityEvent.processed_email_id == record.id,
+                    CompanyActivityEvent.event_type == "draft_created",
+                )
+            )
         self.assertEqual(
             notify.await_args.args[0],
             telegram_connection.telegram_chat_id,
+        )
+        self.assertGreaterEqual(
+            draft_created.occurred_at.replace(tzinfo=timezone.utc),
+            telegram_connection.connected_at.replace(tzinfo=timezone.utc),
         )
         self.assertEqual(record.status, "done")
         self.assertEqual(record.gmail_draft_id, "draft-telegram")
         self.assertEqual(record.notification_attempts, 1)
         self.assertIsNotNone(record.notified_at)
         self.assertIsNone(record.notification_blocked_at)
+
+    def test_direct_notification_attempt_rejects_event_before_cutoff(self):
+        plan = self.create_company("DirectOldDraft", activated_at=self.activation)
+        cutoff = self.activation
+        with self.session_factory() as db:
+            connection = db.scalar(
+                select(TelegramConnection).where(
+                    TelegramConnection.user_id == plan.user_id
+                )
+            )
+            connection.connected_at = cutoff
+            record = ProcessedEmail(
+                company_id=plan.company_id,
+                gmail_message_id="direct-old-message",
+                gmail_draft_id="direct-old-draft",
+                callback_token="D" * 32,
+                draft_status="pending",
+                status="done",
+            )
+            db.add(record)
+            db.flush()
+            db.add(
+                CompanyActivityEvent(
+                    company_id=plan.company_id,
+                    processed_email_id=record.id,
+                    event_type="draft_created",
+                    occurred_at=cutoff - timedelta(seconds=1),
+                )
+            )
+            db.commit()
+            record_id = record.id
+
+        context = service._activate_and_load_context(self.session_factory, plan)
+        self.assertIsNotNone(context)
+        notify = AsyncMock()
+        with patch.object(service, "send_company_email_notification", notify):
+            attempted = asyncio.run(
+                service._attempt_company_notification(
+                    session_factory=self.session_factory,
+                    context=context,
+                    record_id=record_id,
+                    callback_token="D" * 32,
+                    notification_data={
+                        "expediteur": "sender@test.invalid",
+                        "objet": "Old",
+                        "categorie": "support",
+                        "priorite": "moyenne",
+                        "resume": "Résumé",
+                    },
+                    notification_not_before=cutoff,
+                )
+            )
+
+        self.assertFalse(attempted)
+        notify.assert_not_awaited()
+        with self.session_factory() as db:
+            record = db.get(ProcessedEmail, record_id)
+        self.assertEqual(record.notification_attempts, 0)
+        self.assertIsNone(record.notification_claimed_at)
+
+    def test_processing_retry_after_late_telegram_connection_is_not_notified(self):
+        plan = self.create_company(
+            "ResumeBeforeTelegram",
+            activated_at=self.activation,
+            with_telegram=False,
+        )
+        create_draft = AsyncMock(return_value="draft-before-telegram")
+        upsert_draft = Mock(side_effect=[RuntimeError("sheet unavailable"), None])
+        notify = AsyncMock()
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("resume-before-telegram",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("resume-before-telegram")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(
+                service,
+                "analyze_email",
+                side_effect=self.successful_analysis,
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(service, "create_company_gmail_draft", create_draft),
+            patch.object(service, "upsert_company_draft", upsert_draft),
+            patch.object(service, "mark_company_email_draft_ready"),
+            patch.object(service, "send_company_email_notification", notify),
+        ):
+            first = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+            with self.session_factory() as db:
+                event = db.scalar(
+                    select(CompanyActivityEvent).where(
+                        CompanyActivityEvent.company_id == plan.company_id,
+                        CompanyActivityEvent.event_type == "draft_created",
+                    )
+                )
+                connected_at = event.occurred_at.replace(
+                    tzinfo=timezone.utc
+                ) + timedelta(seconds=1)
+                db.add(
+                    TelegramConnection(
+                        user_id=plan.user_id,
+                        telegram_chat_id=910_000 + plan.user_id,
+                        telegram_user_id=920_000 + plan.user_id,
+                        connected_at=connected_at,
+                    )
+                )
+                db.commit()
+            second = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(first.failed, 1)
+        self.assertEqual(second.processed, 1)
+        self.assertEqual(create_draft.await_count, 1)
+        self.assertEqual(upsert_draft.call_count, 2)
+        notify.assert_not_awaited()
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+        self.assertEqual(record.status, "done")
+        self.assertEqual(record.gmail_draft_id, "draft-before-telegram")
+        self.assertEqual(record.attempts, 2)
+        self.assertEqual(record.notification_attempts, 0)
+        self.assertIsNone(record.notified_at)
+
+    def test_connection_during_gmail_creation_does_not_make_draft_eligible(self):
+        plan = self.create_company(
+            "ConnectDuringDraft",
+            activated_at=self.activation,
+            with_telegram=False,
+        )
+
+        async def create_draft_and_connect(*_args, **_kwargs):
+            with self.session_factory() as db:
+                db.add(
+                    TelegramConnection(
+                        user_id=plan.user_id,
+                        telegram_chat_id=930_000 + plan.user_id,
+                        telegram_user_id=940_000 + plan.user_id,
+                        connected_at=datetime.now(timezone.utc)
+                        + timedelta(seconds=1),
+                    )
+                )
+                db.commit()
+            return "draft-created-during-connect"
+
+        create_draft = AsyncMock(side_effect=create_draft_and_connect)
+        notify = AsyncMock()
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("connect-during-draft",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("connect-during-draft")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(
+                service,
+                "analyze_email",
+                side_effect=self.successful_analysis,
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(service, "create_company_gmail_draft", create_draft),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+            patch.object(service, "send_company_email_notification", notify),
+        ):
+            first = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+            second = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(first.processed, 1)
+        self.assertEqual(second.processed, 0)
+        create_draft.assert_awaited_once()
+        notify.assert_not_awaited()
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+            event = db.scalar(
+                select(CompanyActivityEvent).where(
+                    CompanyActivityEvent.processed_email_id == record.id,
+                    CompanyActivityEvent.event_type == "draft_created",
+                )
+            )
+            connection = db.scalar(
+                select(TelegramConnection).where(
+                    TelegramConnection.user_id == plan.user_id
+                )
+            )
+        self.assertLess(
+            event.occurred_at.replace(tzinfo=timezone.utc),
+            connection.connected_at.replace(tzinfo=timezone.utc),
+        )
+        self.assertEqual(record.notification_attempts, 0)
+        self.assertIsNone(record.notified_at)
+
+    def test_sheet_recovered_draft_has_no_assumed_creation_event_or_notification(self):
+        plan = self.create_company("SheetRecovered", activated_at=self.activation)
+        create_draft = AsyncMock()
+        notify = AsyncMock()
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("sheet-recovered-message",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("sheet-recovered")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(
+                service,
+                "analyze_email",
+                side_effect=self.successful_analysis,
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(
+                service,
+                "get_company_draft_id",
+                return_value="legacy-sheet-draft",
+            ),
+            patch.object(service, "create_company_gmail_draft", create_draft),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+            patch.object(service, "send_company_email_notification", notify),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.processed, 1)
+        create_draft.assert_not_awaited()
+        notify.assert_not_awaited()
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+            draft_events = db.scalars(
+                select(CompanyActivityEvent).where(
+                    CompanyActivityEvent.processed_email_id == record.id,
+                    CompanyActivityEvent.event_type == "draft_created",
+                )
+            ).all()
+        self.assertEqual(record.gmail_draft_id, "legacy-sheet-draft")
+        self.assertEqual(record.status, "done")
+        self.assertEqual(record.notification_attempts, 0)
+        self.assertEqual(draft_events, [])
+
+    def test_concurrent_notification_claims_allow_one_attempt(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "claims.sqlite3"
+            engine = create_engine(
+                f"sqlite:///{database_path}",
+                connect_args={"check_same_thread": False, "timeout": 10},
+            )
+            local_session_factory = sessionmaker(
+                bind=engine,
+                autoflush=False,
+                expire_on_commit=False,
+            )
+            Base.metadata.create_all(engine)
+            cutoff = self.activation
+            with local_session_factory() as db:
+                user = User(
+                    email="concurrent-claim@test.invalid",
+                    hashed_password="unused",
+                )
+                db.add(user)
+                db.flush()
+                company = Company(
+                    user_id=user.id,
+                    nom_entreprise="Concurrent Claim",
+                    secteur="Test",
+                    sheet_id="concurrent-claim-sheet",
+                )
+                db.add(company)
+                db.flush()
+                record = ProcessedEmail(
+                    company_id=company.id,
+                    gmail_message_id="concurrent-claim-message",
+                    gmail_draft_id="concurrent-claim-draft",
+                    callback_token="C" * 32,
+                    draft_status="pending",
+                    status="done",
+                )
+                db.add(record)
+                db.flush()
+                db.add(
+                    CompanyActivityEvent(
+                        company_id=company.id,
+                        processed_email_id=record.id,
+                        event_type="draft_created",
+                        occurred_at=cutoff,
+                    )
+                )
+                db.commit()
+                company_id = company.id
+                record_id = record.id
+
+            barrier = threading.Barrier(2)
+
+            def claim():
+                barrier.wait()
+                with local_session_factory() as db:
+                    return claim_notification_attempt(
+                        db,
+                        company_id=company_id,
+                        record_id=record_id,
+                        notification_not_before=cutoff,
+                    )
+
+            try:
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    results = list(executor.map(lambda _index: claim(), range(2)))
+                self.assertEqual(sorted(results), [False, True])
+                with local_session_factory() as db:
+                    record = db.get(ProcessedEmail, record_id)
+                self.assertEqual(record.notification_attempts, 1)
+                self.assertIsNotNone(record.notification_claimed_at)
+            finally:
+                engine.dispose()
+
+    def test_claim_is_a_correlated_atomic_update_for_postgresql(self):
+        cutoff = self.activation
+        db = Mock()
+        db.execute.return_value.rowcount = 0
+
+        claimed = claim_notification_attempt(
+            db,
+            company_id=7,
+            record_id=11,
+            notification_not_before=cutoff,
+        )
+
+        self.assertFalse(claimed)
+        statement = db.execute.call_args.args[0]
+        compiled = statement.compile(dialect=postgresql.dialect())
+        sql = str(compiled)
+        self.assertTrue(sql.startswith("UPDATE processed_emails SET"))
+        self.assertIn("EXISTS (SELECT company_activity_events.id", sql)
+        self.assertIn(
+            "company_activity_events.processed_email_id = processed_emails.id",
+            sql,
+        )
+        self.assertIn("company_activity_events.occurred_at >=", sql)
+        self.assertIn(cutoff, compiled.params.values())
+        db.rollback.assert_called_once_with()
 
     def test_missing_bot_token_with_existing_connection_has_no_attempt(self):
         plan = self.create_company("NoBotToken", activated_at=self.activation)
@@ -1011,6 +1441,15 @@ class PipelineExecutionTests(unittest.TestCase):
                 attempts=1,
             )
             db.add(record)
+            db.flush()
+            db.add(
+                CompanyActivityEvent(
+                    company_id=plan.company_id,
+                    processed_email_id=record.id,
+                    event_type="draft_created",
+                    occurred_at=self.activation,
+                )
+            )
             db.commit()
             record_id = record.id
 
@@ -1021,6 +1460,7 @@ class PipelineExecutionTests(unittest.TestCase):
                     db,
                     company_id=plan.company_id,
                     record_id=record_id,
+                    notification_not_before=self.activation,
                 )
                 claims.append(claimed)
             if claimed and attempt_index < 3:

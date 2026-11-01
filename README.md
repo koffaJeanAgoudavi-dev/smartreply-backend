@@ -304,9 +304,12 @@ Un utilisateur authentifié génère son code avec
 `POST /api/v1/telegram/link-code`, puis envoie `/start SR-XXXXX` ou le code seul
 au bot. La consommation est atomique et le statut JWT n'expose jamais le
 `chat_id`. `/status` dans le bot lit également Neon. Une connexion tardive ne
-rattrape aucun brouillon antérieur à `telegram_connections.connected_at` ; les
-reprises utilisent l'événement `draft_created` déjà présent pour appliquer
-cette coupure.
+rattrape aucun brouillon antérieur à `telegram_connections.connected_at` :
+l'éligibilité de l'événement `draft_created` est revérifiée dans le claim SQL
+atomique de chaque envoi. Pour une nouvelle création Gmail, cet événement porte
+l'instant conservateur capturé avant la requête distante. Un ID historique
+récupéré depuis Sheets n'apporte aucune preuve de sa date de création : aucun
+événement récent ne lui est inventé et il reste donc exclu des notifications.
 
 Les éventuels onglets historiques restent dans les Sheets existants, mais le
 code ne les lit et ne les modifie plus. La liaison Telegram s'appuie uniquement
@@ -437,7 +440,14 @@ le bon chat reçoit le résumé et un unique bouton **Voir le brouillon** seulem
 si une connexion Telegram et la configuration globale sont disponibles. Sinon,
 le brouillon reste `pending` sans tentative de notification. Un échec Telegram
 ne rouvre jamais le traitement Gmail/Gemini : seule la notification est reprise.
-Un HTTP `403` arrête définitivement ses reprises.
+Un HTTP `403` est un refus certain et arrête définitivement les reprises. Une
+erreur de connexion survenue avant transmission implique qu'aucun message n'a
+été livré, mais le client classe aussi comme transitoires un HTTP `500` et les
+timeouts. Après transmission, un timeout rend le résultat inconnu ; un `500`
+explicite est également repris sans prétendre prouver l'absence de livraison.
+Le claim est alors libéré et un nouvel essai peut produire un doublon si
+Telegram avait déjà accepté le message. La livraison est donc « au moins une
+fois » dans ces cas ambigus, jamais garantie exactement une fois.
 
 Aucune migration supplémentaire n'est nécessaire pour rendre Telegram
 facultatif : `telegram_connections.connected_at`, `processed_emails` et

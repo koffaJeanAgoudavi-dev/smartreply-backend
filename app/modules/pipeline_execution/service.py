@@ -244,12 +244,15 @@ def _record_draft(
     session_factory: Callable[[], Session],
     reservation: EmailReservation,
     draft_id: str,
+    *,
+    draft_created_at: datetime | None,
 ) -> EmailReservation:
     with session_factory() as db:
         return record_gmail_draft_id(
             db,
             reservation,
             gmail_draft_id=draft_id,
+            draft_created_at=draft_created_at,
         )
 
 
@@ -260,14 +263,20 @@ async def _attempt_company_notification(
     record_id: int,
     callback_token: str,
     notification_data: dict,
+    notification_not_before: datetime | None,
 ) -> bool:
-    if context.telegram_chat_id is None or not telegram_is_configured():
+    if (
+        context.telegram_chat_id is None
+        or notification_not_before is None
+        or not telegram_is_configured()
+    ):
         return False
     with session_factory() as db:
         claimed = claim_notification_attempt(
             db,
             company_id=context.company_id,
             record_id=record_id,
+            notification_not_before=notification_not_before,
         )
     if not claimed:
         return False
@@ -324,7 +333,11 @@ async def _retry_pending_notifications(
     context: CompanyExecutionContext,
     workbook,
 ):
-    if context.telegram_chat_id is None or not telegram_is_configured():
+    if (
+        context.telegram_chat_id is None
+        or context.telegram_connected_at is None
+        or not telegram_is_configured()
+    ):
         return workbook
     with session_factory() as db:
         pending = list_pending_notifications(
@@ -356,6 +369,7 @@ async def _retry_pending_notifications(
                 record_id=record_id,
                 callback_token=callback_token,
                 notification_data=notification_data,
+                notification_not_before=context.telegram_connected_at,
             )
         except Exception:
             continue
@@ -513,12 +527,14 @@ async def _process_reserved_email(
                     session_factory,
                     reservation,
                     draft_id,
+                    draft_created_at=None,
                 )
         if draft_id is None:
             stage = "gmail_draft"
             thread_id = email.get("thread_id")
             if not isinstance(thread_id, str) or not thread_id:
                 raise ValueError("gmail_thread_missing")
+            draft_creation_started_at = _utcnow()
             draft_id = await create_company_gmail_draft(
                 access_token,
                 destinataire=_recipient(email["expediteur"]),
@@ -533,6 +549,7 @@ async def _process_reserved_email(
                 session_factory,
                 reservation,
                 draft_id,
+                draft_created_at=draft_creation_started_at,
             )
         stage = "sheets"
         upsert_company_draft(
@@ -571,6 +588,7 @@ async def _process_reserved_email(
                         "priorite": analysis["urgence"],
                         "resume": analysis["resume"],
                     },
+                    notification_not_before=context.telegram_connected_at,
                 )
             except Exception:
                 # La notification reste indépendante du traitement désormais done.

@@ -48,15 +48,17 @@ def _add_activity_event(
     company_id: int,
     record_id: int,
     event_type: str,
+    occurred_at: datetime | None = None,
 ) -> None:
     """Ajoute l'événement dans la transaction qui a gagné la transition."""
-    db.add(
-        CompanyActivityEvent(
-            company_id=company_id,
-            processed_email_id=record_id,
-            event_type=event_type,
-        )
+    event = CompanyActivityEvent(
+        company_id=company_id,
+        processed_email_id=record_id,
+        event_type=event_type,
     )
+    if occurred_at is not None:
+        event.occurred_at = occurred_at
+    db.add(event)
 
 
 def _reservation_from_record(record: ProcessedEmail) -> EmailReservation:
@@ -136,8 +138,9 @@ def record_gmail_draft_id(
     reservation: EmailReservation,
     *,
     gmail_draft_id: str,
+    draft_created_at: datetime | None,
 ) -> EmailReservation:
-    """Persiste le brouillon et son jeton opaque avant toute écriture suivante."""
+    """Persiste le brouillon et l'instant de création s'il est démontrable."""
     normalized_id = gmail_draft_id.strip()
     if not normalized_id or len(normalized_id) > 255:
         raise ValueError("invalid_gmail_draft_id")
@@ -182,12 +185,14 @@ def record_gmail_draft_id(
             if result.rowcount != 1:
                 db.rollback()
                 raise RuntimeError("processed_email_state_conflict")
-            _add_activity_event(
-                db,
-                company_id=reservation.company_id,
-                record_id=reservation.record_id,
-                event_type="draft_created",
-            )
+            if draft_created_at is not None:
+                _add_activity_event(
+                    db,
+                    company_id=reservation.company_id,
+                    record_id=reservation.record_id,
+                    event_type="draft_created",
+                    occurred_at=draft_created_at,
+                )
             db.commit()
             return replace(
                 reservation,
@@ -347,34 +352,37 @@ def list_pending_notifications(
     db: Session,
     *,
     company_id: int,
-    notification_not_before: datetime | None = None,
+    notification_not_before: datetime,
 ) -> tuple[tuple[int, str], ...]:
     """Liste les notifications réessayables postérieures à la connexion Telegram."""
     stale_before = datetime.now(UTC) - timedelta(
         seconds=max(0, settings.PIPELINE_PROCESSING_STALE_SECONDS)
     )
-    statement = select(ProcessedEmail.id, ProcessedEmail.callback_token).where(
-        ProcessedEmail.company_id == company_id,
-        ProcessedEmail.status == "done",
-        ProcessedEmail.gmail_draft_id.is_not(None),
-        ProcessedEmail.callback_token.is_not(None),
-        ProcessedEmail.notified_at.is_(None),
-        ProcessedEmail.notification_blocked_at.is_(None),
-        ProcessedEmail.notification_attempts < MAX_PROCESSING_ATTEMPTS,
-        or_(
-            ProcessedEmail.notification_claimed_at.is_(None),
-            ProcessedEmail.notification_claimed_at < stale_before,
-        ),
-    )
-    if notification_not_before is not None:
-        statement = statement.join(
+    statement = (
+        select(ProcessedEmail.id, ProcessedEmail.callback_token)
+        .join(
             CompanyActivityEvent,
             and_(
                 CompanyActivityEvent.processed_email_id == ProcessedEmail.id,
                 CompanyActivityEvent.company_id == company_id,
                 CompanyActivityEvent.event_type == "draft_created",
             ),
-        ).where(CompanyActivityEvent.occurred_at >= notification_not_before)
+        )
+        .where(
+            ProcessedEmail.company_id == company_id,
+            ProcessedEmail.status == "done",
+            ProcessedEmail.gmail_draft_id.is_not(None),
+            ProcessedEmail.callback_token.is_not(None),
+            ProcessedEmail.notified_at.is_(None),
+            ProcessedEmail.notification_blocked_at.is_(None),
+            ProcessedEmail.notification_attempts < MAX_PROCESSING_ATTEMPTS,
+            or_(
+                ProcessedEmail.notification_claimed_at.is_(None),
+                ProcessedEmail.notification_claimed_at < stale_before,
+            ),
+            CompanyActivityEvent.occurred_at >= notification_not_before,
+        )
+    )
     rows = db.execute(statement).all()
     return tuple((record_id, callback_token) for record_id, callback_token in rows)
 
@@ -384,10 +392,22 @@ def claim_notification_attempt(
     *,
     company_id: int,
     record_id: int,
+    notification_not_before: datetime,
 ) -> bool:
-    """Consomme atomiquement une tentative Telegram, sans rouvrir le traitement."""
+    """Réserve atomiquement une notification créée après la liaison Telegram."""
     stale_before = datetime.now(UTC) - timedelta(
         seconds=max(0, settings.PIPELINE_PROCESSING_STALE_SECONDS)
+    )
+    eligible_draft_event = (
+        select(CompanyActivityEvent.id)
+        .where(
+            CompanyActivityEvent.processed_email_id == ProcessedEmail.id,
+            CompanyActivityEvent.company_id == company_id,
+            CompanyActivityEvent.event_type == "draft_created",
+            CompanyActivityEvent.occurred_at >= notification_not_before,
+        )
+        .correlate(ProcessedEmail)
+        .exists()
     )
     result = db.execute(
         update(ProcessedEmail)
@@ -404,6 +424,7 @@ def claim_notification_attempt(
                 ProcessedEmail.notification_claimed_at.is_(None),
                 ProcessedEmail.notification_claimed_at < stale_before,
             ),
+            eligible_draft_event,
         )
         .values(
             notification_attempts=ProcessedEmail.notification_attempts + 1,
