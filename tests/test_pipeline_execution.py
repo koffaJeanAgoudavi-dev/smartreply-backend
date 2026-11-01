@@ -434,7 +434,83 @@ class PipelineExecutionTests(unittest.TestCase):
         self.assertIsNone(record.notification_claimed_at)
         self.assertIsNone(record.notification_blocked_at)
 
-    def test_missing_bot_token_processes_without_notification_attempt(self):
+    def test_connected_telegram_keeps_nominal_notification_behavior(self):
+        plan = self.create_company("TelegramNominal", activated_at=self.activation)
+        notify = AsyncMock()
+        with (
+            patch.object(service, "decrypt_token", return_value="refresh"),
+            patch.object(
+                service,
+                "get_company_access_token",
+                new=AsyncMock(return_value="access"),
+            ),
+            patch.object(
+                service,
+                "list_company_message_page",
+                new=AsyncMock(return_value=(("message-telegram",), None)),
+            ),
+            patch.object(
+                service,
+                "get_company_email",
+                new=AsyncMock(return_value=self.email("telegram")),
+            ),
+            patch.object(
+                service, "should_process", return_value={"decision": "traiter"}
+            ),
+            patch.object(
+                service,
+                "analyze_email",
+                side_effect=self.successful_analysis,
+            ),
+            patch.object(service, "get_company_workbook", return_value="workbook"),
+            patch.object(service, "upsert_company_email"),
+            patch.object(service, "get_company_draft_id", return_value=None),
+            patch.object(
+                service,
+                "create_company_gmail_draft",
+                new=AsyncMock(return_value="draft-telegram"),
+            ),
+            patch.object(service, "upsert_company_draft"),
+            patch.object(service, "mark_company_email_draft_ready"),
+            patch.object(service, "send_company_email_notification", notify),
+        ):
+            summary = asyncio.run(
+                service.execute_multi_tenant_run(
+                    self.prepared([plan]),
+                    session_factory=self.session_factory,
+                )
+            )
+
+        self.assertEqual(summary.processed, 1)
+        self.assertEqual(summary.failed, 0)
+        notify.assert_awaited_once()
+        notification_kwargs = notify.await_args.kwargs
+        self.assertEqual(notification_kwargs["objet"], "Subject telegram")
+        self.assertEqual(notification_kwargs["categorie"], "support")
+        self.assertTrue(notification_kwargs["view_callback_data"].startswith("mt_view_"))
+        self.assertNotIn("draft-telegram", notification_kwargs["view_callback_data"])
+        with self.session_factory() as db:
+            record = db.scalar(
+                select(ProcessedEmail).where(
+                    ProcessedEmail.company_id == plan.company_id
+                )
+            )
+            telegram_connection = db.scalar(
+                select(TelegramConnection).where(
+                    TelegramConnection.user_id == plan.user_id
+                )
+            )
+        self.assertEqual(
+            notify.await_args.args[0],
+            telegram_connection.telegram_chat_id,
+        )
+        self.assertEqual(record.status, "done")
+        self.assertEqual(record.gmail_draft_id, "draft-telegram")
+        self.assertEqual(record.notification_attempts, 1)
+        self.assertIsNotNone(record.notified_at)
+        self.assertIsNone(record.notification_blocked_at)
+
+    def test_missing_bot_token_with_existing_connection_has_no_attempt(self):
         plan = self.create_company("NoBotToken", activated_at=self.activation)
         notify = AsyncMock()
         analyze = AsyncMock(side_effect=self.successful_analysis)
@@ -494,6 +570,12 @@ class PipelineExecutionTests(unittest.TestCase):
                     ProcessedEmail.company_id == plan.company_id
                 )
             )
+            telegram_connection = db.scalar(
+                select(TelegramConnection).where(
+                    TelegramConnection.user_id == plan.user_id
+                )
+            )
+        self.assertIsNotNone(telegram_connection)
         self.assertEqual(record.status, "done")
         self.assertEqual(record.draft_status, "pending")
         self.assertEqual(record.gmail_draft_id, "draft-no-token")

@@ -6,6 +6,8 @@ import logging
 import unittest
 from unittest.mock import patch
 
+import httpx
+
 from app.modules.drafts import service as drafts_service
 from app.modules.gmail import service as gmail_service
 from app.modules.notifications import service as notifications_service
@@ -22,9 +24,10 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    def __init__(self, *, get_response=None, post_response=None):
+    def __init__(self, *, get_response=None, post_response=None, post_error=None):
         self.get_response = get_response
         self.post_response = post_response
+        self.post_error = post_error
         self.get_calls = []
         self.post_calls = []
 
@@ -40,7 +43,14 @@ class FakeAsyncClient:
 
     async def post(self, url, **kwargs):
         self.post_calls.append((url, kwargs))
+        if self.post_error is not None:
+            raise self.post_error
         return self.post_response
+
+
+class InvalidJsonResponse(FakeResponse):
+    def json(self):
+        raise ValueError("invalid json")
 
 
 class CompanyGmailAdapterTests(unittest.TestCase):
@@ -213,6 +223,92 @@ class CompanyNotificationAdapterTests(unittest.TestCase):
                     )
         finally:
             notifications_service.settings.TELEGRAM_BOT_TOKEN = original_token
+
+    def test_http_500_is_classified_as_a_transient_error(self):
+        client = FakeAsyncClient(post_response=FakeResponse(500, {}))
+        with patch.object(
+            notifications_service.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            with self.assertRaises(
+                notifications_service.CompanyTelegramError
+            ) as caught:
+                asyncio.run(
+                    notifications_service.send_company_telegram_message(
+                        12345,
+                        "Test",
+                    )
+                )
+
+        self.assertNotIsInstance(
+            caught.exception,
+            notifications_service.CompanyTelegramBlockedError,
+        )
+        self.assertEqual(caught.exception.code, "telegram_http_500")
+        self.assertEqual(caught.exception.status_code, 500)
+
+    def test_network_error_is_classified_as_a_transient_error(self):
+        request = httpx.Request("POST", "https://api.telegram.org")
+        client = FakeAsyncClient(
+            post_error=httpx.ConnectError("network unavailable", request=request)
+        )
+        with patch.object(
+            notifications_service.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            with self.assertRaises(
+                notifications_service.CompanyTelegramError
+            ) as caught:
+                asyncio.run(
+                    notifications_service.send_company_telegram_message(
+                        12345,
+                        "Test",
+                    )
+                )
+
+        self.assertEqual(caught.exception.code, "telegram_transport_error")
+
+    def test_invalid_json_response_is_rejected(self):
+        client = FakeAsyncClient(post_response=InvalidJsonResponse(200, {}))
+        with patch.object(
+            notifications_service.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            with self.assertRaises(
+                notifications_service.CompanyTelegramError
+            ) as caught:
+                asyncio.run(
+                    notifications_service.send_company_telegram_message(
+                        12345,
+                        "Test",
+                    )
+                )
+
+        self.assertEqual(caught.exception.code, "telegram_response_invalid")
+
+    def test_unsuccessful_telegram_payload_is_rejected(self):
+        client = FakeAsyncClient(
+            post_response=FakeResponse(200, {"ok": False})
+        )
+        with patch.object(
+            notifications_service.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            with self.assertRaises(
+                notifications_service.CompanyTelegramError
+            ) as caught:
+                asyncio.run(
+                    notifications_service.send_company_telegram_message(
+                        12345,
+                        "Test",
+                    )
+                )
+
+        self.assertEqual(caught.exception.code, "telegram_response_rejected")
 
     def test_missing_bot_token_does_not_start_an_http_attempt(self):
         notifications_service.settings.TELEGRAM_BOT_TOKEN = ""

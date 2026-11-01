@@ -2,8 +2,8 @@
 
 Assistant IA SaaS qui analyse, organise et prépare le traitement des emails
 professionnels : réception Gmail → filtrage anti-spam → analyse Gemini →
-stockage Google Sheets → brouillon Gmail → notification Telegram avec actions
-**Voir / Envoyer / Ignorer**.
+stockage Google Sheets → brouillon Gmail, puis, si Telegram est activé,
+notification avec actions **Voir / Envoyer / Ignorer**.
 
 > Moins de temps dans votre boîte mail. Plus de temps pour votre activité.
 
@@ -20,19 +20,19 @@ Reproduction fidèle du pipeline validé en V1.5, recodé en Python / FastAPI :
 Gmail ──→ Module 1 (Réception) ──→ Module 2 (Filtrage)
    ──→ Module 3 (Analyse Gemini) ──→ Module 4 (Sheet "Emails")
    ──→ Module 5 (Brouillon Gmail + Sheet "Brouillons")
-   ──→ Module 6 (Notification Telegram) ──→ Module 7 (Callbacks Envoyer/Ignorer)
+   └──→ [Telegram activé] Module 6 (Notification) ──→ Module 7 (Callbacks)
 ```
 
 | Module | Rôle | Statut |
 |---|---|---|
-| 0 | Compte, onboarding, connexion Telegram par code SR-XXXXX | ✅ |
+| 0 | Compte, onboarding, connexion Telegram optionnelle par code SR-XXXXX | ✅ |
 | 1 | Réception des emails (Gmail API) | ✅ |
 | 2 | Filtrage anti-spam / anti-newsletter | ✅ |
 | 3 | Analyse IA (Gemini) : urgence, catégorie, résumé, brouillon | ✅ |
 | 4 | Écriture dans le Google Sheet Data Entreprise | ✅ |
 | 5 | Création du brouillon Gmail + double écriture | ✅ |
-| 6 | Notification Telegram + bouton « Voir le brouillon » | ✅ |
-| 7 | Callbacks Telegram : Envoyer / Ignorer + mise à jour des statuts | ✅ |
+| 6 | Notification Telegram optionnelle + bouton « Voir le brouillon » | ✅ |
+| 7 | Callbacks Telegram optionnels : Envoyer / Ignorer + statuts | ✅ |
 | — | Déclenchement automatique (cron externe, toutes les 5 min) | ✅ |
 
 ## 🧰 Stack technique
@@ -40,7 +40,7 @@ Gmail ──→ Module 1 (Réception) ──→ Module 2 (Filtrage)
 - **FastAPI** (Python 3) — API REST asynchrone
 - **Gmail API** — réception, création et envoi de brouillons (OAuth2 refresh token)
 - **Google Sheets API** — stockage (compte de service + `gspread`)
-- **Telegram Bot API** — notifications + callbacks (webhook sécurisé par secret token)
+- **Telegram Bot API** — intégration optionnelle pour notifications + callbacks sécurisés
 - **Google Gemini** — analyse IA des emails (sortie JSON structurée)
 - **PostgreSQL / Neon** — utilisateurs, connexions Gmail, entreprises et liaisons Telegram
 - **SQLAlchemy / Alembic** — accès aux données et migrations versionnées
@@ -101,12 +101,12 @@ scripts/
 5. Vérifier `/health`, l'absence de `/docs`, `/redoc` et `/openapi.json`, la
    redirection relative `/dashboard` → `/dashboard/`, et les en-têtes CSP/HSTS.
 6. Enregistrer dans Google OAuth l'URI exacte
-   `https://<service>.onrender.com/api/v1/gmail/callback`, puis configurer le
-   webhook Telegram et enfin le cron externe.
+   `https://<service>.onrender.com/api/v1/gmail/callback`, configurer le cron
+   externe, puis configurer le webhook uniquement si Telegram est activé.
 
 ### Variables obligatoires avant le déploiement de production
 
-Pour le service complet décrit dans ce dépôt, la liste exacte est :
+Pour le socle obligatoire Gmail + Google Sheets, la liste exacte est :
 
 ```text
 ENVIRONMENT=production
@@ -117,8 +117,6 @@ RATE_LIMIT_HMAC_SECRET=<secret aléatoire distinct>
 CLIENT_IP_HEADER=CF-Connecting-IP
 TOKEN_ENCRYPTION_KEY=<clé Fernet>
 INVITATION_CODES=<au moins un code actif>
-TELEGRAM_BOT_TOKEN=<token BotFather>
-TELEGRAM_WEBHOOK_SECRET=<secret webhook>
 GOOGLE_CLIENT_ID=<client OAuth Gmail>
 GOOGLE_CLIENT_SECRET=<secret OAuth Gmail>
 GOOGLE_SERVICE_ACCOUNT_JSON=<JSON complet>
@@ -129,6 +127,13 @@ GEMINI_API_KEY=<clé Google AI Studio>
 CRON_SECRET=<secret du cron>
 ```
 
+Telegram est optionnel. Pour l'activer, définir ensemble :
+
+```text
+TELEGRAM_BOT_TOKEN=<token BotFather>
+TELEGRAM_WEBHOOK_SECRET=<secret webhook aléatoire>
+```
+
 `REDIS_URL` est **optionnelle**. `PIPELINE_ALLOWED_COMPANY_IDS` est nécessaire
 uniquement pour activer le traitement réel ; vide, le pipeline reste en
 simulation. `GOOGLE_DRIVE_TEMPLATE_ID`, `ACCESS_TOKEN_EXPIRE_MINUTES`, les
@@ -136,12 +141,20 @@ limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
 valeur vide de `INVITATION_CODES` ferme volontairement les inscriptions ; elle
 n'est acceptable que si cette fermeture est souhaitée.
 
+Telegram est considéré disponible seulement si `TELEGRAM_BOT_TOKEN` **et**
+`TELEGRAM_WEBHOOK_SECRET` sont tous deux non vides. Il faut ensuite enregistrer
+le webhook avec `python scripts/setup_webhook.py`, en utilisant la `BASE_URL`
+HTTPS publique, et laisser l'utilisateur lier son chat par un code `SR-XXXXX`.
+Si l'une des deux variables manque, le statut
+API expose `available=false`, la génération de code répond `503` et le pipeline
+Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
+
 ### Référence des variables d'environnement
 
 | Variable | Description |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | Token du bot Telegram (@BotFather) |
-| `TELEGRAM_WEBHOOK_SECRET` | Secret obligatoire du webhook, vérifié à chaque update en mode fail-closed |
+| `TELEGRAM_BOT_TOKEN` | Optionnel pour le socle ; token BotFather requis avec le secret webhook pour activer Telegram |
+| `TELEGRAM_WEBHOOK_SECRET` | Optionnel pour le socle ; requis avec le token bot, puis vérifié sur chaque update en mode fail-closed |
 | `BASE_URL` | URL publique du service (ex. `https://xxx.onrender.com`) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON du compte de service ; son `client_email` reçoit l'accès writer à chaque Sheet d'entreprise |
 | `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` | Client OAuth du compte propriétaire des copies d'entreprise |
@@ -226,7 +239,7 @@ uniquement par la CSP des pages de documentation hors production.
 
 Après le déploiement :
 
-- webhook Telegram : `python scripts/setup_webhook.py` ;
+- si Telegram est activé, webhook : `python scripts/setup_webhook.py` ;
 - cron externe : `POST /api/v1/pipeline/run` toutes les cinq minutes avec
   l'en-tête `X-CRON-SECRET`.
 
@@ -273,7 +286,12 @@ Pour un rattrapage manuel ponctuel : copier l'adresse du compte concerné depuis
 cliquer sur **Partager**, ajouter cette adresse avec le rôle **Éditeur**. Cette
 adresse doit correspondre au champ `client_email` du JSON configuré sur Render.
 
-### Liaison d'un compte Telegram
+### Liaison facultative d'un compte Telegram
+
+Gmail connecté et un Google Sheet d'entreprise accessible suffisent au
+pipeline. Telegram ajoute les notifications et les actions à distance, mais son
+absence, sa désactivation globale ou une panne de son API ne bloque ni
+l'analyse, ni les écritures Sheets, ni la création du brouillon Gmail.
 
 Les codes et connexions Telegram sont stockés exclusivement dans Neon :
 
@@ -285,7 +303,10 @@ Les codes et connexions Telegram sont stockés exclusivement dans Neon :
 Un utilisateur authentifié génère son code avec
 `POST /api/v1/telegram/link-code`, puis envoie `/start SR-XXXXX` ou le code seul
 au bot. La consommation est atomique et le statut JWT n'expose jamais le
-`chat_id`. `/status` dans le bot lit également Neon.
+`chat_id`. `/status` dans le bot lit également Neon. Une connexion tardive ne
+rattrape aucun brouillon antérieur à `telegram_connections.connected_at` ; les
+reprises utilisent l'événement `draft_created` déjà présent pour appliquer
+cette coupure.
 
 Les éventuels onglets historiques restent dans les Sheets existants, mais le
 code ne les lit et ne les modifie plus. La liaison Telegram s'appuie uniquement
@@ -304,7 +325,9 @@ La Phase A comprend :
   déconnexion avec JWT conservé dans `localStorage` ;
 - création de l'entreprise et accès à son Google Sheet ;
 - accueil sans données fictives, avec le nombre réel d'intégrations connectées ;
-- connexion Gmail, suivi Telegram par code temporaire et statuts réels ;
+- Gmail et Google Sheets requis pour l'état « prêt », avec compteur `2/3` si
+  Telegram est absent et `3/3` s'il est connecté ;
+- suivi Telegram optionnel par code temporaire, avec erreur indépendante ;
 - navigation mobile repliable et interface responsive.
 
 La Phase B ajoute des données réelles, sans backfill historique fictif :
@@ -346,10 +369,13 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
       réel depuis la carte Google Sheets.
 - [ ] Cliquer sur « Connecter Gmail », accepter le consentement Google et
       vérifier le retour automatique sur Intégrations avec Gmail connecté.
+- [ ] Avec Gmail et le Sheet connectés mais sans Telegram, vérifier l'état
+      « SmartReply est prêt » et l'indicateur `2/3`.
 - [ ] Générer un code Telegram, envoyer la commande `/start …` au bot sans
-      partager le code, puis vérifier le passage automatique à « Connecté ».
-- [ ] Vérifier l'indicateur `3/3`, puis les quatre cartes et les graphiques
-      après au moins un email `done` ou `skipped`.
+      partager le code, puis vérifier le passage automatique à « Connecté » et
+      l'indicateur `3/3`.
+- [ ] Simuler une panne du statut Telegram et vérifier que Gmail, Sheets et
+      l'état « prêt » restent disponibles.
 - [ ] Vérifier qu'un Sheet vide affiche un état vide et qu'un Sheet inaccessible
       affiche une erreur locale sans masquer les statistiques Neon.
 - [ ] Vérifier que les emails récents ne montrent aucune adresse expéditeur,
@@ -359,7 +385,7 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - [ ] Vérifier qu'un compte sans historique reste à zéro, sans statistiques,
       emails ou activités factices.
 
-### Pipeline multi-entreprises — Étape 3, PR 1 à PR 3
+### Pipeline multi-entreprises — Gmail et Sheets requis, Telegram facultatif
 
 La migration de fondations `e1a5c7d9b3f2` ajoute le statut Gmail et les dates de
 coupure/équité. La migration PR 2 `a4f6c8d2e1b7` ajoute `processed_emails`,
@@ -370,11 +396,11 @@ tentatives, ID du brouillon Gmail nullable et code d'erreur court. Le statut
 filtre, d'un message `skipped` réellement analysé puis ignoré.
 
 Le endpoint exécute exclusivement le pipeline multi-utilisateur. Une entreprise
-reste éligible seulement si elle possède un Sheet, une connexion Telegram et
-une connexion Gmail `connected`. Seules les entreprises dont l'ID interne est
-dans `PIPELINE_ALLOWED_COMPANY_IDS` sont traitées réellement ; toutes les
-autres restent comptées en simulation. Une allowlist vide signifie donc zéro
-traitement réel.
+reste éligible si elle possède un Sheet et une connexion Gmail `connected` avec
+refresh token ; aucune connexion Telegram n'est exigée. Seules les entreprises
+dont l'ID interne est dans `PIPELINE_ALLOWED_COMPANY_IDS` sont traitées
+réellement ; toutes les autres restent comptées en simulation. Une allowlist
+vide signifie donc zéro traitement réel.
 
 Au premier passage réel, `pipeline_activated_at` est enregistré et validé en
 base **avant** le premier accès Gmail. Gmail est ensuite interrogé avec
@@ -407,9 +433,16 @@ La migration PR 3 `f2c4d6e8a0b1` ajoute au registre le jeton opaque des boutons,
 l'état du brouillon, `notified_at`, le compteur de notification limité à trois,
 le blocage Telegram et la synchronisation du statut Sheet. Elle ajoute aussi le
 marqueur d'avis de révocation à `gmail_connections`. Après la double écriture,
-le bon chat reçoit le résumé et un unique bouton **Voir le brouillon**. Un échec
-Telegram ne rouvre jamais le traitement Gmail/Gemini : seule la notification
-est reprise. Un HTTP `403` arrête définitivement ses reprises.
+le bon chat reçoit le résumé et un unique bouton **Voir le brouillon** seulement
+si une connexion Telegram et la configuration globale sont disponibles. Sinon,
+le brouillon reste `pending` sans tentative de notification. Un échec Telegram
+ne rouvre jamais le traitement Gmail/Gemini : seule la notification est reprise.
+Un HTTP `403` arrête définitivement ses reprises.
+
+Aucune migration supplémentaire n'est nécessaire pour rendre Telegram
+facultatif : `telegram_connections.connected_at`, `processed_emails` et
+l'événement `draft_created` couvrent déjà la coupure des reprises. La tête
+Alembic reste `b7d9e3f1a5c2`.
 
 Les callbacks actifs ont le format `mt_<action>_<jeton opaque>` et restent sous
 la limite Telegram de 64 octets. Le jeton ne contient aucun ID métier. Le
@@ -428,8 +461,10 @@ peut être rejouée sans répéter l'action Gmail. Si un état `sending` dépass
 du brouillon dans Gmail. Un `404` confirme qu'il a déjà été consommé : Neon et
 le Sheet passent à `Envoyé` sans appeler une seconde fois `drafts.send`.
 
-Un `invalid_grant` déclenche au plus un avis Telegram avec un lien vers
-`BASE_URL/dashboard/#integrations`. Le marqueur est remis à zéro uniquement
+Un `invalid_grant` révoque Gmail même sans Telegram. Si Telegram est disponible,
+un avis contient le lien `BASE_URL/dashboard/#integrations` et le marqueur
+`revocation_notified_at` n'est écrit qu'après un envoi réellement réussi. Il
+reste nul en l'absence de Telegram ou si l'envoi échoue, puis est remis à zéro
 lors d'une nouvelle connexion Gmail réussie.
 
 Le `202` est rendu après la sélection et expose seulement les IDs internes et
@@ -442,6 +477,24 @@ Le passage est protégé par `pg_try_advisory_xact_lock`, verrou PostgreSQL limi
 à la transaction. Contrairement à un verrou advisory de session, il reste
 compatible avec le pooler transactionnel de Neon et est libéré par rollback à
 la fin du travail en arrière-plan.
+
+#### Matrice automatisée Telegram facultatif
+
+| # | Scénario | Résultat attendu | Couverture principale |
+|---|---|---|---|
+| 1 | Telegram connecté | Notification nominale, brouillon `done`, tentative marquée envoyée | `test_connected_telegram_keeps_nominal_notification_behavior` |
+| 2 | Telegram non connecté | Pipeline complet, brouillon `pending`, aucune tentative Telegram | `test_company_without_telegram_processes_without_notification_attempt` |
+| 3 | Token bot absent avec une connexion existante | Pipeline et retry complets, aucune requête ni tentative | `test_missing_bot_token_with_existing_connection_has_no_attempt` |
+| 4 | Erreur réseau ou HTTP `500` | Erreur transitoire ; retry de notification sans Gemini ni nouveau brouillon | `test_network_error_is_classified_as_a_transient_error`, `test_http_500_is_classified_as_a_transient_error`, `test_notification_failure_retries_without_gemini_or_new_gmail_draft` |
+| 5 | Réponse Telegram invalide | JSON invalide ou payload `ok=false` rejeté avec un code sûr | `test_invalid_json_response_is_rejected`, `test_unsuccessful_telegram_payload_is_rejected` |
+| 6 | HTTP `403` | Notification bloquée définitivement, aucune reprise infinie | `test_http_403_is_classified_as_permanently_blocked`, `test_blocked_telegram_bot_is_not_retried` |
+| 7 | Connexion Telegram tardive | Aucun rattrapage des brouillons antérieurs à `connected_at` | `test_late_telegram_connection_does_not_catch_up_older_drafts` |
+
+La révocation Gmail sans Telegram est couverte par
+`test_invalid_grant_without_telegram_revokes_without_notification_marker`.
+L'isolation multi-tenant et les callbacks opaques View / Send / Ignore sont
+couverts par `tests.test_company_telegram_actions` et
+`tests.test_pipeline_execution`.
 
 #### Test réel PR 2 après déploiement
 
@@ -496,8 +549,8 @@ la fin du travail en arrière-plan.
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
 | `GET /api/v1/gmail/connect` | Gmail OAuth | Démarre la connexion Gmail utilisateur |
 | `GET /api/v1/gmail/status` | Gmail OAuth | Retourne le statut de connexion Gmail |
-| `POST /api/v1/telegram/link-code` | Telegram | Génère un code temporaire JWT de 15 minutes |
-| `GET /api/v1/telegram/status` | Telegram | Retourne le statut de liaison sans exposer le chat |
+| `POST /api/v1/telegram/link-code` | Telegram optionnel | Génère un code temporaire de 15 minutes, ou `503` si désactivé |
+| `GET /api/v1/telegram/status` | Telegram optionnel | Retourne `available`, la liaison et sa date, sans exposer le chat |
 | `POST /api/v1/telegram/webhook` | Telegram | Reçoit commandes, codes et callbacks avec secret |
 | `POST /api/v1/companies` | Companies | Crée l'entreprise et sa copie de Sheet dédiée |
 | `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
@@ -545,5 +598,4 @@ la fin du travail en arrière-plan.
 
 Produit de **DIGICRAFT Labs** — Product Owner : KOFFA JEAN AGOUDAVI.
 Cadrage MVP V1 validé point par point (septembre 2026).
-```
 
