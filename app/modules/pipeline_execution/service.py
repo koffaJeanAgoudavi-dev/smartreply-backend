@@ -187,7 +187,11 @@ async def _revoke_company_gmail(
 ) -> None:
     can_notify = context.telegram_chat_id is not None and telegram_is_configured()
     with session_factory() as db:
-        revoked_now = revoke_company_gmail(db, company_id=context.company_id)
+        revoked_now = revoke_company_gmail(
+            db,
+            company_id=context.company_id,
+            expected_encrypted_refresh_token=context.encrypted_refresh_token,
+        )
     if not revoked_now or not can_notify:
         return
     try:
@@ -198,6 +202,7 @@ async def _revoke_company_gmail(
         mark_company_gmail_revocation_notified(
             db,
             company_id=context.company_id,
+            expected_encrypted_refresh_token=context.encrypted_refresh_token,
         )
 
 

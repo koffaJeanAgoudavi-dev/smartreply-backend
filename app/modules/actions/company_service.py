@@ -272,7 +272,11 @@ async def _notify_revocation_once(
     *,
     chat_id: int,
 ) -> None:
-    if not revoke_company_gmail(db, company_id=context.company_id):
+    if not revoke_company_gmail(
+        db,
+        company_id=context.company_id,
+        expected_encrypted_refresh_token=context.encrypted_refresh_token,
+    ):
         return
     try:
         await send_company_gmail_revoked_notification(chat_id)
@@ -281,6 +285,7 @@ async def _notify_revocation_once(
     mark_company_gmail_revocation_notified(
         db,
         company_id=context.company_id,
+        expected_encrypted_refresh_token=context.encrypted_refresh_token,
     )
 
 

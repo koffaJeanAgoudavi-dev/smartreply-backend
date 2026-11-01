@@ -108,8 +108,9 @@ def revoke_company_gmail(
     db: Session,
     *,
     company_id: int,
+    expected_encrypted_refresh_token: str,
 ) -> bool:
-    """Révoque Gmail sans prétendre qu'un avis Telegram a été envoyé."""
+    """Révoque uniquement la génération Gmail dont le token a échoué."""
     company_user_id = (
         select(Company.user_id).where(Company.id == company_id).scalar_subquery()
     )
@@ -118,6 +119,8 @@ def revoke_company_gmail(
         .where(
             GmailConnection.user_id == company_user_id,
             GmailConnection.status == "connected",
+            GmailConnection.encrypted_refresh_token
+            == expected_encrypted_refresh_token,
         )
         .values(status="revoked", updated_at=func.now())
     )
@@ -132,8 +135,9 @@ def mark_company_gmail_revocation_notified(
     db: Session,
     *,
     company_id: int,
+    expected_encrypted_refresh_token: str,
 ) -> bool:
-    """Marque l'avis seulement après la confirmation de son envoi."""
+    """Marque l'avis seulement pour la génération Gmail réellement notifiée."""
     company_user_id = (
         select(Company.user_id).where(Company.id == company_id).scalar_subquery()
     )
@@ -142,6 +146,8 @@ def mark_company_gmail_revocation_notified(
         .where(
             GmailConnection.user_id == company_user_id,
             GmailConnection.status == "revoked",
+            GmailConnection.encrypted_refresh_token
+            == expected_encrypted_refresh_token,
             GmailConnection.revocation_notified_at.is_(None),
         )
         .values(revocation_notified_at=func.now(), updated_at=func.now())
