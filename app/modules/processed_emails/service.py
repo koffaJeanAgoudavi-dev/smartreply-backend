@@ -347,26 +347,35 @@ def list_pending_notifications(
     db: Session,
     *,
     company_id: int,
+    notification_not_before: datetime | None = None,
 ) -> tuple[tuple[int, str], ...]:
-    """Liste uniquement les notifications réessayables de cette entreprise."""
+    """Liste les notifications réessayables postérieures à la connexion Telegram."""
     stale_before = datetime.now(UTC) - timedelta(
         seconds=max(0, settings.PIPELINE_PROCESSING_STALE_SECONDS)
     )
-    rows = db.execute(
-        select(ProcessedEmail.id, ProcessedEmail.callback_token).where(
-            ProcessedEmail.company_id == company_id,
-            ProcessedEmail.status == "done",
-            ProcessedEmail.gmail_draft_id.is_not(None),
-            ProcessedEmail.callback_token.is_not(None),
-            ProcessedEmail.notified_at.is_(None),
-            ProcessedEmail.notification_blocked_at.is_(None),
-            ProcessedEmail.notification_attempts < MAX_PROCESSING_ATTEMPTS,
-            or_(
-                ProcessedEmail.notification_claimed_at.is_(None),
-                ProcessedEmail.notification_claimed_at < stale_before,
+    statement = select(ProcessedEmail.id, ProcessedEmail.callback_token).where(
+        ProcessedEmail.company_id == company_id,
+        ProcessedEmail.status == "done",
+        ProcessedEmail.gmail_draft_id.is_not(None),
+        ProcessedEmail.callback_token.is_not(None),
+        ProcessedEmail.notified_at.is_(None),
+        ProcessedEmail.notification_blocked_at.is_(None),
+        ProcessedEmail.notification_attempts < MAX_PROCESSING_ATTEMPTS,
+        or_(
+            ProcessedEmail.notification_claimed_at.is_(None),
+            ProcessedEmail.notification_claimed_at < stale_before,
+        ),
+    )
+    if notification_not_before is not None:
+        statement = statement.join(
+            CompanyActivityEvent,
+            and_(
+                CompanyActivityEvent.processed_email_id == ProcessedEmail.id,
+                CompanyActivityEvent.company_id == company_id,
+                CompanyActivityEvent.event_type == "draft_created",
             ),
-        )
-    ).all()
+        ).where(CompanyActivityEvent.occurred_at >= notification_not_before)
+    rows = db.execute(statement).all()
     return tuple((record_id, callback_token) for record_id, callback_token in rows)
 
 

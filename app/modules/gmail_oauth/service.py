@@ -104,12 +104,12 @@ def save_refresh_token(db: Session, user_id: int, refresh_token: str) -> None:
         raise ValueError("Connexion Gmail déjà enregistrée pour cet utilisateur")
 
 
-def revoke_company_gmail_and_claim_notification(
+def revoke_company_gmail(
     db: Session,
     *,
     company_id: int,
 ) -> bool:
-    """Révoque la connexion et réserve au plus un avis Telegram."""
+    """Révoque Gmail sans prétendre qu'un avis Telegram a été envoyé."""
     company_user_id = (
         select(Company.user_id).where(Company.id == company_id).scalar_subquery()
     )
@@ -118,13 +118,33 @@ def revoke_company_gmail_and_claim_notification(
         .where(
             GmailConnection.user_id == company_user_id,
             GmailConnection.status == "connected",
+        )
+        .values(status="revoked", updated_at=func.now())
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.commit()
+    return True
+
+
+def mark_company_gmail_revocation_notified(
+    db: Session,
+    *,
+    company_id: int,
+) -> bool:
+    """Marque l'avis seulement après la confirmation de son envoi."""
+    company_user_id = (
+        select(Company.user_id).where(Company.id == company_id).scalar_subquery()
+    )
+    result = db.execute(
+        update(GmailConnection)
+        .where(
+            GmailConnection.user_id == company_user_id,
+            GmailConnection.status == "revoked",
             GmailConnection.revocation_notified_at.is_(None),
         )
-        .values(
-            status="revoked",
-            revocation_notified_at=func.now(),
-            updated_at=func.now(),
-        )
+        .values(revocation_notified_at=func.now(), updated_at=func.now())
     )
     if result.rowcount != 1:
         db.rollback()

@@ -16,7 +16,10 @@ from app.modules.gmail.service import (
 )
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.gmail_oauth.security import decrypt_token
-from app.modules.gmail_oauth.service import revoke_company_gmail_and_claim_notification
+from app.modules.gmail_oauth.service import (
+    mark_company_gmail_revocation_notified,
+    revoke_company_gmail,
+)
 from app.modules.notifications.service import (
     CompanyTelegramError,
     answer_company_callback,
@@ -269,15 +272,16 @@ async def _notify_revocation_once(
     *,
     chat_id: int,
 ) -> None:
-    if not revoke_company_gmail_and_claim_notification(
-        db,
-        company_id=context.company_id,
-    ):
+    if not revoke_company_gmail(db, company_id=context.company_id):
         return
     try:
         await send_company_gmail_revoked_notification(chat_id)
     except CompanyTelegramError:
-        pass
+        return
+    mark_company_gmail_revocation_notified(
+        db,
+        company_id=context.company_id,
+    )
 
 
 async def _finish_draft_sent(

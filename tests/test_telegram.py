@@ -41,8 +41,10 @@ class TelegramTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_get_db
         self.original_jwt_secret = settings.JWT_SECRET
+        self.original_bot_token = settings.TELEGRAM_BOT_TOKEN
         self.original_webhook_secret = settings.TELEGRAM_WEBHOOK_SECRET
         settings.JWT_SECRET = "telegram-tests-secret-at-least-32-bytes"
+        settings.TELEGRAM_BOT_TOKEN = "telegram-test-bot-token"
         settings.TELEGRAM_WEBHOOK_SECRET = "telegram-webhook-test-secret"
 
         with self.session_factory() as db:
@@ -73,6 +75,7 @@ class TelegramTests(unittest.TestCase):
         self.client.close()
         app.dependency_overrides.clear()
         settings.JWT_SECRET = self.original_jwt_secret
+        settings.TELEGRAM_BOT_TOKEN = self.original_bot_token
         settings.TELEGRAM_WEBHOOK_SECRET = self.original_webhook_secret
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
@@ -155,6 +158,24 @@ class TelegramTests(unittest.TestCase):
             self.assertEqual(stored.user_id, self.first_user_id)
             self.assertEqual(stored.status, "pending")
 
+    def test_missing_bot_token_disables_linking_without_creating_a_code(self):
+        settings.TELEGRAM_BOT_TOKEN = ""
+
+        status_response = self.client.get(
+            "/api/v1/telegram/status",
+            headers=self.authorization(),
+        )
+        code_response = self.client.post(
+            "/api/v1/telegram/link-code",
+            headers=self.authorization(),
+        )
+
+        self.assertEqual(status_response.status_code, 200, status_response.text)
+        self.assertFalse(status_response.json()["available"])
+        self.assertEqual(code_response.status_code, 503, code_response.text)
+        with self.session_factory() as db:
+            self.assertEqual(db.scalar(select(func.count(TelegramLinkCode.id))), 0)
+
     def test_new_code_expires_the_previous_pending_code(self):
         with patch.object(
             service,
@@ -209,7 +230,7 @@ class TelegramTests(unittest.TestCase):
         )
         self.assertEqual(
             disconnected.json(),
-            {"connected": False, "connected_at": None},
+            {"available": True, "connected": False, "connected_at": None},
         )
 
         with self.session_factory() as db:
@@ -289,7 +310,7 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(webhook_response.status_code, 200, webhook_response.text)
         self.assertEqual(
             set(status_response.json()),
-            {"connected", "connected_at"},
+            {"available", "connected", "connected_at"},
         )
         self.assertTrue(status_response.json()["connected"])
         self.assertIsNotNone(status_response.json()["connected_at"])

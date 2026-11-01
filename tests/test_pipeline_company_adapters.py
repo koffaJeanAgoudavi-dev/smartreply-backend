@@ -144,6 +144,18 @@ class CompanyGmailAdapterTests(unittest.TestCase):
 
 
 class CompanyNotificationAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.original_token = notifications_service.settings.TELEGRAM_BOT_TOKEN
+        self.original_secret = notifications_service.settings.TELEGRAM_WEBHOOK_SECRET
+        notifications_service.settings.TELEGRAM_BOT_TOKEN = "configured-test-token"
+        notifications_service.settings.TELEGRAM_WEBHOOK_SECRET = (
+            "configured-test-secret"
+        )
+
+    def tearDown(self):
+        notifications_service.settings.TELEGRAM_BOT_TOKEN = self.original_token
+        notifications_service.settings.TELEGRAM_WEBHOOK_SECRET = self.original_secret
+
     def test_notification_contains_summary_and_only_an_opaque_view_button(self):
         client = FakeAsyncClient(
             post_response=FakeResponse(200, {"ok": True, "result": {}})
@@ -201,6 +213,25 @@ class CompanyNotificationAdapterTests(unittest.TestCase):
                     )
         finally:
             notifications_service.settings.TELEGRAM_BOT_TOKEN = original_token
+
+    def test_missing_bot_token_does_not_start_an_http_attempt(self):
+        notifications_service.settings.TELEGRAM_BOT_TOKEN = ""
+        with patch.object(
+            notifications_service.httpx,
+            "AsyncClient",
+        ) as async_client:
+            with self.assertRaises(
+                notifications_service.CompanyTelegramError
+            ) as caught:
+                asyncio.run(
+                    notifications_service.send_company_telegram_message(
+                        12345,
+                        "Test",
+                    )
+                )
+
+        self.assertEqual(str(caught.exception), "telegram_not_configured")
+        async_client.assert_not_called()
 
     def test_bot_token_is_redacted_from_http_client_logs(self):
         original_token = notifications_service.settings.TELEGRAM_BOT_TOKEN

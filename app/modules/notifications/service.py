@@ -27,7 +27,13 @@ class _TelegramTokenRedactionFilter(logging.Filter):
 
 logging.getLogger("httpx").addFilter(_TelegramTokenRedactionFilter())
 
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
+
+def telegram_is_configured() -> bool:
+    """Indique si notifications et callbacks Telegram sont opérationnels."""
+    return bool(
+        settings.TELEGRAM_BOT_TOKEN.strip()
+        and settings.TELEGRAM_WEBHOOK_SECRET.strip()
+    )
 
 
 class CompanyTelegramError(RuntimeError):
@@ -50,11 +56,15 @@ def _truncate_plain_message(text: str, *, limit: int = 4096) -> str:
 
 
 async def _company_telegram_request(method: str, payload: dict) -> dict:
-    if not settings.TELEGRAM_BOT_TOKEN:
+    if not telegram_is_configured():
         raise CompanyTelegramError("telegram_not_configured")
+    token = settings.TELEGRAM_BOT_TOKEN.strip()
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(f"{TELEGRAM_API_URL}/{method}", json=payload)
+            response = await client.post(
+                f"https://api.telegram.org/bot{token}/{method}",
+                json=payload,
+            )
     except httpx.HTTPError as exc:
         raise CompanyTelegramError("telegram_transport_error") from exc
     if response.status_code == 403:
