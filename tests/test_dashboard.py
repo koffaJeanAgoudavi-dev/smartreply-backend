@@ -129,7 +129,12 @@ class DashboardStaticTests(unittest.TestCase):
         ):
             self.assertIn(f"<dt>{detail_label}</dt>", emails_markup)
         self.assertIn("Retour aux emails", emails_markup)
-        for forbidden_detail in ("company_id", "gmail_id", "thread_id", "Corps original"):
+        for forbidden_detail in (
+            "company_id",
+            "gmail_id",
+            "thread_id",
+            "Corps original",
+        ):
             self.assertNotIn(forbidden_detail, emails_markup)
         self.assertIn('maxlength="200"', emails_markup)
         for allowed_filter_value in (
