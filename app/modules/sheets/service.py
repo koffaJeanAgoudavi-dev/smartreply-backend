@@ -74,7 +74,8 @@ def list_company_email_rows(workbook) -> list[dict[str, str]]:
             {
                 "email_id": str(identity[0]),
                 "sender": str(identity[1]),
-                "subject": str(identity[2]),\n                "summary": str(identity[3]),
+                "subject": str(identity[2]),
+                "summary": str(identity[3]),
                 "category": str(analytics[0]),
                 "priority": str(analytics[1]),
                 "status": str(analytics[2]),
