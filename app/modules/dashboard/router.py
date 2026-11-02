@@ -10,14 +10,13 @@ from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
 from app.modules.companies.service import get_company_by_user_id
 from app.modules.dashboard import service
+from app.modules.dashboard.emails import get_company_email, list_company_emails
 from app.modules.dashboard.schemas import (
+    DashboardEmailItem,
+    DashboardEmailsResponse,
     DashboardOverviewResponse,
     RecentEmailsResponse,
-    DashboardEmailsResponse,
-    DashboardEmailItem,
 )
-
-from app.modules.dashboard.emails import get_company_email, list_company_emails
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
@@ -89,13 +88,26 @@ def dashboard_emails(
     company = _current_company(db, current_user.id)
     try:
         return list_company_emails(
-            db, company=company, page=page, page_size=page_size,
-            search=search, category=category, priority=priority,
+            db,
+            company=company,
+            page=page,
+            page_size=page_size,
+            search=search,
+            category=category,
+            priority=priority,
             status=email_status,
         )
     except service.CompanySheetReadError as exc:
-        logger.error("Lecture du Sheet Emails impossible (%s)", type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__)
-        raise HTTPException(status_code=502, detail="Les emails sont temporairement indisponibles.") from exc
+        error_type = (
+            type(exc.__cause__).__name__
+            if exc.__cause__ is not None
+            else type(exc).__name__
+        )
+        logger.error("Lecture du Sheet Emails impossible (%s)", error_type)
+        raise HTTPException(
+            status_code=502,
+            detail="Les emails sont temporairement indisponibles.",
+        ) from exc
 
 
 @router.get("/emails/{email_id}", response_model=DashboardEmailItem)
