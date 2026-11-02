@@ -62,6 +62,107 @@ class DashboardStaticTests(unittest.TestCase):
             ),
         )
 
+    def test_emails_navigation_and_view_structure_are_ready_for_api_data(self):
+        response = self.client.get("/dashboard/")
+        js_response = self.client.get("/dashboard/app.js")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '<a class="nav-item" href="#emails" data-route="emails">',
+            response.text,
+        )
+        emails_markup = response.text.split(
+            '<section id="emails-view"',
+            maxsplit=1,
+        )[1].split('<section id="integrations-view"', maxsplit=1)[0]
+        for expected_element in (
+            'aria-labelledby="emails-title"',
+            'id="emails-title"',
+            'id="emails-search"',
+            'id="emails-category-filter"',
+            'id="emails-priority-filter"',
+            'id="emails-status-filter"',
+            'id="emails-loading-state"',
+            'id="emails-empty-state"',
+            'id="emails-error-state"',
+            'id="emails-retry"',
+            'id="emails-table-wrap"',
+            'id="emails-table-body"',
+            'id="emails-pagination"',
+            'id="emails-previous-page"',
+            'id="emails-page-indicator"',
+            'id="emails-next-page"',
+            'id="email-detail-workspace"',
+            'id="email-detail-back"',
+            'id="email-detail-loading-state"',
+            'id="email-detail-not-found-state"',
+            'id="email-detail-error-state"',
+            'id="email-detail-content"',
+            'id="email-detail-sender-name"',
+            'id="email-detail-sender-email"',
+            'id="email-detail-subject"',
+            'id="email-detail-received-at"',
+            'id="email-detail-summary"',
+            'id="email-detail-category"',
+            'id="email-detail-priority"',
+            'id="email-detail-status"',
+        ):
+            self.assertIn(expected_element, emails_markup)
+        for column in (
+            "Expéditeur",
+            "Objet",
+            "Date",
+            "Catégorie",
+            "Priorité",
+            "Statut",
+        ):
+            self.assertIn(f"<th>{column}</th>", emails_markup)
+        for detail_label in (
+            "Expéditeur",
+            "Adresse email",
+            "Objet",
+            "Date de réception",
+            "Résumé",
+            "Catégorie",
+            "Priorité",
+            "Statut",
+        ):
+            self.assertIn(f"<dt>{detail_label}</dt>", emails_markup)
+        self.assertIn("Retour aux emails", emails_markup)
+        for forbidden_detail in ("company_id", "gmail_id", "thread_id", "Corps original"):
+            self.assertNotIn(forbidden_detail, emails_markup)
+        self.assertIn('maxlength="200"', emails_markup)
+        for allowed_filter_value in (
+            "Devis",
+            "Support",
+            "Facturation",
+            "Partenariat",
+            "Spam",
+            "Newsletter",
+            "Autre",
+            "Haute",
+            "Moyenne",
+            "Basse",
+            "Analysé",
+            "Brouillon prêt",
+            "Envoyé",
+            "Ignoré",
+        ):
+            self.assertIn(f'value="{allowed_filter_value}"', emails_markup)
+        self.assertIn('id="recent-emails-title"', response.text)
+        self.assertIn('id="recent-emails-body"', response.text)
+        self.assertIn("cacheEmailsViewElements", js_response.text)
+        self.assertIn(
+            'dashboardEmails: "/api/v1/dashboard/emails"',
+            js_response.text,
+        )
+        self.assertIn(
+            'detailBack.addEventListener("click", returnToEmailList)',
+            js_response.text,
+        )
+        self.assertNotIn('row.setAttribute("role", "link")', js_response.text)
+        self.assertIn('document.createElement("button")', js_response.text)
+
     def test_dashboard_keeps_counter_but_hides_duplicate_integration_section(self):
         response = self.client.get("/dashboard/")
 
@@ -69,7 +170,7 @@ class DashboardStaticTests(unittest.TestCase):
         dashboard_markup = response.text.split(
             '<section id="dashboard-view"',
             maxsplit=1,
-        )[1].split('<section id="integrations-view"', maxsplit=1)[0]
+        )[1].split('<section id="emails-view"', maxsplit=1)[0]
         integrations_markup = response.text.split(
             '<section id="integrations-view"',
             maxsplit=1,
@@ -117,6 +218,1410 @@ class DashboardStaticTests(unittest.TestCase):
             integrations_markup,
         )
         self.assertIn("Telegram est optionnel", integrations_markup)
+
+    def test_dashboard_email_and_integration_routes_render_the_expected_view(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r"""
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  '      checkIntegrationStatuses({ silent: true });',
+  '      void 0;',
+);
+source = source.replace(
+  '      void loadEmailsPage(1);',
+  '      state.emailList.loaded = true; globalThis.__emailsLoadCount += 1;',
+);
+source = source.replace(
+  marker,
+  '  globalThis.__routeTest = { currentRoute, renderRoute, state };\n})();',
+);
+
+const makeClassList = () => {
+  const values = new Set();
+  return {
+    add: (name) => values.add(name),
+    remove: (name) => values.delete(name),
+    toggle: (name, active) => active ? values.add(name) : values.delete(name),
+    contains: (name) => values.has(name),
+  };
+};
+const makeElement = (dataset = {}) => {
+  const attributes = {};
+  return {
+    hidden: false,
+    textContent: "",
+    dataset,
+    classList: makeClassList(),
+    setAttribute(name, value) { attributes[name] = value; },
+    removeAttribute(name) { delete attributes[name]; },
+    getAttribute(name) { return attributes[name]; },
+  };
+};
+const elements = {
+  "dashboard-view": makeElement(),
+  "emails-view": makeElement(),
+  "integrations-view": makeElement(),
+  "topbar-title": makeElement(),
+  "sidebar": makeElement(),
+  "sidebar-overlay": makeElement(),
+  "open-sidebar": makeElement(),
+};
+const navItems = ["dashboard", "emails", "integrations"].map(
+  (route) => makeElement({ route }),
+);
+const context = {
+  __emailsLoadCount: 0,
+  window: {
+    localStorage: { getItem: () => null },
+    location: { hash: "#dashboard" },
+    setTimeout: () => 0,
+  },
+  document: {
+    getElementById: (id) => {
+      if (!elements[id]) elements[id] = makeElement();
+      return elements[id];
+    },
+    querySelectorAll: (selector) => selector === "[data-route]" ? navItems : [],
+  },
+  console,
+  Intl,
+  Set,
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const subject = context.__routeTest;
+subject.state.appReady = true;
+
+const snapshot = (hash) => {
+  context.window.location.hash = hash;
+  subject.renderRoute();
+  return {
+    route: subject.currentRoute(),
+    title: elements["topbar-title"].textContent,
+    visible: ["dashboard", "emails", "integrations"].filter(
+      (route) => !elements[`${route}-view`].hidden,
+    ),
+    active: navItems.filter((item) => item.classList.contains("active"))
+      .map((item) => item.dataset.route),
+    current: navItems.filter((item) => item.getAttribute("aria-current") === "page")
+      .map((item) => item.dataset.route),
+  };
+};
+process.stdout.write(JSON.stringify({
+  dashboard: snapshot("#dashboard"),
+  emails: snapshot("#emails"),
+  integrations: snapshot("#integrations"),
+  fallback: snapshot("#unknown"),
+  emailsAgain: snapshot("#emails"),
+  emailsLoadCount: context.__emailsLoadCount,
+}));
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        for route, title in (
+            ("dashboard", "Tableau de bord"),
+            ("emails", "Emails"),
+            ("integrations", "Intégrations"),
+        ):
+            with self.subTest(route=route):
+                self.assertEqual(result[route]["route"], route)
+                self.assertEqual(result[route]["title"], title)
+                self.assertEqual(result[route]["visible"], [route])
+                self.assertEqual(result[route]["active"], [route])
+                self.assertEqual(result[route]["current"], [route])
+        self.assertEqual(result["fallback"]["route"], "dashboard")
+        self.assertEqual(result["fallback"]["visible"], ["dashboard"])
+        self.assertEqual(result["emailsAgain"]["visible"], ["emails"])
+        self.assertEqual(result["emailsLoadCount"], 1)
+
+    def test_emails_api_loading_rendering_states_and_session_purge(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r"""
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  marker,
+  `  globalThis.__emailsApiTest = {
+    applyEmailFilters,
+    cacheEmailsViewElements,
+    loadEmailsPage,
+    renderRoute,
+    retryEmailsPage,
+    scheduleEmailSearch,
+    state,
+  };\n})();`,
+);
+
+let innerHtmlWrites = 0;
+class TestElement {
+  constructor(tagName = "div") {
+    this.tagName = tagName;
+    this.hidden = false;
+    this.disabled = false;
+    this.value = "";
+    this.className = "";
+    this.dataset = {};
+    this.children = [];
+    this.attributes = {};
+    this.open = false;
+    this._textContent = "";
+    this.classList = {
+      add() {},
+      remove() {},
+      toggle() {},
+    };
+  }
+  set textContent(value) {
+    this._textContent = String(value);
+  }
+  get textContent() {
+    return this._textContent;
+  }
+  set innerHTML(_value) {
+    innerHtmlWrites += 1;
+  }
+  append(...children) {
+    this.children.push(...children);
+  }
+  replaceChildren(...children) {
+    this.children = [...children];
+    this._textContent = "";
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
+  }
+  addEventListener() {}
+  focus() {}
+  close() { this.open = false; }
+}
+
+const elements = new Map();
+const element = (id) => {
+  if (!elements.has(id)) elements.set(id, new TestElement());
+  return elements.get(id);
+};
+let storedTokenRemoved = false;
+let replacedPath = null;
+let fetchHandler = null;
+let nextTimerId = 1;
+const timers = new Map();
+const context = {
+  window: {
+    localStorage: {
+      getItem: () => null,
+      setItem() {},
+      removeItem: () => { storedTokenRemoved = true; },
+    },
+    location: { hash: "#emails" },
+    history: { replaceState: (_state, _title, path) => { replacedPath = path; } },
+    fetch: (path, options) => fetchHandler(path, options),
+    setTimeout: (callback, delay) => {
+      const timerId = nextTimerId;
+      nextTimerId += 1;
+      timers.set(timerId, { callback, delay });
+      return timerId;
+    },
+    clearTimeout: (timerId) => timers.delete(timerId),
+    clearInterval() {},
+  },
+  document: {
+    getElementById: (id) => element(id),
+    createElement: (tagName) => new TestElement(tagName),
+    querySelectorAll: () => [],
+  },
+  console,
+  Intl,
+  Set,
+  URLSearchParams,
+};
+const response = (status, payload) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  headers: { get: () => "application/json" },
+  json: async () => payload,
+  text: async () => JSON.stringify(payload),
+});
+const flushAsyncWork = () => new Promise((resolve) => setImmediate(resolve));
+const runPendingTimers = async () => {
+  const pending = [...timers.values()];
+  timers.clear();
+  pending.forEach(({ callback }) => callback());
+  await flushAsyncWork();
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const subject = context.__emailsApiTest;
+subject.cacheEmailsViewElements();
+subject.state.token = "test-session-token";
+
+(async () => {
+  let firstRequest = null;
+  fetchHandler = async (path, options) => {
+    firstRequest = { path, options };
+    return response(200, {
+      items: [{
+        email_id: "EM-41",
+        sender_name: "<img src=x onerror=alert(1)>",
+        sender_email: "sender@example.test",
+        subject: "<script>unsafe()</script>",
+        received_at: "2026-10-30T12:45:00Z",
+        summary: "Résumé public",
+        category: "Support",
+        priority: "Haute",
+        status: "Brouillon prêt",
+      }],
+      pagination: {
+        page: 1,
+        page_size: 25,
+        total_items: 51,
+        total_pages: 3,
+      },
+    });
+  };
+  await subject.loadEmailsPage(1);
+  const firstRow = element("emails-table-body").children[0];
+  const success = {
+    path: firstRequest.path,
+    bearerSent: (
+      firstRequest.options.headers.Authorization
+      === "Bearer test-session-token"
+    ),
+    method: firstRequest.options.method,
+    senderName: firstRow.children[0].children[0].textContent,
+    senderEmail: firstRow.children[0].children[1].textContent,
+    subject: firstRow.children[1].children[0].textContent,
+    dateRendered: firstRow.children[2].textContent !== "—",
+    category: firstRow.children[3].children[0].textContent,
+    priority: firstRow.children[4].children[0].textContent,
+    status: firstRow.children[5].children[0].textContent,
+    emailId: firstRow.dataset.emailId,
+    paginationSummary: element("emails-pagination-summary").textContent,
+    pageIndicator: element("emails-page-indicator").textContent,
+    previousDisabled: element("emails-previous-page").disabled,
+    nextDisabled: element("emails-next-page").disabled,
+    tableVisible: !element("emails-table-wrap").hidden,
+    paginationVisible: !element("emails-pagination").hidden,
+    loadingHidden: element("emails-loading-state").hidden,
+    innerHtmlWrites,
+  };
+
+  let resolveOldRequest;
+  fetchHandler = (path) => {
+    if (path.includes("page=1")) {
+      return new Promise((resolve) => {
+        resolveOldRequest = () => resolve(response(200, {
+          items: [{
+            email_id: "EM-1",
+            sender_name: "Ancien",
+            sender_email: "old@example.test",
+            subject: "Réponse obsolète",
+            received_at: null,
+            summary: "",
+            category: "Autre",
+            priority: "Basse",
+            status: "Analysé",
+          }],
+          pagination: { page: 1, page_size: 25, total_items: 50, total_pages: 2 },
+        }));
+      });
+    }
+    return Promise.resolve(response(200, {
+      items: [{
+        email_id: "EM-26",
+        sender_name: "Récent",
+        sender_email: "new@example.test",
+        subject: "Réponse la plus récente",
+        received_at: null,
+        summary: "",
+        category: "Devis",
+        priority: "Moyenne",
+        status: "Envoyé",
+      }],
+      pagination: { page: 2, page_size: 25, total_items: 50, total_pages: 2 },
+    }));
+  };
+  const oldLoad = subject.loadEmailsPage(1);
+  const loadingState = {
+    visible: !element("emails-loading-state").hidden,
+    tableHidden: element("emails-table-wrap").hidden,
+    ariaBusy: element("emails-workspace").attributes["aria-busy"],
+  };
+  const latestLoad = subject.loadEmailsPage(2);
+  await latestLoad;
+  resolveOldRequest();
+  await oldLoad;
+  const staleProtection = {
+    page: subject.state.emailList.pagination.page,
+    subject: (
+      element("emails-table-body").children[0].children[1].children[0].textContent
+    ),
+    previousDisabled: element("emails-previous-page").disabled,
+    nextDisabled: element("emails-next-page").disabled,
+  };
+
+  const correctedCriteria = {
+    search: "résultats réduits",
+    category: "Support",
+    priority: "Moyenne",
+    status: "Analysé",
+  };
+  subject.state.emailList.criteria = { ...correctedCriteria };
+  const correctedPageRequests = [];
+  fetchHandler = async (path) => {
+    const page = Number(new URLSearchParams(path.split("?", 2)[1]).get("page"));
+    correctedPageRequests.push(page);
+    if (page === 3) {
+      return response(200, {
+        items: [],
+        pagination: { page: 3, page_size: 25, total_items: 30, total_pages: 2 },
+      });
+    }
+    return response(200, {
+      items: [{
+        email_id: "EM-30",
+        sender_name: "Page corrigée",
+        sender_email: "corrected@example.test",
+        subject: "Dernière page valide",
+        received_at: null,
+        summary: "",
+        category: "Support",
+        priority: "Moyenne",
+        status: "Analysé",
+      }],
+      pagination: { page: 2, page_size: 25, total_items: 30, total_pages: 2 },
+    });
+  };
+  await subject.loadEmailsPage(3);
+  const correctedPageState = {
+    requests: correctedPageRequests,
+    page: subject.state.emailList.pagination.page,
+    criteria: subject.state.emailList.criteria,
+    subject: (
+      element("emails-table-body").children[0].children[1].children[0].textContent
+    ),
+  };
+  subject.state.emailList.criteria = {
+    search: "",
+    category: "",
+    priority: "",
+    status: "",
+  };
+
+  let trueEmptyRequestCount = 0;
+  fetchHandler = async () => {
+    trueEmptyRequestCount += 1;
+    return response(200, {
+      items: [],
+      pagination: { page: 1, page_size: 25, total_items: 0, total_pages: 0 },
+    });
+  };
+  await subject.loadEmailsPage(1);
+  const emptyState = {
+    visible: !element("emails-empty-state").hidden,
+    tableHidden: element("emails-table-wrap").hidden,
+    loaded: subject.state.emailList.loaded,
+    requestCount: trueEmptyRequestCount,
+  };
+
+  const repeatedCorrectionRequests = [];
+  fetchHandler = async (path) => {
+    const page = Number(new URLSearchParams(path.split("?", 2)[1]).get("page"));
+    repeatedCorrectionRequests.push(page);
+    if (page === 3) {
+      return response(200, {
+        items: [],
+        pagination: { page: 3, page_size: 25, total_items: 10, total_pages: 1 },
+      });
+    }
+    return response(200, {
+      items: [],
+      pagination: { page: 2, page_size: 25, total_items: 10, total_pages: 1 },
+    });
+  };
+  await subject.loadEmailsPage(3);
+  const repeatedCorrectionState = {
+    requests: repeatedCorrectionRequests,
+    page: subject.state.emailList.pagination.page,
+    loaded: subject.state.emailList.loaded,
+    emptyVisible: !element("emails-empty-state").hidden,
+  };
+
+  fetchHandler = async () => response(502, { detail: "Indisponible" });
+  await subject.loadEmailsPage(1);
+  const errorState = {
+    visible: !element("emails-error-state").hidden,
+    loadingHidden: element("emails-loading-state").hidden,
+    loaded: subject.state.emailList.loaded,
+  };
+
+  let resolveRetryRequest;
+  const retryRequests = [];
+  fetchHandler = (path) => {
+    retryRequests.push(path);
+    return new Promise((resolve) => {
+      resolveRetryRequest = () => resolve(response(200, {
+        items: [],
+        pagination: { page: 1, page_size: 25, total_items: 0, total_pages: 0 },
+      }));
+    });
+  };
+  const firstRetryStarted = subject.retryEmailsPage();
+  const secondRetrySkipped = !subject.retryEmailsPage();
+  const retryLoadingState = {
+    loading: subject.state.emailList.loading,
+    buttonDisabled: element("emails-retry").disabled,
+  };
+  resolveRetryRequest();
+  await flushAsyncWork();
+  const retryState = {
+    firstRetryStarted,
+    secondRetrySkipped,
+    requestCount: retryRequests.length,
+    path: retryRequests[0],
+    retryLoadingState,
+    loaded: subject.state.emailList.loaded,
+    emptyVisible: !element("emails-empty-state").hidden,
+  };
+
+  const criteriaRequests = [];
+  fetchHandler = async (path) => {
+    criteriaRequests.push(path);
+    const query = new URLSearchParams(path.split("?", 2)[1]);
+    const page = Number(query.get("page"));
+    return response(200, {
+      items: [],
+      pagination: {
+        page,
+        page_size: 25,
+        total_items: 0,
+        total_pages: 0,
+      },
+    });
+  };
+  const searchInput = element("emails-search");
+  const categoryFilter = element("emails-category-filter");
+  const priorityFilter = element("emails-priority-filter");
+  const statusFilter = element("emails-status-filter");
+
+  searchInput.value = "Ali";
+  subject.scheduleEmailSearch();
+  searchInput.value = "Alice";
+  subject.scheduleEmailSearch();
+  searchInput.value = "Alice Dupont";
+  subject.scheduleEmailSearch();
+  const debounceBeforeRun = {
+    requestCount: criteriaRequests.length,
+    timerCount: timers.size,
+    delay: [...timers.values()][0].delay,
+  };
+  await runPendingTimers();
+  const senderSearchUrl = criteriaRequests.at(-1);
+
+  searchInput.value = "alice@example.test";
+  subject.scheduleEmailSearch();
+  await runPendingTimers();
+  const addressSearchUrl = criteriaRequests.at(-1);
+
+  searchInput.value = "Objet urgent";
+  subject.scheduleEmailSearch();
+  await runPendingTimers();
+  const subjectSearchUrl = criteriaRequests.at(-1);
+
+  searchInput.value = "   ";
+  subject.scheduleEmailSearch();
+  await runPendingTimers();
+  const clearedSearchUrl = criteriaRequests.at(-1);
+  const requestCountAfterClear = criteriaRequests.length;
+  searchInput.value = "";
+  subject.scheduleEmailSearch();
+  const repeatedEmptySearch = {
+    timerCount: timers.size,
+    requestCountUnchanged: criteriaRequests.length === requestCountAfterClear,
+  };
+
+  categoryFilter.value = "Devis";
+  subject.applyEmailFilters();
+  await flushAsyncWork();
+  const categoryUrl = criteriaRequests.at(-1);
+
+  categoryFilter.value = "";
+  priorityFilter.value = "Haute";
+  subject.applyEmailFilters();
+  await flushAsyncWork();
+  const priorityUrl = criteriaRequests.at(-1);
+
+  priorityFilter.value = "";
+  statusFilter.value = "Analysé";
+  subject.applyEmailFilters();
+  await flushAsyncWork();
+  const statusUrl = criteriaRequests.at(-1);
+
+  subject.state.emailList.pagination.page = 3;
+  searchInput.value = "client@example.test";
+  categoryFilter.value = "Support";
+  priorityFilter.value = "Moyenne";
+  statusFilter.value = "Brouillon prêt";
+  subject.scheduleEmailSearch();
+  const requestCountBeforeFilterChange = criteriaRequests.length;
+  subject.applyEmailFilters();
+  await flushAsyncWork();
+  const filterChangeAfterPendingSearch = {
+    timerCount: timers.size,
+    addedRequests: criteriaRequests.length - requestCountBeforeFilterChange,
+  };
+  const combinedUrl = criteriaRequests.at(-1);
+  const pageAfterCriteriaChange = subject.state.emailList.pagination.page;
+
+  await subject.loadEmailsPage(2);
+  const secondPageUrl = criteriaRequests.at(-1);
+  const requestCountBeforeDuplicate = criteriaRequests.length;
+  subject.applyEmailFilters();
+  await flushAsyncWork();
+  const duplicateCriteriaSkipped = (
+    criteriaRequests.length === requestCountBeforeDuplicate
+  );
+
+  searchInput.value = "recherche qui ne doit pas partir";
+  subject.scheduleEmailSearch();
+  const requestCountBeforeNavigation = criteriaRequests.length;
+  subject.state.appReady = true;
+  context.window.location.hash = "#dashboard";
+  subject.renderRoute();
+  const pendingSearchTimerCanceled = ![...timers.values()].some(
+    ({ delay }) => delay === 350,
+  );
+  await runPendingTimers();
+  const navigationDebounce = {
+    pendingSearchTimerCanceled,
+    requestCountUnchanged: (
+      criteriaRequests.length === requestCountBeforeNavigation
+    ),
+    activeSearch: subject.state.emailList.criteria.search,
+    controlSearch: searchInput.value,
+  };
+
+  searchInput.value = "x".repeat(205);
+  subject.scheduleEmailSearch();
+  await runPendingTimers();
+  const clippedSearchLength = new URLSearchParams(
+    criteriaRequests.at(-1).split("?", 2)[1],
+  ).get("search").length;
+
+  fetchHandler = async () => response(503, { detail: "Indisponible" });
+  await subject.loadEmailsPage(1);
+  let retryWithCriteriaUrl = null;
+  fetchHandler = async (path) => {
+    retryWithCriteriaUrl = path;
+    return response(200, {
+      items: [],
+      pagination: { page: 1, page_size: 25, total_items: 0, total_pages: 0 },
+    });
+  };
+  subject.retryEmailsPage();
+  await flushAsyncWork();
+  const retryWithCriteriaQuery = new URLSearchParams(
+    retryWithCriteriaUrl.split("?", 2)[1],
+  );
+  const retryWithCriteria = {
+    page: retryWithCriteriaQuery.get("page"),
+    pageSize: retryWithCriteriaQuery.get("page_size"),
+    searchLength: retryWithCriteriaQuery.get("search").length,
+    category: retryWithCriteriaQuery.get("category"),
+    priority: retryWithCriteriaQuery.get("priority"),
+    status: retryWithCriteriaQuery.get("status"),
+  };
+
+  const criteriaBehavior = {
+    debounceBeforeRun,
+    senderSearchUrl,
+    addressSearchUrl,
+    subjectSearchUrl,
+    clearedSearchUrl,
+    repeatedEmptySearch,
+    categoryUrl,
+    priorityUrl,
+    statusUrl,
+    filterChangeAfterPendingSearch,
+    combinedUrl,
+    pageAfterCriteriaChange,
+    secondPageUrl,
+    duplicateCriteriaSkipped,
+    navigationDebounce,
+    clippedSearchLength,
+    retryWithCriteria,
+  };
+
+  fetchHandler = async () => response(200, {
+    items: [{
+      email_id: "EM-99",
+      sender_name: "À purger",
+      sender_email: "purge@example.test",
+      subject: "Donnée de session",
+      received_at: null,
+      summary: "",
+      category: "Autre",
+      priority: "Basse",
+      status: "Analysé",
+    }],
+    pagination: { page: 1, page_size: 25, total_items: 1, total_pages: 1 },
+  });
+  await subject.loadEmailsPage(1);
+  fetchHandler = async () => response(401, { detail: "Session expirée" });
+  await subject.loadEmailsPage(1);
+  const unauthorized = {
+    tokenCleared: subject.state.token === null,
+    itemsPurged: subject.state.emailList.items.length === 0,
+    rowsPurged: element("emails-table-body").children.length === 0,
+    storedTokenRemoved,
+    authScreenVisible: !element("auth-screen").hidden,
+    redirectedTo: replacedPath,
+    errorHidden: element("emails-error-state").hidden,
+  };
+
+  process.stdout.write(JSON.stringify({
+    success,
+    loadingState,
+    staleProtection,
+    correctedPageState,
+    emptyState,
+    repeatedCorrectionState,
+    errorState,
+    retryState,
+    criteriaBehavior,
+    unauthorized,
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(
+            result["success"]["path"],
+            "/api/v1/dashboard/emails?page=1&page_size=25",
+        )
+        self.assertTrue(result["success"]["bearerSent"])
+        self.assertEqual(result["success"]["method"], "GET")
+        self.assertEqual(
+            result["success"]["senderName"],
+            "<img src=x onerror=alert(1)>",
+        )
+        self.assertEqual(result["success"]["senderEmail"], "sender@example.test")
+        self.assertEqual(
+            result["success"]["subject"],
+            "<script>unsafe()</script>",
+        )
+        self.assertTrue(result["success"]["dateRendered"])
+        self.assertEqual(result["success"]["category"], "Support")
+        self.assertEqual(result["success"]["priority"], "Haute")
+        self.assertEqual(result["success"]["status"], "Brouillon prêt")
+        self.assertEqual(result["success"]["emailId"], "EM-41")
+        self.assertEqual(
+            result["success"]["paginationSummary"],
+            "1–1 sur 51 emails",
+        )
+        self.assertEqual(result["success"]["pageIndicator"], "Page 1 sur 3")
+        self.assertTrue(result["success"]["previousDisabled"])
+        self.assertFalse(result["success"]["nextDisabled"])
+        self.assertTrue(result["success"]["tableVisible"])
+        self.assertTrue(result["success"]["paginationVisible"])
+        self.assertTrue(result["success"]["loadingHidden"])
+        self.assertEqual(result["success"]["innerHtmlWrites"], 0)
+        self.assertEqual(
+            result["loadingState"],
+            {"visible": True, "tableHidden": True, "ariaBusy": "true"},
+        )
+
+        self.assertEqual(result["staleProtection"]["page"], 2)
+        self.assertEqual(
+            result["staleProtection"]["subject"],
+            "Réponse la plus récente",
+        )
+        self.assertFalse(result["staleProtection"]["previousDisabled"])
+        self.assertTrue(result["staleProtection"]["nextDisabled"])
+
+        self.assertEqual(
+            result["correctedPageState"],
+            {
+                "requests": [3, 2],
+                "page": 2,
+                "criteria": {
+                    "search": "résultats réduits",
+                    "category": "Support",
+                    "priority": "Moyenne",
+                    "status": "Analysé",
+                },
+                "subject": "Dernière page valide",
+            },
+        )
+        self.assertEqual(
+            result["emptyState"],
+            {
+                "visible": True,
+                "tableHidden": True,
+                "loaded": True,
+                "requestCount": 1,
+            },
+        )
+        self.assertEqual(
+            result["repeatedCorrectionState"],
+            {
+                "requests": [3, 1],
+                "page": 2,
+                "loaded": True,
+                "emptyVisible": True,
+            },
+        )
+        self.assertEqual(
+            result["errorState"],
+            {"visible": True, "loadingHidden": True, "loaded": False},
+        )
+        self.assertEqual(
+            result["retryState"],
+            {
+                "firstRetryStarted": True,
+                "secondRetrySkipped": True,
+                "requestCount": 1,
+                "path": "/api/v1/dashboard/emails?page=1&page_size=25",
+                "retryLoadingState": {
+                    "loading": True,
+                    "buttonDisabled": True,
+                },
+                "loaded": True,
+                "emptyVisible": True,
+            },
+        )
+
+        criteria = result["criteriaBehavior"]
+        self.assertEqual(
+            criteria["debounceBeforeRun"],
+            {"requestCount": 0, "timerCount": 1, "delay": 350},
+        )
+        self.assertEqual(
+            criteria["senderSearchUrl"],
+            "/api/v1/dashboard/emails?page=1&page_size=25&search=Alice+Dupont",
+        )
+        self.assertEqual(
+            criteria["addressSearchUrl"],
+            (
+                "/api/v1/dashboard/emails?page=1&page_size=25"
+                "&search=alice%40example.test"
+            ),
+        )
+        self.assertEqual(
+            criteria["subjectSearchUrl"],
+            "/api/v1/dashboard/emails?page=1&page_size=25&search=Objet+urgent",
+        )
+        self.assertEqual(
+            criteria["clearedSearchUrl"],
+            "/api/v1/dashboard/emails?page=1&page_size=25",
+        )
+        self.assertEqual(
+            criteria["repeatedEmptySearch"],
+            {"timerCount": 0, "requestCountUnchanged": True},
+        )
+        self.assertEqual(
+            criteria["categoryUrl"],
+            "/api/v1/dashboard/emails?page=1&page_size=25&category=Devis",
+        )
+        self.assertEqual(
+            criteria["priorityUrl"],
+            "/api/v1/dashboard/emails?page=1&page_size=25&priority=Haute",
+        )
+        self.assertEqual(
+            criteria["statusUrl"],
+            (
+                "/api/v1/dashboard/emails?page=1&page_size=25"
+                "&status=Analys%C3%A9"
+            ),
+        )
+        self.assertEqual(
+            criteria["filterChangeAfterPendingSearch"],
+            {"timerCount": 0, "addedRequests": 1},
+        )
+        self.assertEqual(
+            criteria["combinedUrl"],
+            (
+                "/api/v1/dashboard/emails?page=1&page_size=25"
+                "&search=client%40example.test&category=Support"
+                "&priority=Moyenne&status=Brouillon+pr%C3%AAt"
+            ),
+        )
+        self.assertEqual(criteria["pageAfterCriteriaChange"], 1)
+        self.assertEqual(
+            criteria["secondPageUrl"],
+            (
+                "/api/v1/dashboard/emails?page=2&page_size=25"
+                "&search=client%40example.test&category=Support"
+                "&priority=Moyenne&status=Brouillon+pr%C3%AAt"
+            ),
+        )
+        self.assertTrue(criteria["duplicateCriteriaSkipped"])
+        self.assertEqual(
+            criteria["navigationDebounce"],
+            {
+                "pendingSearchTimerCanceled": True,
+                "requestCountUnchanged": True,
+                "activeSearch": "client@example.test",
+                "controlSearch": "client@example.test",
+            },
+        )
+        self.assertEqual(criteria["clippedSearchLength"], 200)
+        self.assertEqual(
+            criteria["retryWithCriteria"],
+            {
+                "page": "1",
+                "pageSize": "25",
+                "searchLength": 200,
+                "category": "Support",
+                "priority": "Moyenne",
+                "status": "Brouillon prêt",
+            },
+        )
+
+        self.assertEqual(
+            result["unauthorized"],
+            {
+                "tokenCleared": True,
+                "itemsPurged": True,
+                "rowsPurged": True,
+                "storedTokenRemoved": True,
+                "authScreenVisible": True,
+                "redirectedTo": "/dashboard/",
+                "errorHidden": True,
+            },
+        )
+
+    def test_email_detail_navigation_states_security_and_session_purge(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r"""
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  marker,
+  `  globalThis.__emailDetailTest = {
+    cacheEmailsViewElements,
+    loadDashboardData,
+    loadEmailDetail,
+    loadEmailsPage,
+    renderRoute,
+    returnToEmailList,
+    state,
+  };\n})();`,
+);
+
+let innerHtmlWrites = 0;
+class TestElement {
+  constructor(tagName = "div") {
+    this.tagName = tagName;
+    this.hidden = false;
+    this.disabled = false;
+    this.value = "";
+    this.className = "";
+    this.dataset = {};
+    this.children = [];
+    this.attributes = {};
+    this.listeners = {};
+    this.open = false;
+    this.tabIndex = -1;
+    this._textContent = "";
+    this.classList = {
+      add: (...names) => {
+        const values = new Set(this.className.split(" ").filter(Boolean));
+        names.forEach((name) => values.add(name));
+        this.className = [...values].join(" ");
+      },
+      remove: (...names) => {
+        const removed = new Set(names);
+        this.className = this.className.split(" ")
+          .filter((name) => name && !removed.has(name)).join(" ");
+      },
+      toggle: (name, active) => {
+        if (active) this.classList.add(name);
+        else this.classList.remove(name);
+      },
+    };
+  }
+  set textContent(value) {
+    this._textContent = String(value);
+  }
+  get textContent() {
+    return this._textContent;
+  }
+  set innerHTML(_value) {
+    innerHtmlWrites += 1;
+  }
+  append(...children) {
+    this.children.push(...children);
+  }
+  replaceChildren(...children) {
+    this.children = [...children];
+    this._textContent = "";
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
+  }
+  addEventListener(type, listener) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(listener);
+  }
+  dispatchEvent(event) {
+    (this.listeners[event.type] || []).forEach((listener) => listener(event));
+  }
+  focus() {}
+  close() { this.open = false; }
+}
+
+const elements = new Map();
+const element = (id) => {
+  if (!elements.has(id)) elements.set(id, new TestElement());
+  return elements.get(id);
+};
+let storedTokenRemoved = false;
+let replacedPath = null;
+let fetchHandler = null;
+const requests = [];
+const context = {
+  window: {
+    localStorage: {
+      getItem: () => null,
+      setItem() {},
+      removeItem: () => { storedTokenRemoved = true; },
+    },
+    location: { hash: "#emails" },
+    history: { replaceState: (_state, _title, path) => { replacedPath = path; } },
+    fetch: (path, options) => {
+      requests.push({ path, options });
+      return fetchHandler(path, options);
+    },
+    setTimeout: (callback) => { callback(); return 1; },
+    clearTimeout() {},
+    clearInterval() {},
+  },
+  document: {
+    getElementById: (id) => element(id),
+    createElement: (tagName) => new TestElement(tagName),
+    querySelectorAll: () => [],
+  },
+  console,
+  Intl,
+  Set,
+  URLSearchParams,
+};
+const response = (status, payload) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  headers: { get: () => "application/json" },
+  json: async () => payload,
+  text: async () => JSON.stringify(payload),
+});
+const flushAsyncWork = () => new Promise((resolve) => setImmediate(resolve));
+vm.createContext(context);
+vm.runInContext(source, context);
+const subject = context.__emailDetailTest;
+subject.cacheEmailsViewElements();
+subject.state.token = "detail-session-token";
+subject.state.appReady = true;
+
+(async () => {
+  const preservedCriteria = {
+    search: "client@example.test",
+    category: "Support",
+    priority: "Moyenne",
+    status: "Brouillon prêt",
+  };
+  subject.state.emailList.criteria = { ...preservedCriteria };
+  element("emails-search").value = preservedCriteria.search;
+  element("emails-category-filter").value = preservedCriteria.category;
+  element("emails-priority-filter").value = preservedCriteria.priority;
+  element("emails-status-filter").value = preservedCriteria.status;
+
+  fetchHandler = async () => response(200, {
+    items: [{
+      email_id: "EM-41",
+      sender_name: "Cliente",
+      sender_email: "cliente@example.test",
+      subject: "Demande détaillée",
+      received_at: "2026-10-30T12:45:00Z",
+      summary: "Résumé de liste",
+      category: "Support",
+      priority: "Moyenne",
+      status: "Brouillon prêt",
+    }],
+    pagination: { page: 2, page_size: 25, total_items: 50, total_pages: 2 },
+  });
+  await subject.loadEmailsPage(2);
+  const row = element("emails-table-body").children[0];
+  const listRequestCount = requests.length;
+
+  const detailControl = row.children[1].children[0];
+  let detailControlStoppedPropagation = false;
+  const accessibility = {
+    rowKeepsNativeRole: !Object.hasOwn(row.attributes, "role"),
+    rowNotInTabOrder: row.tabIndex === -1,
+    controlTag: detailControl.tagName,
+    controlLabel: detailControl.attributes["aria-label"],
+  };
+
+  fetchHandler = async () => response(200, {
+    email_id: "EM-41",
+    sender_name: "<img src=x onerror=alert(1)>",
+    sender_email: "cliente@example.test",
+    subject: "<script>Objet sûr</script>",
+    received_at: "2026-10-30T12:45:00Z",
+    summary: "<svg onload=alert(1)>Résumé sûr</svg>",
+    category: "Support",
+    priority: "Moyenne",
+    status: "Brouillon prêt",
+    company_id: 999,
+    gmail_message_id: "internal-message-id",
+    original_body: "secret original body",
+  });
+  detailControl.dispatchEvent({
+    type: "click",
+    stopPropagation: () => { detailControlStoppedPropagation = true; },
+  });
+  accessibility.controlStopsPropagation = detailControlStoppedPropagation;
+  const hashAfterRowClick = context.window.location.hash;
+  subject.renderRoute();
+  await flushAsyncWork();
+  const detailRequest = requests.at(-1);
+  const detailSuccess = {
+    hashAfterRowClick,
+    path: detailRequest.path,
+    method: detailRequest.options.method,
+    bearerSent: (
+      detailRequest.options.headers.Authorization
+      === "Bearer detail-session-token"
+    ),
+    listHidden: element("emails-workspace").hidden,
+    detailVisible: !element("email-detail-workspace").hidden,
+    contentVisible: !element("email-detail-content").hidden,
+    senderName: element("email-detail-sender-name").textContent,
+    senderEmail: element("email-detail-sender-email").textContent,
+    subject: element("email-detail-subject").textContent,
+    receivedAt: element("email-detail-received-at").textContent,
+    summary: element("email-detail-summary").textContent,
+    category: element("email-detail-category").textContent,
+    priority: element("email-detail-priority").textContent,
+    status: element("email-detail-status").textContent,
+    innerHtmlWrites,
+    retainedKeys: Object.keys(subject.state.emailDetail.item).sort(),
+  };
+
+  const requestCountBeforeReturn = requests.length;
+  subject.returnToEmailList();
+  subject.renderRoute();
+  const returnState = {
+    hash: context.window.location.hash,
+    listVisible: !element("emails-workspace").hidden,
+    detailHidden: element("email-detail-workspace").hidden,
+    criteria: subject.state.emailList.criteria,
+    page: subject.state.emailList.pagination.page,
+    controls: {
+      search: element("emails-search").value,
+      category: element("emails-category-filter").value,
+      priority: element("emails-priority-filter").value,
+      status: element("emails-status-filter").value,
+    },
+    noListReload: requests.length === requestCountBeforeReturn,
+  };
+
+  row.dispatchEvent({ type: "click" });
+  subject.renderRoute();
+  await flushAsyncWork();
+  const cachedDetailSkippedRequest = requests.length === requestCountBeforeReturn;
+
+  fetchHandler = async () => response(404, { detail: "Introuvable" });
+  await subject.loadEmailDetail("EM-404");
+  const notFoundState = {
+    visible: !element("email-detail-not-found-state").hidden,
+    contentHidden: element("email-detail-content").hidden,
+    error: subject.state.emailDetail.error,
+  };
+
+  fetchHandler = async () => response(503, { detail: "Indisponible" });
+  await subject.loadEmailDetail("EM-503");
+  const serverErrorState = {
+    visible: !element("email-detail-error-state").hidden,
+    loadingHidden: element("email-detail-loading-state").hidden,
+    error: subject.state.emailDetail.error,
+  };
+
+  const requestCountBeforeInvalidRoute = requests.length;
+  context.window.location.hash = "#emails/not-valid";
+  subject.renderRoute();
+  await flushAsyncWork();
+  const invalidRoute = {
+    visible: !element("email-detail-not-found-state").hidden,
+    noRequest: requests.length === requestCountBeforeInvalidRoute,
+  };
+
+  let resolveOldDetail;
+  fetchHandler = (path) => {
+    if (path.endsWith("/EM-1")) {
+      return new Promise((resolve) => {
+        resolveOldDetail = () => resolve(response(200, {
+          sender_name: "Ancien expéditeur",
+          sender_email: "old@example.test",
+          subject: "Détail obsolète",
+          received_at: null,
+          summary: "Ancien résumé",
+          category: "Autre",
+          priority: "Basse",
+          status: "Analysé",
+        }));
+      });
+    }
+    return Promise.resolve(response(200, {
+      sender_name: "Nouvel expéditeur",
+      sender_email: "new@example.test",
+      subject: "Détail le plus récent",
+      received_at: null,
+      summary: "Nouveau résumé",
+      category: "Devis",
+      priority: "Haute",
+      status: "Envoyé",
+    }));
+  };
+  context.window.location.hash = "#emails/EM-1";
+  subject.renderRoute();
+  context.window.location.hash = "#emails/EM-2";
+  subject.renderRoute();
+  await flushAsyncWork();
+  resolveOldDetail();
+  await flushAsyncWork();
+  const staleProtection = {
+    emailId: subject.state.emailDetail.emailId,
+    subject: element("email-detail-subject").textContent,
+    summary: element("email-detail-summary").textContent,
+  };
+
+  element("greeting-name").textContent = "Personne privée";
+  element("sidebar-user-email").textContent = "private@example.test";
+  element("sidebar-company-name").textContent = "Entreprise privée";
+  element("sheet-company-label").textContent = "Sheet : Entreprise privée";
+  element("open-sheet").setAttribute("href", "https://docs.google.test/private");
+  element("metric-analyzed").textContent = "42";
+  element("volume-chart").append(new TestElement("private-chart"));
+  element("category-chart").append(new TestElement("private-chart"));
+  element("priority-chart").append(new TestElement("private-chart"));
+  element("recent-emails-body").append(new TestElement("private-email"));
+  element("recent-activity-list").append(new TestElement("private-activity"));
+  element("telegram-code").textContent = "SR-12345";
+  element("telegram-command").textContent = "/start SR-12345";
+  element("telegram-code-panel").hidden = false;
+
+  let resolveOverviewAfterLogout;
+  let resolveRecentEmailsAfterLogout;
+  fetchHandler = (path) => new Promise((resolve) => {
+    if (path.endsWith("/overview")) {
+      resolveOverviewAfterLogout = () => resolve(response(200, { metrics: {} }));
+    } else {
+      resolveRecentEmailsAfterLogout = () => resolve(response(200, { emails: [] }));
+    }
+  });
+  const pendingDashboardLoad = subject.loadDashboardData({ showLoading: false });
+
+  fetchHandler = async () => response(401, { detail: "Session expirée" });
+  await subject.loadEmailDetail("EM-99");
+  resolveOverviewAfterLogout();
+  resolveRecentEmailsAfterLogout();
+  await pendingDashboardLoad;
+  const unauthorized = {
+    tokenCleared: subject.state.token === null,
+    listPurged: subject.state.emailList.items.length === 0,
+    detailPurged: subject.state.emailDetail.item === null,
+    rowsPurged: element("emails-table-body").children.length === 0,
+    storedTokenRemoved,
+    authScreenVisible: !element("auth-screen").hidden,
+    redirectedTo: replacedPath,
+    detailErrorHidden: element("email-detail-error-state").hidden,
+    identityPurged: (
+      element("greeting-name").textContent === "Utilisateur"
+      && element("sidebar-user-email").textContent === "—"
+      && element("sidebar-company-name").textContent === "—"
+    ),
+    dashboardPurged: (
+      element("metric-analyzed").textContent === "—"
+      && element("volume-chart").children.length === 0
+      && element("category-chart").children.length === 0
+      && element("priority-chart").children.length === 0
+      && element("recent-emails-body").children.length === 0
+      && element("recent-activity-list").children.length === 0
+    ),
+    integrationsPurged: (
+      element("sheet-company-label").textContent === "Sheet de votre entreprise"
+      && element("open-sheet").attributes.href === "#"
+      && element("telegram-code").textContent === "SR-XXXXX"
+      && element("telegram-command").textContent === "/start SR-XXXXX"
+      && element("telegram-code-panel").hidden
+    ),
+  };
+
+  process.stdout.write(JSON.stringify({
+    listRequestCount,
+    accessibility,
+    detailSuccess,
+    returnState,
+    cachedDetailSkippedRequest,
+    notFoundState,
+    serverErrorState,
+    invalidRoute,
+    staleProtection,
+    unauthorized,
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(result["listRequestCount"], 1)
+        self.assertEqual(
+            result["accessibility"],
+            {
+                "rowKeepsNativeRole": True,
+                "rowNotInTabOrder": True,
+                "controlTag": "button",
+                "controlLabel": (
+                    "Ouvrir le détail de l'email : Demande détaillée"
+                ),
+                "controlStopsPropagation": True,
+            },
+        )
+        detail = result["detailSuccess"]
+        self.assertEqual(detail["hashAfterRowClick"], "#emails/EM-41")
+        self.assertEqual(detail["path"], "/api/v1/dashboard/emails/EM-41")
+        self.assertEqual(detail["method"], "GET")
+        self.assertTrue(detail["bearerSent"])
+        self.assertTrue(detail["listHidden"])
+        self.assertTrue(detail["detailVisible"])
+        self.assertTrue(detail["contentVisible"])
+        self.assertEqual(detail["senderName"], "<img src=x onerror=alert(1)>")
+        self.assertEqual(detail["senderEmail"], "cliente@example.test")
+        self.assertEqual(detail["subject"], "<script>Objet sûr</script>")
+        self.assertNotEqual(detail["receivedAt"], "—")
+        self.assertEqual(
+            detail["summary"],
+            "<svg onload=alert(1)>Résumé sûr</svg>",
+        )
+        self.assertEqual(detail["category"], "Support")
+        self.assertEqual(detail["priority"], "Moyenne")
+        self.assertEqual(detail["status"], "Brouillon prêt")
+        self.assertEqual(detail["innerHtmlWrites"], 0)
+        self.assertEqual(
+            detail["retainedKeys"],
+            [
+                "category",
+                "priority",
+                "received_at",
+                "sender_email",
+                "sender_name",
+                "status",
+                "subject",
+                "summary",
+            ],
+        )
+
+        self.assertEqual(
+            result["returnState"],
+            {
+                "hash": "#emails",
+                "listVisible": True,
+                "detailHidden": True,
+                "criteria": {
+                    "search": "client@example.test",
+                    "category": "Support",
+                    "priority": "Moyenne",
+                    "status": "Brouillon prêt",
+                },
+                "page": 2,
+                "controls": {
+                    "search": "client@example.test",
+                    "category": "Support",
+                    "priority": "Moyenne",
+                    "status": "Brouillon prêt",
+                },
+                "noListReload": True,
+            },
+        )
+        self.assertTrue(result["cachedDetailSkippedRequest"])
+        self.assertEqual(
+            result["notFoundState"],
+            {"visible": True, "contentHidden": True, "error": "not-found"},
+        )
+        self.assertEqual(
+            result["serverErrorState"],
+            {"visible": True, "loadingHidden": True, "error": "error"},
+        )
+        self.assertEqual(
+            result["invalidRoute"],
+            {"visible": True, "noRequest": True},
+        )
+        self.assertEqual(
+            result["staleProtection"],
+            {
+                "emailId": "EM-2",
+                "subject": "Détail le plus récent",
+                "summary": "Nouveau résumé",
+            },
+        )
+        self.assertEqual(
+            result["unauthorized"],
+            {
+                "tokenCleared": True,
+                "listPurged": True,
+                "detailPurged": True,
+                "rowsPurged": True,
+                "storedTokenRemoved": True,
+                "authScreenVisible": True,
+                "redirectedTo": "/dashboard/",
+                "detailErrorHidden": True,
+                "identityPurged": True,
+                "dashboardPurged": True,
+                "integrationsPurged": True,
+            },
+        )
 
     def test_telegram_code_instructions_link_to_the_bot_safely(self):
         response = self.client.get("/dashboard/")
@@ -206,6 +1711,11 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn(".integration-setup-dialog::backdrop", css_response.text)
         self.assertIn(".integration-card.needs-configuration", css_response.text)
         self.assertIn(".optional-badge", css_response.text)
+        self.assertIn(".emails-toolbar", css_response.text)
+        self.assertIn(".emails-pagination", css_response.text)
+        self.assertIn(".email-detail-workspace", css_response.text)
+        self.assertIn(".email-detail-grid", css_response.text)
+        self.assertIn(".email-detail-link:focus-visible", css_response.text)
         self.assertEqual(js_response.status_code, 200)
         self.assertIn("javascript", js_response.headers["content-type"])
         self.assertIn('"smartreply_access_token"', js_response.text)

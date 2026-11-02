@@ -12,10 +12,31 @@
     telegramStatus: "/api/v1/telegram/status",
     dashboardOverview: "/api/v1/dashboard/overview",
     recentEmails: "/api/v1/dashboard/recent-emails",
+    dashboardEmails: "/api/v1/dashboard/emails",
   });
 
   const TOKEN_STORAGE_KEY = "smartreply_access_token";
   const TELEGRAM_POLL_INTERVAL_MS = 4000;
+  const EMAILS_PAGE_SIZE = 25;
+  const EMAILS_SEARCH_DEBOUNCE_MS = 350;
+  const EMAIL_FILTER_VALUES = Object.freeze({
+    category: Object.freeze([
+      "Devis",
+      "Support",
+      "Facturation",
+      "Partenariat",
+      "Spam",
+      "Newsletter",
+      "Autre",
+    ]),
+    priority: Object.freeze(["Haute", "Moyenne", "Basse"]),
+    status: Object.freeze(["Analysé", "Brouillon prêt", "Envoyé", "Ignoré"]),
+  });
+  let emailsRequestSequence = 0;
+  let emailDetailRequestSequence = 0;
+  let dashboardRequestSequence = 0;
+  let integrationRequestSequence = 0;
+  let emailsSearchDebounceId = null;
   const SCREEN_IDS = [
     "loading-screen",
     "auth-screen",
@@ -24,6 +45,80 @@
   ];
   const ALL_INTEGRATIONS = Object.freeze(["gmail", "sheet", "telegram"]);
   const REQUIRED_INTEGRATIONS = Object.freeze(["gmail", "sheet"]);
+  const APP_ROUTES = Object.freeze(["dashboard", "emails", "integrations"]);
+  const ROUTE_TITLES = Object.freeze({
+    dashboard: "Tableau de bord",
+    emails: "Emails",
+    integrations: "Intégrations",
+  });
+  const EMAILS_VIEW_IDS = Object.freeze({
+    workspace: "emails-workspace",
+    search: "emails-search",
+    category: "emails-category-filter",
+    priority: "emails-priority-filter",
+    status: "emails-status-filter",
+    loading: "emails-loading-state",
+    empty: "emails-empty-state",
+    error: "emails-error-state",
+    retry: "emails-retry",
+    table: "emails-table-wrap",
+    tableBody: "emails-table-body",
+    pagination: "emails-pagination",
+    paginationSummary: "emails-pagination-summary",
+    pageIndicator: "emails-page-indicator",
+    previousPage: "emails-previous-page",
+    nextPage: "emails-next-page",
+    detailWorkspace: "email-detail-workspace",
+    detailBack: "email-detail-back",
+    detailLoading: "email-detail-loading-state",
+    detailNotFound: "email-detail-not-found-state",
+    detailError: "email-detail-error-state",
+    detailContent: "email-detail-content",
+    detailTitle: "email-detail-title",
+    detailSenderName: "email-detail-sender-name",
+    detailSenderEmail: "email-detail-sender-email",
+    detailSubject: "email-detail-subject",
+    detailReceivedAt: "email-detail-received-at",
+    detailSummary: "email-detail-summary",
+    detailCategory: "email-detail-category",
+    detailPriority: "email-detail-priority",
+    detailStatus: "email-detail-status",
+  });
+  let emailsViewElements = null;
+
+  function createEmailCriteria() {
+    return {
+      search: "",
+      category: "",
+      priority: "",
+      status: "",
+    };
+  }
+
+  function createEmailListState(criteria = createEmailCriteria()) {
+    return {
+      items: [],
+      pagination: {
+        page: 1,
+        page_size: EMAILS_PAGE_SIZE,
+        total_items: 0,
+        total_pages: 0,
+      },
+      criteria: { ...criteria },
+      loaded: false,
+      loading: false,
+    };
+  }
+
+  function createEmailDetailState(emailId = null) {
+    return {
+      emailId,
+      item: null,
+      loaded: false,
+      loading: false,
+      error: null,
+    };
+  }
 
   const state = {
     token: readStoredToken(),
@@ -52,6 +147,8 @@
       emails: null,
       loaded: false,
     },
+    emailList: createEmailListState(),
+    emailDetail: createEmailDetailState(),
   };
 
   class ApiError extends Error {
@@ -63,6 +160,48 @@
   }
 
   const $ = (id) => document.getElementById(id);
+
+  function cacheEmailsViewElements() {
+    emailsViewElements = Object.freeze({
+      workspace: $(EMAILS_VIEW_IDS.workspace),
+      search: $(EMAILS_VIEW_IDS.search),
+      category: $(EMAILS_VIEW_IDS.category),
+      priority: $(EMAILS_VIEW_IDS.priority),
+      status: $(EMAILS_VIEW_IDS.status),
+      loading: $(EMAILS_VIEW_IDS.loading),
+      empty: $(EMAILS_VIEW_IDS.empty),
+      error: $(EMAILS_VIEW_IDS.error),
+      retry: $(EMAILS_VIEW_IDS.retry),
+      table: $(EMAILS_VIEW_IDS.table),
+      tableBody: $(EMAILS_VIEW_IDS.tableBody),
+      pagination: $(EMAILS_VIEW_IDS.pagination),
+      paginationSummary: $(EMAILS_VIEW_IDS.paginationSummary),
+      pageIndicator: $(EMAILS_VIEW_IDS.pageIndicator),
+      previousPage: $(EMAILS_VIEW_IDS.previousPage),
+      nextPage: $(EMAILS_VIEW_IDS.nextPage),
+      detailWorkspace: $(EMAILS_VIEW_IDS.detailWorkspace),
+      detailBack: $(EMAILS_VIEW_IDS.detailBack),
+      detailLoading: $(EMAILS_VIEW_IDS.detailLoading),
+      detailNotFound: $(EMAILS_VIEW_IDS.detailNotFound),
+      detailError: $(EMAILS_VIEW_IDS.detailError),
+      detailContent: $(EMAILS_VIEW_IDS.detailContent),
+      detailTitle: $(EMAILS_VIEW_IDS.detailTitle),
+      detailSenderName: $(EMAILS_VIEW_IDS.detailSenderName),
+      detailSenderEmail: $(EMAILS_VIEW_IDS.detailSenderEmail),
+      detailSubject: $(EMAILS_VIEW_IDS.detailSubject),
+      detailReceivedAt: $(EMAILS_VIEW_IDS.detailReceivedAt),
+      detailSummary: $(EMAILS_VIEW_IDS.detailSummary),
+      detailCategory: $(EMAILS_VIEW_IDS.detailCategory),
+      detailPriority: $(EMAILS_VIEW_IDS.detailPriority),
+      detailStatus: $(EMAILS_VIEW_IDS.detailStatus),
+    });
+    return emailsViewElements;
+  }
+
+  function getEmailsViewElements() {
+    return emailsViewElements || cacheEmailsViewElements();
+  }
+
   const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
   const DONUT_PALETTES = Object.freeze({
     category: Object.freeze({
@@ -283,6 +422,122 @@
     };
   }
 
+  function resetEmailListState() {
+    if (emailsSearchDebounceId !== null) {
+      window.clearTimeout(emailsSearchDebounceId);
+      emailsSearchDebounceId = null;
+    }
+    emailsRequestSequence += 1;
+    emailDetailRequestSequence += 1;
+    state.emailList = createEmailListState();
+    state.emailDetail = createEmailDetailState();
+    if (!emailsViewElements) return;
+
+    emailsViewElements.search.value = "";
+    emailsViewElements.category.value = "";
+    emailsViewElements.priority.value = "";
+    emailsViewElements.status.value = "";
+    emailsViewElements.tableBody.replaceChildren();
+    emailsViewElements.workspace.setAttribute("aria-busy", "false");
+    emailsViewElements.loading.hidden = true;
+    emailsViewElements.empty.hidden = false;
+    emailsViewElements.error.hidden = true;
+    emailsViewElements.table.hidden = true;
+    emailsViewElements.pagination.hidden = true;
+    emailsViewElements.paginationSummary.textContent = "0 email";
+    emailsViewElements.pageIndicator.textContent = "Page 1 sur 1";
+    emailsViewElements.previousPage.disabled = true;
+    emailsViewElements.nextPage.disabled = true;
+    emailsViewElements.retry.disabled = false;
+    emailsViewElements.workspace.hidden = false;
+    emailsViewElements.detailWorkspace.hidden = true;
+    emailsViewElements.detailWorkspace.setAttribute("aria-busy", "false");
+    emailsViewElements.detailLoading.hidden = true;
+    emailsViewElements.detailNotFound.hidden = true;
+    emailsViewElements.detailError.hidden = true;
+    emailsViewElements.detailContent.hidden = true;
+    emailsViewElements.detailTitle.textContent = "Email";
+    [
+      emailsViewElements.detailSenderName,
+      emailsViewElements.detailSenderEmail,
+      emailsViewElements.detailSubject,
+      emailsViewElements.detailReceivedAt,
+      emailsViewElements.detailSummary,
+      emailsViewElements.detailCategory,
+      emailsViewElements.detailPriority,
+      emailsViewElements.detailStatus,
+    ].forEach((element) => {
+      element.textContent = "—";
+    });
+    [
+      emailsViewElements.detailCategory,
+      emailsViewElements.detailPriority,
+      emailsViewElements.detailStatus,
+    ].forEach((element) => {
+      element.className = "data-badge neutral";
+    });
+  }
+
+  function resetDashboardDomState() {
+    if (!emailsViewElements) return;
+
+    $("greeting-name").textContent = "Utilisateur";
+    $("sidebar-user-name").textContent = "Utilisateur";
+    $("sidebar-user-email").textContent = "—";
+    $("user-avatar").textContent = "U";
+    $("sidebar-company-name").textContent = "—";
+    $("sidebar-company-sector").textContent = "—";
+    $("topbar-company-name").textContent = "—";
+    $("topbar-sector").textContent = "—";
+    $("sheet-company-label").textContent = "Sheet de votre entreprise";
+    $("open-sheet").setAttribute("href", "#");
+    $("open-sheet").setAttribute("aria-disabled", "true");
+    $("open-sheet").tabIndex = -1;
+
+    $("dashboard-stats").setAttribute("aria-busy", "true");
+    ["metric-analyzed", "metric-processed", "metric-ignored", "metric-pending"].forEach((id) => {
+      $(id).textContent = "—";
+    });
+    ["volume-chart", "category-chart", "priority-chart"].forEach((id) => {
+      $(id).replaceChildren();
+    });
+    $("recent-emails-body").replaceChildren();
+    $("recent-emails-table-wrap").hidden = true;
+    $("recent-emails-state").hidden = false;
+    $("recent-emails-state").classList.remove("error");
+    $("recent-emails-state").textContent = "Chargement des emails…";
+    $("recent-activity-list").replaceChildren();
+    $("recent-activity-list").hidden = true;
+    $("recent-activity-state").hidden = false;
+    $("recent-activity-state").classList.remove("error");
+    $("recent-activity-state").textContent = "Chargement de l'activité…";
+    $("analytics-history-note").hidden = true;
+    $("dashboard-empty-state").hidden = true;
+    showAlert($("dashboard-data-error"), "");
+
+    $("dashboard-connected-count").textContent = "0/3";
+    $("integrations-progress").textContent = "0/3";
+    ["gmail-status", "sheet-status", "telegram-status"].forEach((id) => {
+      const statusElement = $(id);
+      statusElement.className = "status-pill neutral";
+      statusElement.textContent = "Vérification…";
+    });
+    setIntegrationConfigurationHighlights([]);
+    $("readiness-banner").classList.remove("ready");
+    $("readiness-title").textContent = "Finalisez les services requis";
+    $("readiness-text").textContent = "Connectez Gmail et Google Sheets pour rendre SmartReply disponible. Telegram est optionnel.";
+    $("connect-gmail").disabled = false;
+    $("connect-gmail").textContent = "Connecter Gmail";
+    $("generate-telegram-code").disabled = false;
+    $("generate-telegram-code").textContent = "Générer un code";
+    $("telegram-code-panel").hidden = true;
+    $("telegram-code").textContent = "SR-XXXXX";
+    $("telegram-command").textContent = "/start SR-XXXXX";
+    $("telegram-expiry").textContent = "Expiration dans 15:00";
+    showAlert($("telegram-code-error"), "");
+    showAlert($("integrations-error"), "");
+  }
+
   function clearSession() {
     stopTelegramPolling();
     closeIntegrationSetupModal();
@@ -309,6 +564,10 @@
       emails: null,
       loaded: false,
     };
+    dashboardRequestSequence += 1;
+    integrationRequestSequence += 1;
+    resetEmailListState();
+    resetDashboardDomState();
   }
 
   function logout(options = {}) {
@@ -691,6 +950,7 @@
 
   async function loadIntegrationStatuses(options = {}) {
     const { silent = false } = options;
+    const requestId = ++integrationRequestSequence;
     state.integrations.sheet = Boolean(state.company && state.company.sheet_id);
     state.integrations.gmailError = false;
     state.integrations.telegramError = false;
@@ -701,6 +961,7 @@
       apiRequest(API.gmailStatus),
       apiRequest(API.telegramStatus),
     ]);
+    if (requestId !== integrationRequestSequence || !state.token) return null;
     const { errors, statusesAvailable } = applyIntegrationStatusResults(
       gmailResult,
       telegramResult,
@@ -1141,6 +1402,447 @@
     tableWrap.hidden = false;
   }
 
+  function normalizedEmailFilterValue(filterName, value) {
+    const candidate = String(value || "").trim();
+    return EMAIL_FILTER_VALUES[filterName].includes(candidate) ? candidate : "";
+  }
+
+  function readEmailCriteria() {
+    const elements = getEmailsViewElements();
+    return {
+      search: String(elements.search.value || "").trim().slice(0, 200),
+      category: normalizedEmailFilterValue("category", elements.category.value),
+      priority: normalizedEmailFilterValue("priority", elements.priority.value),
+      status: normalizedEmailFilterValue("status", elements.status.value),
+    };
+  }
+
+  function sameEmailCriteria(left, right) {
+    return (
+      left.search === right.search
+      && left.category === right.category
+      && left.priority === right.priority
+      && left.status === right.status
+    );
+  }
+
+  function cancelEmailSearchDebounce() {
+    if (emailsSearchDebounceId === null) return;
+    window.clearTimeout(emailsSearchDebounceId);
+    emailsSearchDebounceId = null;
+  }
+
+  function restoreActiveEmailCriteriaControls() {
+    const elements = getEmailsViewElements();
+    elements.search.value = state.emailList.criteria.search;
+    elements.category.value = state.emailList.criteria.category;
+    elements.priority.value = state.emailList.criteria.priority;
+    elements.status.value = state.emailList.criteria.status;
+  }
+
+  function applyEmailCriteriaFromControls() {
+    const criteria = readEmailCriteria();
+    if (sameEmailCriteria(criteria, state.emailList.criteria)) return false;
+    state.emailList.criteria = criteria;
+    void loadEmailsPage(1);
+    return true;
+  }
+
+  function scheduleEmailSearch() {
+    cancelEmailSearchDebounce();
+    const criteria = readEmailCriteria();
+    if (sameEmailCriteria(criteria, state.emailList.criteria)) return;
+    emailsSearchDebounceId = window.setTimeout(() => {
+      emailsSearchDebounceId = null;
+      applyEmailCriteriaFromControls();
+    }, EMAILS_SEARCH_DEBOUNCE_MS);
+  }
+
+  function applyEmailFilters() {
+    cancelEmailSearchDebounce();
+    applyEmailCriteriaFromControls();
+  }
+
+  function validEmailId(emailId) {
+    return /^EM-[1-9][0-9]*$/.test(String(emailId || ""));
+  }
+
+  function emailDetailIdFromHash() {
+    const route = window.location.hash.replace(/^#/, "");
+    if (!route.startsWith("emails/")) return null;
+    try {
+      return decodeURIComponent(route.slice("emails/".length));
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function navigateToEmailDetail(emailId) {
+    const normalizedId = String(emailId || "");
+    if (!validEmailId(normalizedId)) return;
+    cancelEmailSearchDebounce();
+    restoreActiveEmailCriteriaControls();
+    const targetHash = `#emails/${encodeURIComponent(normalizedId)}`;
+    if (window.location.hash === targetHash) {
+      renderRoute();
+      return;
+    }
+    window.location.hash = targetHash;
+  }
+
+  function returnToEmailList() {
+    if (window.location.hash === "#emails") {
+      renderRoute();
+      return;
+    }
+    window.location.hash = "#emails";
+  }
+
+  function setEmailDetailDisplay(displayState) {
+    const elements = getEmailsViewElements();
+    elements.detailWorkspace.setAttribute(
+      "aria-busy",
+      String(displayState === "loading"),
+    );
+    elements.detailLoading.hidden = displayState !== "loading";
+    elements.detailNotFound.hidden = displayState !== "not-found";
+    elements.detailError.hidden = displayState !== "error";
+    elements.detailContent.hidden = displayState !== "ready";
+  }
+
+  function setEmailDetailBadge(element, value) {
+    const label = String(value || "—");
+    element.className = `data-badge ${badgeClass(label)}`;
+    element.textContent = label;
+  }
+
+  function publicEmailDetail(payload) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return {
+      sender_name: String(source.sender_name || ""),
+      sender_email: String(source.sender_email || ""),
+      subject: String(source.subject || ""),
+      received_at: source.received_at || null,
+      summary: String(source.summary || ""),
+      category: String(source.category || ""),
+      priority: String(source.priority || ""),
+      status: String(source.status || ""),
+    };
+  }
+
+  function renderEmailDetail(item) {
+    const elements = getEmailsViewElements();
+    const subject = item.subject || "Sans objet";
+    elements.detailTitle.textContent = subject;
+    elements.detailSenderName.textContent = item.sender_name || "—";
+    elements.detailSenderEmail.textContent = item.sender_email || "—";
+    elements.detailSubject.textContent = subject;
+    elements.detailReceivedAt.textContent = item.received_at
+      ? formatDashboardDate(item.received_at)
+      : "—";
+    elements.detailSummary.textContent = item.summary || "—";
+    setEmailDetailBadge(elements.detailCategory, item.category);
+    setEmailDetailBadge(elements.detailPriority, item.priority);
+    setEmailDetailBadge(elements.detailStatus, item.status);
+    setEmailDetailDisplay("ready");
+  }
+
+  async function loadEmailDetail(emailId) {
+    const normalizedId = String(emailId || "");
+    if (!validEmailId(normalizedId)) {
+      emailDetailRequestSequence += 1;
+      state.emailDetail = {
+        ...createEmailDetailState(normalizedId),
+        error: "not-found",
+      };
+      setEmailDetailDisplay("not-found");
+      return;
+    }
+
+    const requestId = ++emailDetailRequestSequence;
+    state.emailDetail = {
+      ...createEmailDetailState(normalizedId),
+      loading: true,
+    };
+    setEmailDetailDisplay("loading");
+
+    try {
+      const payload = await apiRequest(
+        `${API.dashboardEmails}/${encodeURIComponent(normalizedId)}`,
+      );
+      if (requestId !== emailDetailRequestSequence) return;
+
+      const item = publicEmailDetail(payload);
+      state.emailDetail = {
+        emailId: normalizedId,
+        item,
+        loaded: true,
+        loading: false,
+        error: null,
+      };
+      renderEmailDetail(item);
+    } catch (error) {
+      if (requestId !== emailDetailRequestSequence) return;
+      const displayState = error.status === 404 ? "not-found" : "error";
+      state.emailDetail = {
+        ...createEmailDetailState(normalizedId),
+        error: displayState,
+      };
+      if (error.status !== 401) setEmailDetailDisplay(displayState);
+    }
+  }
+
+  function showEmailListWorkspace() {
+    const elements = getEmailsViewElements();
+    elements.workspace.hidden = false;
+    elements.detailWorkspace.hidden = true;
+    if (state.emailDetail.loading) {
+      emailDetailRequestSequence += 1;
+      state.emailDetail = createEmailDetailState();
+    } else if (state.emailDetail.error) {
+      state.emailDetail = createEmailDetailState();
+    }
+  }
+
+  function showEmailDetailWorkspace(emailId) {
+    const elements = getEmailsViewElements();
+    elements.workspace.hidden = true;
+    elements.detailWorkspace.hidden = false;
+
+    if (!validEmailId(emailId)) {
+      void loadEmailDetail(emailId);
+      return;
+    }
+    if (state.emailDetail.emailId === emailId) {
+      if (state.emailDetail.loaded && state.emailDetail.item) {
+        renderEmailDetail(state.emailDetail.item);
+        return;
+      }
+      if (state.emailDetail.loading) {
+        setEmailDetailDisplay("loading");
+        return;
+      }
+      if (state.emailDetail.error) {
+        setEmailDetailDisplay(state.emailDetail.error);
+        return;
+      }
+    }
+    void loadEmailDetail(emailId);
+  }
+
+  function dashboardEmailsPath(page, criteria) {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(EMAILS_PAGE_SIZE),
+    });
+    if (criteria.search) params.set("search", criteria.search);
+    if (criteria.category) params.set("category", criteria.category);
+    if (criteria.priority) params.set("priority", criteria.priority);
+    if (criteria.status) params.set("status", criteria.status);
+    return `${API.dashboardEmails}?${params.toString()}`;
+  }
+
+  function setEmailListDisplay(displayState) {
+    const elements = getEmailsViewElements();
+    elements.workspace.setAttribute(
+      "aria-busy",
+      String(displayState === "loading"),
+    );
+    elements.loading.hidden = displayState !== "loading";
+    elements.empty.hidden = displayState !== "empty";
+    elements.error.hidden = displayState !== "error";
+    elements.retry.disabled = displayState === "loading";
+    elements.table.hidden = displayState !== "ready";
+    elements.pagination.hidden = displayState !== "ready";
+  }
+
+  function appendEmailBadgeCell(row, value) {
+    const cell = document.createElement("td");
+    const badge = document.createElement("span");
+    const label = String(value || "—");
+    badge.className = `data-badge ${badgeClass(label)}`;
+    badge.textContent = label;
+    cell.append(badge);
+    row.append(cell);
+  }
+
+  function renderEmailListPagination(pagination, visibleItems) {
+    const elements = getEmailsViewElements();
+    const page = Number(pagination.page);
+    const pageSize = Number(pagination.page_size);
+    const totalItems = Number(pagination.total_items);
+    const totalPages = Number(pagination.total_pages);
+    const firstItem = totalItems > 0 ? ((page - 1) * pageSize) + 1 : 0;
+    const lastItem = totalItems > 0
+      ? Math.min(firstItem + visibleItems - 1, totalItems)
+      : 0;
+    const itemLabel = totalItems === 1 ? "email" : "emails";
+
+    elements.paginationSummary.textContent = totalItems > pageSize
+      ? `${formatCount(firstItem)}–${formatCount(lastItem)} sur ${formatCount(totalItems)} ${itemLabel}`
+      : `${formatCount(totalItems)} ${itemLabel}`;
+    elements.pageIndicator.textContent = `Page ${formatCount(page)} sur ${formatCount(Math.max(totalPages, 1))}`;
+    elements.previousPage.disabled = page <= 1;
+    elements.nextPage.disabled = totalPages === 0 || page >= totalPages;
+  }
+
+  function renderEmailList(items, pagination) {
+    const elements = getEmailsViewElements();
+    elements.tableBody.replaceChildren();
+    renderEmailListPagination(pagination, items.length);
+
+    if (!items.length) {
+      setEmailListDisplay("empty");
+      return;
+    }
+
+    items.forEach((email) => {
+      const row = document.createElement("tr");
+      const emailId = String(email.email_id || "");
+      row.dataset.emailId = emailId;
+
+      const senderCell = document.createElement("td");
+      senderCell.className = "emails-sender-cell";
+      const senderName = document.createElement("strong");
+      senderName.textContent = String(email.sender_name || "Expéditeur");
+      const senderEmail = document.createElement("small");
+      senderEmail.textContent = String(email.sender_email || "—");
+      senderCell.append(senderName, senderEmail);
+      row.append(senderCell);
+
+      const subjectCell = document.createElement("td");
+      subjectCell.className = "subject-cell";
+      const subjectLabel = String(email.subject || "Sans objet");
+      if (validEmailId(emailId)) {
+        const detailButton = document.createElement("button");
+        detailButton.type = "button";
+        detailButton.className = "email-detail-link";
+        detailButton.textContent = subjectLabel;
+        detailButton.setAttribute(
+          "aria-label",
+          `Ouvrir le détail de l'email : ${subjectLabel}`,
+        );
+        detailButton.addEventListener("click", (event) => {
+          event.stopPropagation();
+          navigateToEmailDetail(emailId);
+        });
+        subjectCell.append(detailButton);
+      } else {
+        subjectCell.textContent = subjectLabel;
+      }
+      row.append(subjectCell);
+
+      const dateCell = document.createElement("td");
+      dateCell.textContent = email.received_at
+        ? formatDashboardDate(email.received_at)
+        : "—";
+      row.append(dateCell);
+
+      appendEmailBadgeCell(row, email.category);
+      appendEmailBadgeCell(row, email.priority);
+      appendEmailBadgeCell(row, email.status);
+      if (validEmailId(emailId)) {
+        row.classList.add("emails-row-link");
+        row.addEventListener("click", () => navigateToEmailDetail(emailId));
+      }
+      elements.tableBody.append(row);
+    });
+
+    setEmailListDisplay("ready");
+  }
+
+  function normalizedEmailPagination(rawPagination, requestedPage) {
+    const source = rawPagination && typeof rawPagination === "object"
+      ? rawPagination
+      : {};
+    const values = {
+      page: Number(source.page),
+      page_size: Number(source.page_size),
+      total_items: Number(source.total_items),
+      total_pages: Number(source.total_pages),
+    };
+    return {
+      page: Number.isSafeInteger(values.page) && values.page >= 1
+        ? values.page
+        : requestedPage,
+      page_size: Number.isSafeInteger(values.page_size) && values.page_size >= 1
+        ? values.page_size
+        : EMAILS_PAGE_SIZE,
+      total_items: Number.isSafeInteger(values.total_items) && values.total_items >= 0
+        ? values.total_items
+        : 0,
+      total_pages: Number.isSafeInteger(values.total_pages) && values.total_pages >= 0
+        ? values.total_pages
+        : 0,
+    };
+  }
+
+  async function loadEmailsPage(page = 1, options = {}) {
+    const { allowPageCorrection = true } = options;
+    const requestedPage = Number.isSafeInteger(page) && page >= 1 ? page : 1;
+    const criteria = { ...state.emailList.criteria };
+    const requestId = ++emailsRequestSequence;
+    const elements = getEmailsViewElements();
+    state.emailList.loading = true;
+    state.emailList.loaded = false;
+    elements.tableBody.replaceChildren();
+    setEmailListDisplay("loading");
+
+    try {
+      const payload = await apiRequest(
+        dashboardEmailsPath(requestedPage, criteria),
+      );
+      if (requestId !== emailsRequestSequence) return;
+
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      const pagination = normalizedEmailPagination(
+        payload.pagination,
+        requestedPage,
+      );
+      if (
+        allowPageCorrection
+        && pagination.total_items > 0
+        && pagination.total_pages > 0
+        && pagination.page > pagination.total_pages
+      ) {
+        return loadEmailsPage(pagination.total_pages, {
+          allowPageCorrection: false,
+        });
+      }
+      state.emailList = {
+        items,
+        pagination,
+        criteria,
+        loaded: true,
+        loading: false,
+      };
+      renderEmailList(items, pagination);
+    } catch (error) {
+      if (requestId !== emailsRequestSequence) return;
+      state.emailList = createEmailListState(criteria);
+      elements.tableBody.replaceChildren();
+      if (error.status !== 401) setEmailListDisplay("error");
+    }
+  }
+
+  function retryEmailsPage() {
+    if (state.emailList.loading) return false;
+    void loadEmailsPage(state.emailList.pagination.page);
+    return true;
+  }
+
+  function loadPreviousEmailsPage() {
+    const { page } = state.emailList.pagination;
+    if (state.emailList.loading || page <= 1) return;
+    void loadEmailsPage(page - 1);
+  }
+
+  function loadNextEmailsPage() {
+    const { page, total_pages: totalPages } = state.emailList.pagination;
+    if (state.emailList.loading || totalPages === 0 || page >= totalPages) return;
+    void loadEmailsPage(page + 1);
+  }
+
   function renderOverviewError() {
     $("dashboard-stats").setAttribute("aria-busy", "false");
     ["volume-chart", "category-chart", "priority-chart"].forEach((id) => {
@@ -1180,11 +1882,13 @@
 
   async function loadDashboardData(options = {}) {
     const { showLoading = true } = options;
+    const requestId = ++dashboardRequestSequence;
     if (showLoading) setDashboardLoading();
     const [overviewResult, emailsResult] = await Promise.allSettled([
       apiRequest(API.dashboardOverview),
       apiRequest(API.recentEmails),
     ]);
+    if (requestId !== dashboardRequestSequence || !state.token) return;
     const unavailable = [];
 
     if (overviewResult.status === "fulfilled") {
@@ -1257,11 +1961,13 @@
 
   async function generateTelegramCode() {
     const button = $("generate-telegram-code");
+    const requestToken = state.token;
     showAlert($("telegram-code-error"), "");
     showAlert($("integrations-error"), "");
     setBusy(button, true, "Génération…");
     try {
       const response = await apiRequest(API.telegramCode, { method: "POST" });
+      if (!state.token || state.token !== requestToken) return;
       $("telegram-code").textContent = response.code;
       $("telegram-command").textContent = `/start ${response.code}`;
       $("telegram-code-panel").hidden = false;
@@ -1346,9 +2052,11 @@
 
   async function pollTelegramStatus() {
     if (state.telegramPollInFlight || !state.token) return;
+    const requestToken = state.token;
     state.telegramPollInFlight = true;
     try {
       const response = await apiRequest(API.telegramStatus);
+      if (!state.token || state.token !== requestToken) return;
       state.integrations.telegramAvailable = response.available !== false;
       if (response.connected) {
         state.integrations.telegram = true;
@@ -1369,21 +2077,42 @@
   }
 
   function currentRoute() {
-    return window.location.hash === "#integrations" ? "integrations" : "dashboard";
+    const route = window.location.hash.replace(/^#/, "");
+    if (route.startsWith("emails/")) return "emails";
+    return APP_ROUTES.includes(route) ? route : "dashboard";
   }
 
   function renderRoute() {
     if (!state.appReady) return;
     const route = currentRoute();
+    const detailId = route === "emails" ? emailDetailIdFromHash() : null;
     $("dashboard-view").hidden = route !== "dashboard";
+    $("emails-view").hidden = route !== "emails";
     $("integrations-view").hidden = route !== "integrations";
-    $("topbar-title").textContent = route === "dashboard" ? "Tableau de bord" : "Intégrations";
+    $("topbar-title").textContent = ROUTE_TITLES[route];
     document.querySelectorAll("[data-route]").forEach((item) => {
       item.classList.toggle("active", item.dataset.route === route);
       if (item.dataset.route === route) item.setAttribute("aria-current", "page");
       else item.removeAttribute("aria-current");
     });
     closeSidebar();
+    if (route !== "emails" || detailId !== null) {
+      cancelEmailSearchDebounce();
+      restoreActiveEmailCriteriaControls();
+    }
+    if (route === "emails" && detailId !== null) {
+      showEmailDetailWorkspace(detailId);
+    } else {
+      showEmailListWorkspace();
+    }
+    if (
+      route === "emails"
+      && detailId === null
+      && !state.emailList.loaded
+      && !state.emailList.loading
+    ) {
+      void loadEmailsPage(1);
+    }
     if (route === "integrations") {
       checkIntegrationStatuses({ silent: true });
     }
@@ -1429,6 +2158,14 @@
     $("sidebar-overlay").addEventListener("click", closeSidebar);
     $("connect-gmail").addEventListener("click", connectGmail);
     $("refresh-dashboard").addEventListener("click", refreshDashboard);
+    emailsViewElements.search.addEventListener("input", scheduleEmailSearch);
+    emailsViewElements.category.addEventListener("change", applyEmailFilters);
+    emailsViewElements.priority.addEventListener("change", applyEmailFilters);
+    emailsViewElements.status.addEventListener("change", applyEmailFilters);
+    emailsViewElements.retry.addEventListener("click", retryEmailsPage);
+    emailsViewElements.previousPage.addEventListener("click", loadPreviousEmailsPage);
+    emailsViewElements.nextPage.addEventListener("click", loadNextEmailsPage);
+    emailsViewElements.detailBack.addEventListener("click", returnToEmailList);
     $("refresh-integrations").addEventListener("click", refreshIntegrations);
     $("generate-telegram-code").addEventListener("click", generateTelegramCode);
     $("copy-telegram-code").addEventListener("click", copyTelegramCode);
@@ -1448,6 +2185,7 @@
   }
 
   async function initialize() {
+    cacheEmailsViewElements();
     bindEvents();
     if (!state.token) {
       showScreen("auth-screen");
