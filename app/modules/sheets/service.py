@@ -83,6 +83,33 @@ def list_company_email_rows(workbook) -> list[dict[str, str]]:
     return result
 
 
+def list_company_email_rows_with_summary(workbook) -> list[dict[str, str]]:
+    """Lit les colonnes A:G requises par l'API Emails, sans identifiant draft."""
+    worksheet = workbook.worksheet("Emails")
+    rows = worksheet.get("A:G")
+    if not rows:
+        return []
+    if rows[0][:7] != EMAIL_HEADERS[:7]:
+        raise RuntimeError("company_sheet_headers_invalid")
+
+    result = []
+    for row in rows[1:]:
+        values = list(row[:7])
+        values.extend([""] * (7 - len(values)))
+        result.append(
+            {
+                "email_id": str(values[0]),
+                "sender": str(values[1]),
+                "subject": str(values[2]),
+                "summary": str(values[3]),
+                "category": str(values[4]),
+                "priority": str(values[5]),
+                "status": str(values[6]),
+            }
+        )
+    return result
+
+
 def _row_with_value(rows: list[list[str]], column: int, value: str) -> int | None:
     for row_index, row in enumerate(rows[1:], start=2):
         if len(row) > column and str(row[column]) == value:
