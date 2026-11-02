@@ -12,7 +12,9 @@ from app.modules.companies.service import get_company_by_user_id
 from app.modules.dashboard import service
 from app.modules.dashboard.schemas import (
     DashboardOverviewResponse,
-    RecentEmailsResponse,\n    DashboardEmailsResponse,\n    DashboardEmailItem,
+    RecentEmailsResponse,
+    DashboardEmailsResponse,
+    DashboardEmailItem,
 )
 
 from app.modules.dashboard.emails import get_company_email, list_company_emails
