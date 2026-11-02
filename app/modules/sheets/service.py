@@ -43,13 +43,13 @@ def get_company_workbook(sheet_id: str):
 def list_company_email_rows(workbook) -> list[dict[str, str]]:
     """Lit les colonnes publiques d'Emails, sans contenu ni identifiant draft."""
     worksheet = workbook.worksheet("Emails")
-    identity_rows = worksheet.get("A:C")
+    identity_rows = worksheet.get("A:D")
     analytics_rows = worksheet.get("E:G")
     if not identity_rows and not analytics_rows:
         return []
     if (
         not identity_rows
-        or identity_rows[0][:3] != EMAIL_HEADERS[:3]
+        or identity_rows[0][:4] != EMAIL_HEADERS[:4]
         or not analytics_rows
         or analytics_rows[0][:3] != EMAIL_HEADERS[4:7]
     ):
@@ -59,7 +59,7 @@ def list_company_email_rows(workbook) -> list[dict[str, str]]:
     row_count = max(len(identity_rows), len(analytics_rows))
     for row_index in range(1, row_count):
         identity = (
-            list(identity_rows[row_index][:3])
+            list(identity_rows[row_index][:4])
             if row_index < len(identity_rows)
             else []
         )
@@ -68,13 +68,14 @@ def list_company_email_rows(workbook) -> list[dict[str, str]]:
             if row_index < len(analytics_rows)
             else []
         )
-        identity.extend([""] * (3 - len(identity)))
+        identity.extend([""] * (4 - len(identity)))
         analytics.extend([""] * (3 - len(analytics)))
         result.append(
             {
                 "email_id": str(identity[0]),
                 "sender": str(identity[1]),
                 "subject": str(identity[2]),
+                "summary": str(identity[3]),
                 "category": str(analytics[0]),
                 "priority": str(analytics[1]),
                 "status": str(analytics[2]),
