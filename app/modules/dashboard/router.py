@@ -32,6 +32,11 @@ def _current_company(db: Session, user_id: int):
     return company
 
 
+def _sheet_error_type(exc: service.CompanySheetReadError) -> str:
+    cause = exc.__cause__
+    return type(cause).__name__ if cause is not None else type(exc).__name__
+
+
 @router.get("/overview", response_model=DashboardOverviewResponse)
 def dashboard_overview(
     db: Session = Depends(get_db),
@@ -57,14 +62,9 @@ def recent_emails(
             limit=limit,
         )
     except service.CompanySheetReadError as exc:
-        error_type = (
-            type(exc.__cause__).__name__
-            if exc.__cause__ is not None
-            else type(exc).__name__
-        )
         logger.error(
             "Lecture dashboard du Sheet impossible (%s)",
-            error_type,
+            _sheet_error_type(exc),
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -98,14 +98,12 @@ def dashboard_emails(
             status=email_status,
         )
     except service.CompanySheetReadError as exc:
-        error_type = (
-            type(exc.__cause__).__name__
-            if exc.__cause__ is not None
-            else type(exc).__name__
+        logger.error(
+            "Lecture du Sheet Emails impossible (%s)",
+            _sheet_error_type(exc),
         )
-        logger.error("Lecture du Sheet Emails impossible (%s)", error_type)
         raise HTTPException(
-            status_code=502,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Les emails sont temporairement indisponibles.",
         ) from exc
 
@@ -121,8 +119,17 @@ def dashboard_email_detail(
     try:
         item = get_company_email(db, company=company, email_id=email_id)
     except service.CompanySheetReadError as exc:
-        logger.error("Lecture du Sheet Emails impossible (%s)", type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__)
-        raise HTTPException(status_code=502, detail="Les emails sont temporairement indisponibles.") from exc
+        logger.error(
+            "Lecture du Sheet Emails impossible (%s)",
+            _sheet_error_type(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Les emails sont temporairement indisponibles.",
+        ) from exc
     if item is None:
-        raise HTTPException(status_code=404, detail="Email introuvable.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email introuvable.",
+        )
     return item
