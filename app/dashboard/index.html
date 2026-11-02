@@ -20,6 +20,7 @@
     <symbol id="icon-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8Z"/><path d="M9 20v-6h6v6"/></symbol>
     <symbol id="icon-link" viewBox="0 0 24 24"><path d="M10.2 13.8a4.6 4.6 0 0 0 6.5 0l2.1-2.1a4.6 4.6 0 0 0-6.5-6.5l-1.2 1.2"/><path d="M13.8 10.2a4.6 4.6 0 0 0-6.5 0l-2.1 2.1a4.6 4.6 0 0 0 6.5 6.5l1.2-1.2"/></symbol>
     <symbol id="icon-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></symbol>
     <symbol id="icon-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
     <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
     <symbol id="icon-building" viewBox="0 0 24 24"><path d="M4 21V7l8-4 8 4v14M8 10h2M14 10h2M8 14h2M14 14h2M10 21v-3h4v3"/></symbol>
@@ -185,9 +186,9 @@
         <a class="nav-item" href="#dashboard" data-route="dashboard">
           <svg><use href="#icon-home"></use></svg><span>Tableau de bord</span>
         </a>
-        <span class="nav-item disabled" aria-disabled="true">
-          <svg><use href="#icon-mail"></use></svg><span>Emails</span><small>Bientôt</small>
-        </span>
+        <a class="nav-item" href="#emails" data-route="emails">
+          <svg><use href="#icon-mail"></use></svg><span>Emails</span>
+        </a>
         <span class="nav-item disabled" aria-disabled="true">
           <svg><use href="#icon-file"></use></svg><span>Brouillons</span><small>Bientôt</small>
         </span>
@@ -335,6 +336,171 @@
             <span class="eyebrow">Votre activité SmartReply</span>
             <h2 id="empty-state-title">Aucun traitement n'est encore enregistré.</h2>
             <p>Les indicateurs apparaîtront après les premiers emails analysés. Aucune donnée de démonstration n'est affichée.</p>
+          </section>
+        </section>
+
+        <section id="emails-view" class="page-view" aria-labelledby="emails-title" hidden>
+          <div class="page-heading emails-heading">
+            <div>
+              <span class="eyebrow">Messagerie analysée</span>
+              <h1 id="emails-title">Emails</h1>
+              <p>Retrouvez les emails enregistrés et traités par SmartReply.</p>
+            </div>
+          </div>
+
+          <section id="emails-workspace" class="data-card emails-workspace" aria-labelledby="emails-list-title" aria-busy="false">
+            <div class="card-heading emails-card-heading">
+              <div>
+                <h2 id="emails-list-title">Liste des emails</h2>
+                <p>Recherchez et affinez les résultats par catégorie, priorité ou statut.</p>
+              </div>
+            </div>
+
+            <div id="emails-filters" class="emails-toolbar" role="search" aria-label="Rechercher et filtrer les emails">
+              <label class="emails-control emails-search-control" for="emails-search">
+                <span>Recherche</span>
+                <span class="emails-search-field">
+                  <svg aria-hidden="true"><use href="#icon-search"></use></svg>
+                  <input id="emails-search" type="search" maxlength="200" autocomplete="off" placeholder="Expéditeur, adresse ou objet">
+                </span>
+              </label>
+
+              <label class="emails-control" for="emails-category-filter">
+                <span>Catégorie</span>
+                <select id="emails-category-filter">
+                  <option value="">Toutes les catégories</option>
+                  <option value="Devis">Devis</option>
+                  <option value="Support">Support</option>
+                  <option value="Facturation">Facturation</option>
+                  <option value="Partenariat">Partenariat</option>
+                  <option value="Spam">Spam</option>
+                  <option value="Newsletter">Newsletter</option>
+                  <option value="Autre">Autre</option>
+                </select>
+              </label>
+
+              <label class="emails-control" for="emails-priority-filter">
+                <span>Priorité</span>
+                <select id="emails-priority-filter">
+                  <option value="">Toutes les priorités</option>
+                  <option value="Haute">Haute</option>
+                  <option value="Moyenne">Moyenne</option>
+                  <option value="Basse">Basse</option>
+                </select>
+              </label>
+
+              <label class="emails-control" for="emails-status-filter">
+                <span>Statut</span>
+                <select id="emails-status-filter">
+                  <option value="">Tous les statuts</option>
+                  <option value="Analysé">Analysé</option>
+                  <option value="Brouillon prêt">Brouillon prêt</option>
+                  <option value="Envoyé">Envoyé</option>
+                  <option value="Ignoré">Ignoré</option>
+                </select>
+              </label>
+            </div>
+
+            <div id="emails-loading-state" class="data-state emails-state" role="status" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Chargement des emails…</span>
+            </div>
+            <div id="emails-error-state" class="data-state emails-state error" role="alert" hidden>
+              <p>Les emails sont temporairement indisponibles. Réessayez dans quelques instants.</p>
+              <button id="emails-retry" class="button button-ghost button-small" type="button">Réessayer</button>
+            </div>
+            <div id="emails-empty-state" class="emails-empty-state" role="status">
+              <span class="emails-empty-icon" aria-hidden="true"><svg><use href="#icon-mail"></use></svg></span>
+              <div>
+                <strong>Aucun email à afficher pour le moment.</strong>
+                <p>Les résultats correspondant à votre recherche apparaîtront ici.</p>
+              </div>
+            </div>
+
+            <div id="emails-table-wrap" class="table-wrap emails-table-wrap" hidden>
+              <table aria-label="Emails enregistrés et traités">
+                <thead>
+                  <tr>
+                    <th>Expéditeur</th>
+                    <th>Objet</th>
+                    <th>Date</th>
+                    <th>Catégorie</th>
+                    <th>Priorité</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody id="emails-table-body"></tbody>
+              </table>
+            </div>
+
+            <nav id="emails-pagination" class="emails-pagination" aria-label="Pagination des emails" hidden>
+              <p id="emails-pagination-summary">0 email</p>
+              <div class="emails-pagination-controls">
+                <button id="emails-previous-page" class="button button-ghost button-small" type="button" disabled>Précédent</button>
+                <span id="emails-page-indicator" aria-live="polite">Page 1 sur 1</span>
+                <button id="emails-next-page" class="button button-ghost button-small" type="button" disabled>Suivant</button>
+              </div>
+            </nav>
+          </section>
+
+          <section id="email-detail-workspace" class="data-card email-detail-workspace" aria-labelledby="email-detail-title" aria-busy="false" hidden>
+            <div class="email-detail-navigation">
+              <button id="email-detail-back" class="button button-ghost button-small" type="button">
+                Retour aux emails
+              </button>
+            </div>
+
+            <div id="email-detail-loading-state" class="data-state emails-state" role="status" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Chargement du détail…</span>
+            </div>
+            <div id="email-detail-not-found-state" class="data-state emails-state" role="status" hidden>
+              Cet email est introuvable ou n'est plus disponible.
+            </div>
+            <div id="email-detail-error-state" class="data-state emails-state error" role="alert" hidden>
+              Le détail de cet email est temporairement indisponible. Réessayez dans quelques instants.
+            </div>
+
+            <article id="email-detail-content" class="email-detail-content" hidden>
+              <div class="email-detail-heading">
+                <span class="eyebrow">Détail de l'email</span>
+                <h2 id="email-detail-title">Email</h2>
+              </div>
+              <dl class="email-detail-grid">
+                <div class="email-detail-field">
+                  <dt>Expéditeur</dt>
+                  <dd id="email-detail-sender-name">—</dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Adresse email</dt>
+                  <dd id="email-detail-sender-email">—</dd>
+                </div>
+                <div class="email-detail-field email-detail-field-wide">
+                  <dt>Objet</dt>
+                  <dd id="email-detail-subject">—</dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Date de réception</dt>
+                  <dd id="email-detail-received-at">—</dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Catégorie</dt>
+                  <dd><span id="email-detail-category" class="data-badge neutral">—</span></dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Priorité</dt>
+                  <dd><span id="email-detail-priority" class="data-badge neutral">—</span></dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Statut</dt>
+                  <dd><span id="email-detail-status" class="data-badge neutral">—</span></dd>
+                </div>
+                <div class="email-detail-field email-detail-field-wide email-detail-summary">
+                  <dt>Résumé</dt>
+                  <dd id="email-detail-summary">—</dd>
+                </div>
+              </dl>
+            </article>
           </section>
         </section>
 
