@@ -107,24 +107,67 @@ def _filtered_items(db: Session, company: Company, *, search=None, category=None
         items = [item for item in items if _normalize(item.priority) == priority_key]
     if status_key:
         items = [item for item in items if _normalize(item.status) == status_key]
-    items.sort(key=lambda item: (item.received_at.timestamp() if item.received_at else float("-inf"), int(item.email_id[3:])), reverse=True)
+    items.sort(
+        key=lambda item: (
+            item.received_at.timestamp()
+            if item.received_at
+            else float("-inf"),
+            int(item.email_id[3:]),
+        ),
+        reverse=True,
+    )
     return items
 
 
-def list_company_emails(db: Session, *, company: Company, page: int, page_size: int, search=None, category=None, priority=None, status=None) -> DashboardEmailsResponse:
-    items = _filtered_items(db, company, search=search, category=category, priority=priority, status=status)
+def list_company_emails(
+    db: Session,
+    *,
+    company: Company,
+    page: int,
+    page_size: int,
+    search=None,
+    category=None,
+    priority=None,
+    status=None,
+) -> DashboardEmailsResponse:
+    items = _filtered_items(
+        db,
+        company,
+        search=search,
+        category=category,
+        priority=priority,
+        status=status,
+    )
     total = len(items)
     pages = (total + page_size - 1) // page_size
     start = (page - 1) * page_size
     return DashboardEmailsResponse(
-        items=items[start:start + page_size],
-        pagination=DashboardEmailPagination(page=page, page_size=page_size, total_items=total, total_pages=pages),
+        items=items[start : start + page_size],
+        pagination=DashboardEmailPagination(
+            page=page,
+            page_size=page_size,
+            total_items=total,
+            total_pages=pages,
+        ),
     )
 
 
-def get_company_email(db: Session, *, company: Company, email_id: str) -> DashboardEmailItem | None:
+def get_company_email(
+    db: Session,
+    *,
+    company: Company,
+    email_id: str,
+) -> DashboardEmailItem | None:
     match = _EMAIL_ID.fullmatch(email_id or "")
-    if not match:
+    if match is None:
         return None
-    items = _filtered_items(db, company)
-    return next((item for item in items if item.email_id == email_id), None)
+
+    record_id = int(match.group(1))
+    row = _read_rows(company).get(record_id)
+    if row is None:
+        return None
+
+    records = _records(db, company, {record_id})
+    if not records:
+        return None
+    return _item(records[0], row)
