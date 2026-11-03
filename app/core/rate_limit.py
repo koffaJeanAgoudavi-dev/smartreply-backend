@@ -113,6 +113,16 @@ class RedisRateLimiter:
             ),
         )
 
+    def contact_buckets(self, client_ip: str) -> tuple[RateLimitBucket, ...]:
+        ip_digest = self._identity_digest(f"ip\0{client_ip}")
+        return (
+            RateLimitBucket(
+                key=f"smartreply:rl:v1:contact:ip:{ip_digest}",
+                limit=settings.CONTACT_IP_RATE_LIMIT,
+                window_seconds=settings.CONTACT_RATE_LIMIT_WINDOW_SECONDS,
+            ),
+        )
+
     def consume(self, buckets: Iterable[RateLimitBucket]) -> None:
         bucket_list = tuple(buckets)
         if not bucket_list:

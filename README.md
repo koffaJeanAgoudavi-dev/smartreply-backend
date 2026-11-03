@@ -125,7 +125,16 @@ GOOGLE_DRIVE_CLIENT_SECRET=<secret OAuth Drive>
 GOOGLE_DRIVE_REFRESH_TOKEN=<refresh token propriétaire>
 GEMINI_API_KEY=<clé Google AI Studio>
 CRON_SECRET=<secret du cron>
+CONTACT_SMTP_USERNAME=hello.smartreplyagent@gmail.com
+CONTACT_SMTP_PASSWORD=<mot de passe d'application Gmail>
 ```
+
+La page publique `/contact/` envoie les demandes par SMTP authentifié vers
+`hello.smartreplyagent@gmail.com`. Pour Gmail, activer la validation en deux
+étapes sur le compte expéditeur puis créer un mot de passe d'application ; ne
+jamais utiliser ni versionner le mot de passe principal du compte. L'hôte
+`smtp.gmail.com`, le port SSL `465` et l'adresse destinataire ont des valeurs
+par défaut configurables.
 
 Telegram est optionnel. Pour l'activer, définir ensemble :
 
@@ -162,11 +171,16 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `GOOGLE_DRIVE_TEMPLATE_ID` | (Optionnel) ID du template à copier ; une valeur dédiée est fournie par défaut |
 | `GEMINI_API_KEY` | Clé API Google AI Studio |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Client OAuth Gmail par utilisateur |
+| `CONTACT_SMTP_USERNAME` | Adresse du compte SMTP expéditeur de la page Contact |
+| `CONTACT_SMTP_PASSWORD` | Secret SMTP ; avec Gmail, utiliser un mot de passe d'application |
+| `CONTACT_SMTP_HOST` / `CONTACT_SMTP_PORT` | Serveur SMTP SSL (défauts : `smtp.gmail.com` et `465`) |
+| `CONTACT_SMTP_TIMEOUT_SECONDS` | Délai maximal d'une tentative SMTP (défaut : `15`) |
+| `CONTACT_RECIPIENT_EMAIL` | Destinataire des demandes (défaut : `hello.smartreplyagent@gmail.com`) |
 | `DATABASE_URL` | URL PostgreSQL Neon |
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
 | `ENVIRONMENT` | Utiliser exactement `production` sur Render ; cette valeur seule désactive `/docs`, `/redoc` et `/openapi.json` |
-| `REDIS_URL` | Optionnelle : Redis partagé pour les limites login/register ; absence, configuration invalide ou panne = repli automatique sur les compteurs mémoire du processus |
+| `REDIS_URL` | Optionnelle : Redis partagé pour les limites login/register/contact ; absence, configuration invalide ou panne = repli automatique sur les compteurs mémoire du processus |
 | `RATE_LIMIT_HMAC_SECRET` | Obligatoire en production : HMAC des identités sans email/IP en clair ; s'il manque, Redis est désactivé et le repli mémoire utilise un secret éphémère |
 | `CLIENT_IP_HEADER` | En-tête client remplacé par la plateforme ; sur un service web public Render, utiliser `CF-Connecting-IP` (requis en production) |
 | `LOGIN_IP_EMAIL_RATE_LIMIT` | Tentatives login par couple IP + email (défaut : `5`) |
@@ -175,6 +189,8 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre des trois limites login (défaut : `900`, soit 15 minutes) |
 | `REGISTER_IP_RATE_LIMIT` | Tentatives d'inscription par IP (défaut : `5`) |
 | `REGISTER_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre de la limite d'inscription (défaut : `3600`, soit une heure) |
+| `CONTACT_IP_RATE_LIMIT` | Envois du formulaire Contact par IP (défaut : `5`) |
+| `CONTACT_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre de la limite Contact (défaut : `3600`, soit une heure) |
 | `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
 | `PIPELINE_ALLOWED_COMPANY_IDS` | IDs internes autorisés au traitement réel, séparés par des virgules ; vide ou absent = aucune entreprise traitée |
 | `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond par entreprise et par passage (défaut : `10`) |

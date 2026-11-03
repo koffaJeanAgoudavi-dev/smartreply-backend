@@ -101,6 +101,10 @@ class AuthRateLimitTests(unittest.TestCase):
             "REGISTER_RATE_LIMIT_WINDOW_SECONDS": (
                 settings.REGISTER_RATE_LIMIT_WINDOW_SECONDS
             ),
+            "CONTACT_IP_RATE_LIMIT": settings.CONTACT_IP_RATE_LIMIT,
+            "CONTACT_RATE_LIMIT_WINDOW_SECONDS": (
+                settings.CONTACT_RATE_LIMIT_WINDOW_SECONDS
+            ),
         }
         settings.JWT_SECRET = "hardening-test-jwt-secret-at-least-32-bytes"
         settings.INVITATION_CODES = "invite-alpha"
@@ -112,6 +116,8 @@ class AuthRateLimitTests(unittest.TestCase):
         settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
         settings.REGISTER_IP_RATE_LIMIT = 5
         settings.REGISTER_RATE_LIMIT_WINDOW_SECONDS = 60 * 60
+        settings.CONTACT_IP_RATE_LIMIT = 5
+        settings.CONTACT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60
 
         self.db = MagicMock()
 
@@ -472,6 +478,8 @@ class AuthRateLimitTests(unittest.TestCase):
         settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS = 321
         settings.REGISTER_IP_RATE_LIMIT = 9
         settings.REGISTER_RATE_LIMIT_WINDOW_SECONDS = 654
+        settings.CONTACT_IP_RATE_LIMIT = 4
+        settings.CONTACT_RATE_LIMIT_WINDOW_SECONDS = 123
 
         trusted_login = self.limiter.login_buckets(
             "192.0.2.10",
@@ -479,6 +487,7 @@ class AuthRateLimitTests(unittest.TestCase):
         )
         untrusted_login = self.limiter.login_buckets(None, "alice@example.com")
         registration = self.limiter.register_buckets("192.0.2.10")
+        contact = self.limiter.contact_buckets("192.0.2.10")
 
         self.assertEqual(
             [(bucket.limit, bucket.window_seconds) for bucket in trusted_login],
@@ -492,6 +501,10 @@ class AuthRateLimitTests(unittest.TestCase):
             [(bucket.limit, bucket.window_seconds) for bucket in registration],
             [(9, 654)],
         )
+        self.assertEqual(
+            [(bucket.limit, bucket.window_seconds) for bucket in contact],
+            [(4, 123)],
+        )
 
 
 class SecurityHeadersAndDocsTests(unittest.TestCase):
@@ -501,6 +514,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         ("POST", "/api/v1/companies"),
         ("GET", "/api/v1/companies/me"),
         ("POST", "/api/v1/companies/me/pipeline-access"),
+        ("POST", "/api/v1/contact"),
         ("GET", "/api/v1/dashboard/overview"),
         ("GET", "/api/v1/dashboard/recent-emails"),
         ("GET", "/api/v1/dashboard/emails"),
@@ -515,8 +529,10 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
     }
     expected_public_routes = {
         ("GET", "/"),
+        ("GET", "/contact"),
         ("GET", "/dashboard"),
         ("GET", "/health"),
+        ("MOUNT", "/contact"),
         ("MOUNT", "/dashboard"),
     }
     expected_docs_routes = {
@@ -576,6 +592,9 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             api_error = client.get("/api/v1/not-a-route")
             oauth_callback = client.get("/api/v1/gmail/callback")
             telegram_webhook = client.post("/api/v1/telegram/webhook")
+            contact = client.get("/contact/")
+            contact_javascript = client.get("/contact/app.js")
+            contact_stylesheet = client.get("/contact/styles.css")
             dashboard = client.get("/dashboard/")
             javascript = client.get("/dashboard/app.js")
             stylesheet = client.get("/dashboard/styles.css")
@@ -586,7 +605,15 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         self.assertEqual(telegram_webhook.status_code, 401)
         for response in (api_error, oauth_callback, telegram_webhook):
             self.assert_security_headers(response, api=True)
-        for response in (dashboard, javascript, stylesheet, static_error):
+        for response in (
+            contact,
+            contact_javascript,
+            contact_stylesheet,
+            dashboard,
+            javascript,
+            stylesheet,
+            static_error,
+        ):
             self.assert_security_headers(response)
             self.assertNotIn(
                 "cdn.jsdelivr.net", response.headers["Content-Security-Policy"]
@@ -777,6 +804,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             {
                 ("POST", "/api/v1/auth/login"),
                 ("POST", "/api/v1/auth/register"),
+                ("POST", "/api/v1/contact"),
             },
         )
 
