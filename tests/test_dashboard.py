@@ -135,13 +135,13 @@ class DashboardStaticTests(unittest.TestCase):
                 ]
                 self.assertEqual(payload, served_png.content)
 
-    def test_contact_is_linked_from_auth_sidebar_and_dashboard_footer(self):
+    def test_contact_is_linked_from_auth_and_footer_but_not_sidebar(self):
         response = self.client.get("/dashboard/")
         stylesheet = self.client.get("/dashboard/styles.css")
         public_contact = self.client.get("/contact/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.text.count('href="/contact/"'), 3)
+        self.assertEqual(response.text.count('href="/contact/"'), 2)
         auth_markup = response.text.split(
             '<main id="auth-screen"', maxsplit=1
         )[1].split('<main id="company-screen"', maxsplit=1)[0]
@@ -156,11 +156,8 @@ class DashboardStaticTests(unittest.TestCase):
             '<a class="auth-contact-link" href="/contact/">Contact</a>',
             auth_markup,
         )
-        self.assertIn(
-            '<a class="nav-item" href="/contact/">',
-            sidebar_markup,
-        )
-        self.assertIn('<span>Contact</span>', sidebar_markup)
+        self.assertNotIn('href="/contact/"', sidebar_markup)
+        self.assertNotIn("Contact", sidebar_markup)
         self.assertIn('<a href="/contact/">Contact</a>', dashboard_footer)
         self.assertEqual(public_contact.status_code, 200)
         self.assertIn("Contactez l’équipe SmartReply Agent", public_contact.text)
