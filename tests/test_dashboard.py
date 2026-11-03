@@ -135,6 +135,47 @@ class DashboardStaticTests(unittest.TestCase):
                 ]
                 self.assertEqual(payload, served_png.content)
 
+    def test_contact_is_linked_from_auth_sidebar_and_dashboard_footer(self):
+        response = self.client.get("/dashboard/")
+        stylesheet = self.client.get("/dashboard/styles.css")
+        public_contact = self.client.get("/contact/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.text.count('href="/contact/"'), 3)
+        auth_markup = response.text.split(
+            '<main id="auth-screen"', maxsplit=1
+        )[1].split('<main id="company-screen"', maxsplit=1)[0]
+        sidebar_markup = response.text.split(
+            '<aside id="sidebar"', maxsplit=1
+        )[1].split("</aside>", maxsplit=1)[0]
+        dashboard_footer = response.text.split(
+            '<footer class="dashboard-footer">', maxsplit=1
+        )[1].split("</footer>", maxsplit=1)[0]
+
+        self.assertIn(
+            '<a class="auth-contact-link" href="/contact/">Contact</a>',
+            auth_markup,
+        )
+        self.assertIn(
+            '<a class="nav-item" href="/contact/">',
+            sidebar_markup,
+        )
+        self.assertIn('<span>Contact</span>', sidebar_markup)
+        self.assertIn('<a href="/contact/">Contact</a>', dashboard_footer)
+        self.assertEqual(public_contact.status_code, 200)
+        self.assertIn("Contactez l’équipe SmartReply Agent", public_contact.text)
+
+        self.assertEqual(stylesheet.status_code, 200)
+        for responsive_style in (
+            ".auth-panel-footer",
+            ".auth-contact-link",
+            ".dashboard-footer",
+            "overflow-y: auto",
+            "@media (min-width: 540px)",
+            "@media (min-width: 920px)",
+        ):
+            self.assertIn(responsive_style, stylesheet.text)
+
     def test_emails_navigation_and_view_structure_are_ready_for_api_data(self):
         response = self.client.get("/dashboard/")
         js_response = self.client.get("/dashboard/app.js")
