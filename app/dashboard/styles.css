@@ -132,9 +132,11 @@ svg {
   color: var(--color-primary-700);
 }
 
-.brand-mark svg {
+.brand-mark img {
+  display: block;
   width: 30px;
   height: 30px;
+  object-fit: contain;
 }
 
 .brand > span:last-child {

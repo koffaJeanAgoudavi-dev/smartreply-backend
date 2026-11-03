@@ -2,6 +2,7 @@
 
 import json
 import re
+import struct
 import subprocess
 import unittest
 from pathlib import Path
@@ -61,6 +62,78 @@ class DashboardStaticTests(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
+
+    def test_dashboard_serves_official_brand_assets_and_metadata(self):
+        response = self.client.get("/dashboard/")
+        standard_path = "/dashboard/assets/brand/smartreply-mark-standard.png"
+        inverse_path = "/dashboard/assets/brand/smartreply-mark-inverse.png"
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.text.count(f'src="{standard_path}"'), 4)
+        self.assertEqual(response.text.count(f'src="{inverse_path}"'), 1)
+        self.assertNotIn('id="icon-logo"', response.text)
+        for metadata in (
+            (
+                '<link rel="icon" href="/dashboard/assets/brand/favicon.ico" '
+                'sizes="any">'
+            ),
+            (
+                '<link rel="icon" type="image/png" sizes="32x32" '
+                'href="/dashboard/assets/brand/favicon-32x32.png">'
+            ),
+            (
+                '<link rel="icon" type="image/png" sizes="48x48" '
+                'href="/dashboard/assets/brand/favicon-48x48.png">'
+            ),
+            (
+                '<link rel="apple-touch-icon" sizes="180x180" '
+                'href="/dashboard/assets/brand/apple-touch-icon.png">'
+            ),
+        ):
+            self.assertIn(metadata, response.text)
+
+        png_expectations = {
+            standard_path: (245, 245, 6),
+            inverse_path: (245, 245, 6),
+            "/dashboard/assets/brand/favicon-32x32.png": (32, 32, 6),
+            "/dashboard/assets/brand/favicon-48x48.png": (48, 48, 6),
+            "/dashboard/assets/brand/apple-touch-icon.png": (180, 180, 2),
+        }
+        png_responses = {}
+        for path, (expected_width, expected_height, expected_color_type) in (
+            png_expectations.items()
+        ):
+            with self.subTest(path=path):
+                asset = self.client.get(path)
+                png_responses[path] = asset
+                self.assertEqual(asset.status_code, 200)
+                self.assertIn("image/png", asset.headers["content-type"])
+                self.assertEqual(asset.content[:8], b"\x89PNG\r\n\x1a\n")
+                width, height = struct.unpack(">II", asset.content[16:24])
+                self.assertEqual((width, height), (expected_width, expected_height))
+                self.assertEqual(asset.content[24], 8)
+                self.assertEqual(asset.content[25], expected_color_type)
+
+        icon = self.client.get("/dashboard/assets/brand/favicon.ico")
+        self.assertEqual(icon.status_code, 200)
+        self.assertTrue(icon.headers["content-type"].startswith("image/"))
+        self.assertEqual(struct.unpack_from("<HHH", icon.content), (0, 1, 3))
+        for index, expected_size in enumerate((16, 32, 48)):
+            entry = struct.unpack_from("<BBBBHHII", icon.content, 6 + 16 * index)
+            width, height, _, _, planes, bits, payload_size, offset = entry
+            self.assertEqual((width, height), (expected_size, expected_size))
+            self.assertEqual((planes, bits), (1, 32))
+            payload = icon.content[offset : offset + payload_size]
+            self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(
+                struct.unpack(">II", payload[16:24]),
+                (expected_size, expected_size),
+            )
+            if expected_size in (32, 48):
+                served_png = png_responses[
+                    f"/dashboard/assets/brand/favicon-{expected_size}x{expected_size}.png"
+                ]
+                self.assertEqual(payload, served_png.content)
 
     def test_emails_navigation_and_view_structure_are_ready_for_api_data(self):
         response = self.client.get("/dashboard/")
