@@ -10,6 +10,7 @@ from app.core.docs import register_non_production_docs
 from app.core.security_headers import SecurityHeadersMiddleware, apply_security_headers
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
+from app.modules.contact.router import router as contact_router
 from app.modules.dashboard.router import router as dashboard_router
 from app.modules.gmail_oauth.router import router as gmail_oauth_router
 from app.modules.pipeline.router import router as pipeline_router
@@ -46,6 +47,7 @@ def create_app(environment: str | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(gmail_oauth_router)
     application.include_router(companies_router)
+    application.include_router(contact_router)
     application.include_router(dashboard_router)
 
     @application.get("/")
@@ -58,6 +60,17 @@ def create_app(environment: str | None = None) -> FastAPI:
 
     if docs_enabled:
         register_non_production_docs(application)
+
+    @application.get("/contact", include_in_schema=False)
+    def contact_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/contact/", status_code=307)
+
+    contact_directory = Path(__file__).resolve().parent / "contact"
+    application.mount(
+        "/contact",
+        StaticFiles(directory=contact_directory, html=True),
+        name="contact",
+    )
 
     @application.get("/dashboard", include_in_schema=False)
     def dashboard_redirect() -> RedirectResponse:

@@ -13,6 +13,19 @@ class Settings(BaseSettings):
     # URL publique du service (ex : https://smartreply-backend.onrender.com)
     BASE_URL: str = os.getenv("BASE_URL", "")
 
+    # Formulaire public de contact — livraison SMTP authentifiée
+    CONTACT_RECIPIENT_EMAIL: str = os.getenv(
+        "CONTACT_RECIPIENT_EMAIL",
+        "hello.smartreplyagent@gmail.com",
+    )
+    CONTACT_SMTP_HOST: str = os.getenv("CONTACT_SMTP_HOST", "smtp.gmail.com")
+    CONTACT_SMTP_PORT: int = int(os.getenv("CONTACT_SMTP_PORT", "465"))
+    CONTACT_SMTP_USERNAME: str = os.getenv("CONTACT_SMTP_USERNAME", "")
+    CONTACT_SMTP_PASSWORD: str = os.getenv("CONTACT_SMTP_PASSWORD", "")
+    CONTACT_SMTP_TIMEOUT_SECONDS: int = int(
+        os.getenv("CONTACT_SMTP_TIMEOUT_SECONDS", "15")
+    )
+
     # Google Sheets par entreprise
     # JSON complet du compte de service (Render) ; local = fichier credentials.json
     GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
@@ -59,6 +72,10 @@ class Settings(BaseSettings):
     REGISTER_IP_RATE_LIMIT: int = int(os.getenv("REGISTER_IP_RATE_LIMIT", "5"))
     REGISTER_RATE_LIMIT_WINDOW_SECONDS: int = int(
         os.getenv("REGISTER_RATE_LIMIT_WINDOW_SECONDS", "3600")
+    )
+    CONTACT_IP_RATE_LIMIT: int = int(os.getenv("CONTACT_IP_RATE_LIMIT", "5"))
+    CONTACT_RATE_LIMIT_WINDOW_SECONDS: int = int(
+        os.getenv("CONTACT_RATE_LIMIT_WINDOW_SECONDS", "3600")
     )
 
     # Gmail OAuth par utilisateur (Étape 3) — chiffrement des refresh tokens (Fernet)
