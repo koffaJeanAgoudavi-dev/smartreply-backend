@@ -30,9 +30,10 @@ class Settings(BaseSettings):
     # JSON complet du compte de service (Render) ; local = fichier credentials.json
     GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 
-    # Google Drive — compte propriétaire des copies de Sheets d'entreprise (OAuth)
+    # Google Drive — OAuth distinct par utilisateur (scope drive.file).
     GOOGLE_DRIVE_CLIENT_ID: str = os.getenv("GOOGLE_DRIVE_CLIENT_ID", "")
     GOOGLE_DRIVE_CLIENT_SECRET: str = os.getenv("GOOGLE_DRIVE_CLIENT_SECRET", "")
+    # Compatibilité des anciens Sheets détenus par la plateforme uniquement.
     GOOGLE_DRIVE_REFRESH_TOKEN: str = os.getenv("GOOGLE_DRIVE_REFRESH_TOKEN", "")
     GOOGLE_DRIVE_TEMPLATE_ID: str = os.getenv(
         "GOOGLE_DRIVE_TEMPLATE_ID",

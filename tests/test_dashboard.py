@@ -43,6 +43,10 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("Bientôt", response.text)
         self.assertIn('id="register-invitation"', response.text)
         self.assertIn("Code d'invitation", response.text)
+        self.assertIn('id="connect-drive-onboarding"', response.text)
+        self.assertIn('id="onboarding-drive-status"', response.text)
+        self.assertIn('id="company-submit"', response.text)
+        self.assertIn("restera votre propriété", response.text)
         self.assertIn("Indicateurs essentiels", response.text)
         self.assertIn("Emails analysés", response.text)
         self.assertIn("Emails traités", response.text)
@@ -326,6 +330,9 @@ class DashboardStaticTests(unittest.TestCase):
             'id="telegram-status"',
             'id="connect-gmail"',
             'id="open-sheet"',
+            'id="connect-drive"',
+            'id="repair-sheet-access"',
+            'id="disconnect-drive"',
             'id="generate-telegram-code"',
         ):
             self.assertIn(integration_page_element, integrations_markup)
@@ -1836,6 +1843,9 @@ subject.state.appReady = true;
         self.assertIn("javascript", js_response.headers["content-type"])
         self.assertIn('"smartreply_access_token"', js_response.text)
         self.assertIn('"/api/v1/gmail/connect"', js_response.text)
+        self.assertIn('"/api/v1/drive/connect"', js_response.text)
+        self.assertIn('"/api/v1/drive/status"', js_response.text)
+        self.assertIn('"/api/v1/drive/connection"', js_response.text)
         self.assertIn('"/api/v1/telegram/link-code"', js_response.text)
         self.assertIn('"/api/v1/dashboard/overview"', js_response.text)
         self.assertIn('"/api/v1/dashboard/recent-emails"', js_response.text)
@@ -1854,6 +1864,12 @@ subject.state.appReady = true;
         self.assertNotIn("innerHTML", donut_source)
         self.assertIn('setStatus($("gmail-status")', js_response.text)
         self.assertIn('setStatus($("sheet-status")', js_response.text)
+        self.assertIn(
+            "encodeURIComponent(state.company.sheet_id)",
+            js_response.text,
+        )
+        self.assertIn("disconnectDrive", js_response.text)
+        self.assertIn("repairSheetAccess", js_response.text)
         self.assertIn('$("telegram-status")', js_response.text)
         self.assertIn(
             '$("dashboard-connected-count").textContent = display.countLabel',
@@ -1863,7 +1879,10 @@ subject.state.appReady = true;
             'countLabel: statusesAvailable ? `${count}/3` : "—/3"',
             js_response.text,
         )
-        self.assertIn("Statut Gmail temporairement indisponible", js_response.text)
+        self.assertIn(
+            "Statut des intégrations temporairement indisponible",
+            js_response.text,
+        )
         self.assertIn("Telegram reste optionnel", js_response.text)
         self.assertNotIn("dashboard-gmail-status", js_response.text)
         self.assertNotIn("dashboard-sheet-status", js_response.text)
@@ -2167,15 +2186,30 @@ dashboardLoad.state.token = "authenticated";
             "function applyIntegrationStatusResults", maxsplit=1
         )[1].split("function formatCount", maxsplit=1)[0]
         self.assertIn("apiRequest(API.gmailStatus)", status_loader)
+        self.assertIn("apiRequest(API.driveStatus)", status_loader)
         self.assertIn("apiRequest(API.telegramStatus)", status_loader)
         self.assertIn(
-            'const statusesAvailable = gmailResult.status === "fulfilled"',
+            (
+                'const statusesAvailable = gmailResult.status === "fulfilled" '
+                "&& driveAvailable"
+            ),
             status_loader,
         )
         self.assertIn('telegramResult.status === "fulfilled"', status_loader)
         self.assertIn("if (!statusesAvailable) return null", status_loader)
         self.assertIn("return Object.freeze", status_loader)
-        self.assertIn("Boolean(state.company && state.company.sheet_id)", status_loader)
+        self.assertIn(
+            'driveResult.value.sheet_state === "ready"',
+            status_loader,
+        )
+        self.assertIn(
+            "driveResult.value.pipeline_access === true",
+            status_loader,
+        )
+        self.assertNotIn(
+            "Boolean(state.company && state.company.sheet_id)",
+            status_loader,
+        )
         self.assertNotIn("company_id", status_loader)
         self.assertIn('company: "/api/v1/companies/me"', js_response.text)
 
@@ -2226,6 +2260,10 @@ const reset = () => {
     sheet: true,
     telegram: false,
     gmailError: false,
+    sheetError: false,
+    sheetState: "not_created",
+    sheetOwnership: "client",
+    driveConnected: true,
     telegramError: false,
     telegramAvailable: null,
     statusesAvailable: false,
@@ -2233,11 +2271,18 @@ const reset = () => {
 };
 const fulfilled = (value) => ({ status: "fulfilled", value });
 const rejected = (status) => ({ status: "rejected", reason: { status } });
+const driveReady = fulfilled({
+  connected: true,
+  ownership: "client",
+  sheet_state: "ready",
+  pipeline_access: true,
+});
 
 reset();
 subject.applyIntegrationStatusResults(
   fulfilled({ connected: true }),
   rejected(503),
+  driveReady,
 );
 const telegramOutage = {
   integrations: subject.state.integrations,
@@ -2248,6 +2293,7 @@ reset();
 subject.applyIntegrationStatusResults(
   fulfilled({ connected: true }),
   fulfilled({ connected: false, available: false }),
+  driveReady,
 );
 const telegramDisabled = {
   integrations: subject.state.integrations,
@@ -2258,16 +2304,22 @@ reset();
 subject.applyIntegrationStatusResults(
   fulfilled({ connected: true }),
   fulfilled({ connected: true, available: true }),
+  driveReady,
 );
 const allConnected = subject.getIntegrationDisplayState(
   subject.state.integrations,
 );
 
 reset();
-subject.state.integrations.sheet = false;
 subject.applyIntegrationStatusResults(
   fulfilled({ connected: true }),
   fulfilled({ connected: true, available: true }),
+  fulfilled({
+    connected: true,
+    ownership: "client",
+    sheet_state: "access_revoked",
+    pipeline_access: false,
+  }),
 );
 const requiredServiceMissing = subject.getIntegrationDisplayState(
   subject.state.integrations,

@@ -12,6 +12,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
 from app.modules.contact.router import router as contact_router
 from app.modules.dashboard.router import router as dashboard_router
+from app.modules.drive_oauth.router import router as drive_oauth_router
 from app.modules.gmail_oauth.router import router as gmail_oauth_router
 from app.modules.pipeline.router import router as pipeline_router
 from app.modules.telegram.router import router as telegram_router
@@ -46,6 +47,7 @@ def create_app(environment: str | None = None) -> FastAPI:
     application.include_router(pipeline_router)
     application.include_router(auth_router)
     application.include_router(gmail_oauth_router)
+    application.include_router(drive_oauth_router)
     application.include_router(companies_router)
     application.include_router(contact_router)
     application.include_router(dashboard_router)

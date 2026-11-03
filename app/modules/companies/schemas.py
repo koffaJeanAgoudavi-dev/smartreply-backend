@@ -1,6 +1,7 @@
 """Schémas d'entrée et de sortie de l'API Entreprises."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -36,6 +37,7 @@ class CompanyResponse(BaseModel):
     nom_entreprise: str
     secteur: str
     sheet_id: str
+    sheet_owner_mode: Literal["platform", "client"]
     created_at: datetime
     updated_at: datetime
 

@@ -440,8 +440,13 @@ class DriveServiceTests(unittest.TestCase):
             ),
             patch.object(service, "get_company_by_sheet_id", return_value=None),
             patch.object(
+                service.drive_oauth_service,
+                "get_user_access_token",
+                return_value="client-access-token",
+            ),
+            patch.object(
                 service,
-                "duplicate_and_share_sheet",
+                "create_client_owned_sheet",
                 return_value="sheet-losing-race",
             ),
             patch.object(
@@ -457,7 +462,10 @@ class DriveServiceTests(unittest.TestCase):
             )
 
         db.rollback.assert_called_once()
-        cleanup.assert_called_once_with("sheet-losing-race")
+        cleanup.assert_called_once_with(
+            "sheet-losing-race",
+            access_token="client-access-token",
+        )
 
 
 class CompaniesApiTests(unittest.TestCase):
@@ -506,11 +514,18 @@ class CompaniesApiTests(unittest.TestCase):
         return {"Authorization": f"Bearer {self.token}"}
 
     def test_create_get_and_reject_a_second_company(self):
-        with patch.object(
-            service,
-            "duplicate_and_share_sheet",
-            return_value="sheet-company-one",
-        ) as duplicate:
+        with (
+            patch.object(
+                service.drive_oauth_service,
+                "get_user_access_token",
+                return_value="client-access-token",
+            ),
+            patch.object(
+                service,
+                "create_client_owned_sheet",
+                return_value="sheet-company-one",
+            ) as create_sheet,
+        ):
             created = self.client.post(
                 "/api/v1/companies",
                 headers=self.authorization,
@@ -532,7 +547,19 @@ class CompaniesApiTests(unittest.TestCase):
         self.assertEqual(fetched.status_code, 200, fetched.text)
         self.assertEqual(fetched.json()["id"], created.json()["id"])
         self.assertEqual(duplicate_attempt.status_code, 409, duplicate_attempt.text)
-        duplicate.assert_called_once_with("Acme", "user@example.com")
+        self.assertEqual(created.json()["sheet_owner_mode"], "client")
+        create_sheet.assert_called_once_with("Acme", "client-access-token")
+
+    def test_create_requires_a_client_drive_connection(self):
+        response = self.client.post(
+            "/api/v1/companies",
+            headers=self.authorization,
+            json={"nom_entreprise": "Acme", "secteur": "Conseil"},
+        )
+
+        self.assertEqual(response.status_code, 428, response.text)
+        self.assertNotIn("token", response.text.lower())
+        self.assertNotIn("sheet_id", response.text.lower())
 
     def test_pipeline_access_endpoint_repairs_and_verifies_the_users_sheet(self):
         with self.session_factory() as db:
@@ -563,6 +590,43 @@ class CompaniesApiTests(unittest.TestCase):
         )
         self.assertNotIn("sheet", response.text.lower())
         ensure_access.assert_called_once_with("private-sheet-id")
+
+    def test_client_owned_pipeline_access_uses_the_users_drive_token(self):
+        with self.session_factory() as db:
+            db.add(
+                Company(
+                    user_id=self.user_id,
+                    nom_entreprise="Acme",
+                    secteur="Conseil",
+                    sheet_id="client-owned-sheet",
+                    sheet_owner_mode="client",
+                )
+            )
+            db.commit()
+
+        with (
+            patch.object(
+                service.drive_oauth_service,
+                "get_user_access_token",
+                return_value="client-access-token",
+            ) as get_token,
+            patch.object(
+                service,
+                "ensure_and_verify_pipeline_access",
+                return_value=False,
+            ) as ensure_access,
+        ):
+            response = self.client.post(
+                "/api/v1/companies/me/pipeline-access",
+                headers=self.authorization,
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        get_token.assert_called_once()
+        ensure_access.assert_called_once_with(
+            "client-owned-sheet",
+            access_token="client-access-token",
+        )
 
     def test_pipeline_access_endpoint_returns_404_without_company(self):
         response = self.client.post(
@@ -606,10 +670,17 @@ class CompaniesApiTests(unittest.TestCase):
             db.refresh(second_user)
             second_token = create_access_token(second_user.id, second_user.email)
 
-        with patch.object(
-            service,
-            "duplicate_and_share_sheet",
-            side_effect=["sheet-user-one", "sheet-user-two"],
+        with (
+            patch.object(
+                service.drive_oauth_service,
+                "get_user_access_token",
+                return_value="client-access-token",
+            ),
+            patch.object(
+                service,
+                "create_client_owned_sheet",
+                side_effect=["sheet-user-one", "sheet-user-two"],
+            ),
         ):
             first_response = self.client.post(
                 "/api/v1/companies",
