@@ -216,6 +216,10 @@
           <span class="company-icon"><svg><use href="#icon-building"></use></svg></span>
           <span><strong id="sidebar-company-name">—</strong><small id="sidebar-company-sector">—</small></span>
         </div>
+        <div class="company-summary-statuses" aria-label="Statuts de l'entreprise">
+          <span id="sidebar-validation-status" class="status-pill neutral">Vérification…</span>
+          <small id="sidebar-technical-status">Configuration : vérification…</small>
+        </div>
       </section>
 
       <div class="sidebar-spacer"></div>
@@ -261,6 +265,29 @@
               </div>
             </div>
           </div>
+
+          <section
+            id="company-status-panel"
+            class="company-status-panel"
+            aria-labelledby="company-status-title"
+            aria-live="polite"
+          >
+            <div class="company-status-copy">
+              <span class="eyebrow">Activation de l'entreprise</span>
+              <h2 id="company-status-title">Statut SmartReply</h2>
+              <p id="company-status-description">Vérification de la validation et des services requis…</p>
+            </div>
+            <div class="company-status-grid">
+              <div class="company-status-item">
+                <small>Validation DIGICRAFT LABS</small>
+                <span id="dashboard-validation-status" class="status-pill neutral">Vérification…</span>
+              </div>
+              <div class="company-status-item">
+                <small>Configuration technique</small>
+                <span id="dashboard-technical-status" class="status-pill neutral">Vérification…</span>
+              </div>
+            </div>
+          </section>
 
           <div id="dashboard-data-error" class="form-alert error" role="alert" hidden></div>
 

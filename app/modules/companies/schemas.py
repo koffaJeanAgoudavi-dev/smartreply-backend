@@ -42,6 +42,10 @@ class CompanyResponse(BaseModel):
     updated_at: datetime
 
 
+class CompanyValidationStatusResponse(BaseModel):
+    validation_status: Literal["pending", "validated"]
+
+
 class PipelineAccessResponse(BaseModel):
     pipeline_access: bool
     permission_updated: bool
