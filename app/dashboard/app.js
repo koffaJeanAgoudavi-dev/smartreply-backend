@@ -22,6 +22,7 @@
   });
 
   const TOKEN_STORAGE_KEY = "smartreply_access_token";
+  const ONBOARDING_COMPANY_DRAFT_STORAGE_KEY = "smartreply_onboarding_company_draft";
   const TELEGRAM_POLL_INTERVAL_MS = 4000;
   const EMAILS_PAGE_SIZE = 25;
   const EMAILS_SEARCH_DEBOUNCE_MS = 350;
@@ -316,6 +317,71 @@
 
   function selectedSectorValue(select, input) {
     return select.value === OTHER_SECTOR_VALUE ? input.value.trim() : select.value;
+  }
+
+  function onboardingCompanyDraftFromForm() {
+    const companyName = $("company-name").value.trim();
+    const sector = selectedSectorValue(
+      $("company-sector"),
+      $("company-sector-other"),
+    );
+    if (!companyName || !sector) return null;
+    return { nom_entreprise: companyName, secteur: sector };
+  }
+
+  function persistOnboardingCompanyDraft() {
+    const draft = onboardingCompanyDraftFromForm();
+    if (!draft) return false;
+    try {
+      window.sessionStorage.setItem(
+        ONBOARDING_COMPANY_DRAFT_STORAGE_KEY,
+        JSON.stringify(draft),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function readOnboardingCompanyDraft() {
+    try {
+      const rawDraft = window.sessionStorage.getItem(
+        ONBOARDING_COMPANY_DRAFT_STORAGE_KEY,
+      );
+      if (!rawDraft) return null;
+      const draft = JSON.parse(rawDraft);
+      const companyName = typeof draft.nom_entreprise === "string"
+        ? draft.nom_entreprise.trim()
+        : "";
+      const sector = typeof draft.secteur === "string" ? draft.secteur.trim() : "";
+      if (!companyName || companyName.length > 255 || !sector || sector.length > 255) {
+        return null;
+      }
+      return { nom_entreprise: companyName, secteur: sector };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function restoreOnboardingCompanyDraft() {
+    const draft = readOnboardingCompanyDraft();
+    if (!draft) return false;
+    $("company-name").value = draft.nom_entreprise;
+    setSectorControlValue(
+      $("company-sector"),
+      $("company-sector-other-field"),
+      $("company-sector-other"),
+      draft.secteur,
+    );
+    return true;
+  }
+
+  function clearOnboardingCompanyDraft() {
+    try {
+      window.sessionStorage.removeItem(ONBOARDING_COMPANY_DRAFT_STORAGE_KEY);
+    } catch (_) {
+      // L'état mémoire et les champs restent réinitialisés indépendamment.
+    }
   }
 
   function setBusy(button, busy, label = "Traitement…") {
@@ -625,6 +691,7 @@
     stopTelegramPolling();
     closeIntegrationSetupModal();
     removeStoredToken();
+    clearOnboardingCompanyDraft();
     state.token = null;
     state.user = null;
     state.company = null;
@@ -794,8 +861,31 @@
   }
 
   async function connectDrive(button = $("connect-drive-onboarding")) {
-    showAlert($("company-error"), "");
+    const companyError = $("company-error");
+    showAlert(companyError, "");
     showAlert($("integrations-error"), "");
+    if (!state.company) {
+      const form = $("company-form");
+      if (!form.reportValidity()) return;
+      const draft = onboardingCompanyDraftFromForm();
+      if (!draft) {
+        if (!$("company-name").value.trim()) {
+          showAlert(companyError, "Renseignez le nom de votre entreprise.");
+          $("company-name").focus();
+        } else {
+          showAlert(companyError, "Précisez votre secteur d'activité.");
+          $("company-sector-other").focus();
+        }
+        return;
+      }
+      if (!persistOnboardingCompanyDraft()) {
+        showAlert(
+          companyError,
+          "Votre navigateur ne permet pas de conserver ces informations pendant la connexion Google.",
+        );
+        return;
+      }
+    }
     setBusy(button, true, "Ouverture de Google…");
     try {
       const response = await apiRequest(API.driveConnect);
@@ -833,6 +923,7 @@
           secteur: sector,
         },
       });
+      clearOnboardingCompanyDraft();
       form.reset();
       syncOtherSectorField(
         $("company-sector"),
@@ -869,15 +960,21 @@
 
     try {
       state.company = await apiRequest(API.company);
+      clearOnboardingCompanyDraft();
       await enterDashboard();
     } catch (error) {
       if (error.status === 404) {
         showAlert($("company-error"), "");
         showScreen("company-screen");
+        const draftRestored = restoreOnboardingCompanyDraft();
         renderOnboardingDriveStatus();
-        await refreshOnboardingDriveStatus();
+        const driveStatus = await refreshOnboardingDriveStatus();
         handleDriveReturn();
-        $("company-name").focus();
+        if (draftRestored && driveStatus && driveStatus.connected) {
+          $("company-submit").focus();
+        } else {
+          $("company-name").focus();
+        }
         return;
       }
       if (error.status !== 401) {

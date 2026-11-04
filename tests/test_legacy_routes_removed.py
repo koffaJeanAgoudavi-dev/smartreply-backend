@@ -47,6 +47,8 @@ class LegacyRoutesRemovedTests(unittest.TestCase):
             if getattr(route, "path", None)
         }
         self.assertIn("/dashboard", mounted_paths)
+        self.assertIn("/conditions", mounted_paths)
+        self.assertIn("/confidentialite", mounted_paths)
 
 
 if __name__ == "__main__":
