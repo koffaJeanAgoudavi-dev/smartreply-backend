@@ -96,17 +96,37 @@ class ConditionsStaticTests(unittest.TestCase):
             page.text,
         )
 
-    def test_security_address_and_internal_publication_note_are_visible(self):
+    def test_confirmed_publication_details_replace_the_internal_note(self):
         page = self.client.get("/conditions/")
 
-        self.assertIn("Note de publication", page.text)
-        self.assertIn("Avant publication", page.text)
+        self.assertNotIn("Note de publication", page.text)
+        self.assertNotIn("Suivi interne", page.text)
+        self.assertNotIn("Si cette adresse n’est pas encore active", page.text)
+        self.assertNotIn("doivent être relues", page.text)
         self.assertIn("security.smartreplyagent@gmail.com", page.text)
-        self.assertIn("Si cette adresse n’est pas encore active", page.text)
-        self.assertIn("que le modèle Gemini utilisé", page.text)
+        self.assertIn("utilise actuellement le quota gratuit de Gemini", page.text)
         self.assertIn('href="mailto:hello.smartreplyagent@gmail.com"', page.text)
         self.assertIn(
             'href="mailto:security.smartreplyagent@gmail.com"', page.text
+        )
+
+    def test_ten_external_pilot_companies_keep_fair_use_free_access(self):
+        page = self.client.get("/conditions/")
+
+        for approved_term in (
+            "registre privé du programme",
+            "pendant toute la durée d’exploitation de SmartReply",
+            "accès sans frais d’abonnement",
+            "d’un usage raisonnable",
+            "coûts disproportionnés",
+            "avant d’appliquer une restriction",
+            "urgence liée à la sécurité",
+        ):
+            self.assertIn(approved_term, page.text)
+
+        self.assertIn(
+            "Ils ne bénéficient pas automatiquement de la garantie accordée",
+            page.text,
         )
 
     def test_selected_privacy_links_and_local_navigation_are_preserved(self):
@@ -145,6 +165,7 @@ class ConditionsStaticTests(unittest.TestCase):
         self.assertIn("@media (min-width: 540px)", stylesheet.text)
         self.assertIn("@media (min-width: 980px)", stylesheet.text)
         self.assertIn("@media (prefers-reduced-motion: reduce)", stylesheet.text)
+        self.assertNotIn(".legal-publication-note", stylesheet.text)
         self.assertNotIn("style=", page.text)
 
 

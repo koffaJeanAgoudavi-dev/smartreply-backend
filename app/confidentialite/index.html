@@ -95,7 +95,8 @@
             <li>l’utilisateur consulte les résultats dans son espace SmartReply et dans le Google Sheet associé.</li>
           </ol>
           <p>Le programme pilote externe est limité à <strong>10 entreprises sélectionnées</strong>. Les quatre personnes ayant participé à des tests internes avec DIGICRAFT LABS ne font pas partie de cette limite commerciale.</p>
-          <p>Pendant le programme pilote, SmartReply peut utiliser le quota gratuit de Gemini pour des tests contrôlés et des e-mails professionnels non sensibles. DIGICRAFT LABS prévoit de passer à une configuration payante après le pilote et avant l’ouverture du traitement de données professionnelles à plus grande échelle.</p>
+          <p>DIGICRAFT LABS n’applique actuellement aucune restriction géographique particulière à l’accès au pilote. L’admission reste manuelle et dépend du périmètre du programme, de la disponibilité du service et des règles applicables à l’entreprise concernée.</p>
+          <p>Pendant le programme pilote, SmartReply utilise actuellement le quota gratuit de Gemini pour des tests contrôlés et des e-mails professionnels non sensibles. DIGICRAFT LABS prévoit de passer à une configuration payante après le pilote et avant l’ouverture du traitement de données professionnelles à plus grande échelle.</p>
         </section>
 
         <section id="donnees" class="legal-section" aria-labelledby="donnees-title">
@@ -219,7 +220,7 @@
 
           <div class="legal-subsection">
             <h3>4.8 Formulaire de contact et prévention des abus</h3>
-            <p>Lorsque vous utilisez le formulaire Contact, SmartReply traite votre nom complet, votre adresse e-mail, le motif, l’objet et le message afin de transmettre la demande à DIGICRAFT LABS par un fournisseur SMTP. L’application n’enregistre pas directement ces champs dans sa base PostgreSQL, mais le message peut rester présent dans les boîtes e-mail et les systèmes du fournisseur utilisés pour sa livraison.</p>
+            <p>Lorsque vous utilisez le formulaire Contact, SmartReply traite votre nom complet, votre adresse e-mail, le motif, l’objet et le message afin de transmettre la demande à DIGICRAFT LABS par le service SMTP de Gmail fourni par Google. L’application n’enregistre pas directement ces champs dans sa base PostgreSQL, mais le message peut rester présent dans les boîtes Gmail et les systèmes de Google utilisés pour sa livraison.</p>
             <p>Pour limiter les abus sur la connexion, l’inscription et le formulaire Contact, SmartReply utilise l’adresse IP de la requête pour produire une empreinte HMAC utilisée dans des compteurs temporaires. L’adresse IP brute n’est pas placée dans les clés de limitation par l’application. Render et d’autres prestataires réseau peuvent néanmoins traiter l’adresse IP et des métadonnées de requête dans leurs journaux techniques.</p>
           </div>
         </section>
@@ -231,7 +232,7 @@
 
           <div class="legal-subsection">
             <h3>5.1 Période de quota gratuit</h3>
-            <p>Pendant le programme pilote, DIGICRAFT LABS peut utiliser le quota gratuit de Gemini afin de réaliser des tests contrôlés.</p>
+            <p>Pendant le programme pilote, DIGICRAFT LABS utilise actuellement le quota gratuit de Gemini afin de réaliser des tests contrôlés.</p>
             <p>Les modalités de conservation et d’utilisation des contenus par Google dépendent du service utilisé, du compte, de la facturation et des conditions Google applicables au moment du traitement. Elles peuvent évoluer. Pendant cette phase, les entreprises pilotes doivent donc utiliser SmartReply uniquement avec des données professionnelles non sensibles.</p>
             <p>SmartReply ne doit pas utiliser le quota gratuit pour des données médicales, juridiques, financières, RH, de santé, de mineurs ou d’autres informations particulièrement sensibles ou confidentielles.</p>
           </div>
@@ -274,7 +275,7 @@
             <li>Google Gmail, Google Drive et Google Sheets, pour les connexions et fichiers associés ;</li>
             <li>Google Gemini, pour l’analyse et la génération des résultats ;</li>
             <li>Telegram Bot API, uniquement si Telegram est connecté ;</li>
-            <li>le fournisseur SMTP configuré, pour les messages du formulaire Contact ;</li>
+            <li>le service SMTP de Gmail fourni par Google, pour les messages du formulaire Contact ;</li>
             <li>les autres prestataires techniques indispensables au fonctionnement du service.</li>
           </ul>
           <p>Le compte de service utilisé pour le pipeline peut accéder au Google Sheet afin de lire et mettre à jour les données nécessaires au traitement.</p>
@@ -295,7 +296,6 @@
           <p>Aucun système connecté à Internet ne peut garantir une sécurité absolue. Les journaux techniques peuvent contenir des informations liées à une erreur ou à une demande technique. DIGICRAFT LABS travaille à réduire les risques de divulgation accidentelle dans les journaux et à documenter une procédure de réponse aux incidents.</p>
           <p>Si vous pensez qu’un accès non autorisé, une erreur d’isolation ou une fuite de données s’est produite, écrivez à :</p>
           <p><a href="mailto:security.smartreplyagent@gmail.com"><strong>security.smartreplyagent@gmail.com</strong></a></p>
-          <p>Si cette adresse n’est pas encore active, utilisez <a href="mailto:hello.smartreplyagent@gmail.com"><strong>hello.smartreplyagent@gmail.com</strong></a>.</p>
         </section>
 
         <section id="conservation" class="legal-section" aria-labelledby="conservation-title">
@@ -366,19 +366,6 @@
           <a class="legal-contact-button" href="/contact/">Ouvrir le formulaire de contact</a>
         </section>
 
-        <aside class="legal-publication-note" aria-labelledby="privacy-publication-note-title">
-          <span class="eyebrow">Suivi interne</span>
-          <h2 id="privacy-publication-note-title">Note de publication</h2>
-          <p>Avant de publier cette politique, DIGICRAFT LABS doit :</p>
-          <ul>
-            <li>confirmer l’adresse de sécurité ;</li>
-            <li>confirmer le fournisseur SMTP réellement utilisé ;</li>
-            <li>confirmer les régions d’accès au pilote ;</li>
-            <li>vérifier si le quota Gemini gratuit est encore utilisé au moment de la mise en ligne ;</li>
-            <li>remplacer toute phrase devenue inexacte après une modification du code ;</li>
-            <li>faire relire le document par un professionnel compétent si SmartReply est ouvert à des clients européens ou traite des données de clients, salariés, candidats ou autres personnes.</li>
-          </ul>
-        </aside>
       </article>
     </div>
   </main>

@@ -76,6 +76,11 @@ class PrivacyStaticTests(unittest.TestCase):
         flow_positions = [page.text.index(step) for step in approved_flow]
 
         self.assertEqual(flow_positions, sorted(flow_positions))
+        self.assertIn(
+            "n’applique actuellement aucune restriction géographique particulière",
+            page.text,
+        )
+        self.assertIn("L’admission reste manuelle", page.text)
         self.assertNotIn("Espace économique européen", page.text)
         self.assertNotIn("avant l’ajout de l’entreprise à l’allowlist", page.text)
 
@@ -90,6 +95,7 @@ class PrivacyStaticTests(unittest.TestCase):
             "refresh tokens Gmail et Google Drive sont chiffrés",
             "limite par défaut du corps d’e-mail transmis est d’environ "
             "6 000 caractères",
+            "service SMTP de Gmail fourni par Google",
             "L’application n’enregistre pas directement ces champs dans sa "
             "base PostgreSQL",
             "empreinte HMAC utilisée dans des compteurs temporaires",
@@ -127,13 +133,15 @@ class PrivacyStaticTests(unittest.TestCase):
             page.text,
         )
 
-    def test_security_address_and_internal_publication_note_are_visible(self):
+    def test_confirmed_publication_details_replace_the_internal_note(self):
         page = self.client.get("/confidentialite/")
 
-        self.assertIn("Note de publication", page.text)
-        self.assertIn("Avant de publier", page.text)
+        self.assertNotIn("Note de publication", page.text)
+        self.assertNotIn("Suivi interne", page.text)
+        self.assertNotIn("Si cette adresse n’est pas encore active", page.text)
         self.assertIn("security.smartreplyagent@gmail.com", page.text)
-        self.assertIn("confirmer les régions d’accès au pilote", page.text)
+        self.assertIn("utilise actuellement le quota gratuit de Gemini", page.text)
+        self.assertIn("service SMTP de Gmail fourni par Google", page.text)
         self.assertIn('href="mailto:hello.smartreplyagent@gmail.com"', page.text)
         self.assertIn(
             'href="mailto:security.smartreplyagent@gmail.com"', page.text
