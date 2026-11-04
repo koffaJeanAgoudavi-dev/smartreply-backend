@@ -5,12 +5,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.modules.companies.models import Company
+from app.modules.drive_oauth.models import DriveConnection
 from app.modules.gmail_oauth.models import GmailConnection
 
 # 0x53524D54 = "SRMT". Le verrou est global à la base PostgreSQL.
@@ -136,10 +137,18 @@ def select_eligible_company_plans(
             GmailConnection,
             GmailConnection.user_id == Company.user_id,
         )
+        .outerjoin(
+            DriveConnection,
+            DriveConnection.user_id == Company.user_id,
+        )
         .where(
             GmailConnection.status == "connected",
             func.length(func.trim(GmailConnection.encrypted_refresh_token)) > 0,
             func.length(func.trim(Company.sheet_id)) > 0,
+            or_(
+                Company.sheet_owner_mode == "platform",
+                DriveConnection.status == "connected",
+            ),
         )
         .order_by(
             Company.pipeline_last_processed_at.asc().nullsfirst(),

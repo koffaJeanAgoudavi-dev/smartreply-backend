@@ -26,6 +26,7 @@ from app.main import app, create_app
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.security import create_access_token
 from app.modules.auth.service import normalize_email
+from app.modules.drive_oauth import router as drive_router
 from app.modules.gmail_oauth import router as gmail_router
 
 
@@ -522,6 +523,10 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         ("GET", "/api/v1/gmail/callback"),
         ("GET", "/api/v1/gmail/connect"),
         ("GET", "/api/v1/gmail/status"),
+        ("GET", "/api/v1/drive/callback"),
+        ("GET", "/api/v1/drive/connect"),
+        ("GET", "/api/v1/drive/status"),
+        ("DELETE", "/api/v1/drive/connection"),
         ("POST", "/api/v1/pipeline/run"),
         ("POST", "/api/v1/telegram/link-code"),
         ("GET", "/api/v1/telegram/status"),
@@ -668,6 +673,10 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
                 gmail_router.service.redirect_uri(),
                 "https://smartreply.example/api/v1/gmail/callback",
             )
+            self.assertEqual(
+                drive_router.service.redirect_uri(),
+                "https://smartreply.example/api/v1/drive/callback",
+            )
 
         with (
             patch.object(settings, "ENVIRONMENT", "production"),
@@ -675,6 +684,13 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "HTTPS"),
         ):
             gmail_router.service.redirect_uri()
+
+        with (
+            patch.object(settings, "ENVIRONMENT", "production"),
+            patch.object(settings, "BASE_URL", "http://smartreply.example"),
+            self.assertRaisesRegex(RuntimeError, "HTTPS"),
+        ):
+            drive_router.service.redirect_uri()
 
     def test_render_trusted_scheme_requires_the_configured_overwritten_header(self):
         original_header = settings.CLIENT_IP_HEADER
@@ -833,6 +849,9 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
                 ("GET", "/api/v1/dashboard/emails/{email_id}"),
                 ("GET", "/api/v1/gmail/connect"),
                 ("GET", "/api/v1/gmail/status"),
+                ("GET", "/api/v1/drive/connect"),
+                ("GET", "/api/v1/drive/status"),
+                ("DELETE", "/api/v1/drive/connection"),
                 ("POST", "/api/v1/telegram/link-code"),
                 ("GET", "/api/v1/telegram/status"),
             },

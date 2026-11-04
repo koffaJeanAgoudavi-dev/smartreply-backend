@@ -100,9 +100,12 @@ scripts/
    `uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers`.
 5. Vérifier `/health`, l'absence de `/docs`, `/redoc` et `/openapi.json`, la
    redirection relative `/dashboard` → `/dashboard/`, et les en-têtes CSP/HSTS.
-6. Enregistrer dans Google OAuth l'URI exacte
-   `https://<service>.onrender.com/api/v1/gmail/callback`, configurer le cron
-   externe, puis configurer le webhook uniquement si Telegram est activé.
+6. Activer les API **Google Drive** et **Google Sheets**, puis enregistrer dans
+   Google OAuth les deux URI exactes :
+   `https://<service>.onrender.com/api/v1/gmail/callback` et
+   `https://<service>.onrender.com/api/v1/drive/callback`. Le consentement Drive
+   doit autoriser uniquement `drive.file`. Configurer ensuite le cron externe,
+   puis le webhook uniquement si Telegram est activé.
 
 ### Variables obligatoires avant le déploiement de production
 
@@ -120,9 +123,8 @@ INVITATION_CODES=<au moins un code actif>
 GOOGLE_CLIENT_ID=<client OAuth Gmail>
 GOOGLE_CLIENT_SECRET=<secret OAuth Gmail>
 GOOGLE_SERVICE_ACCOUNT_JSON=<JSON complet>
-GOOGLE_DRIVE_CLIENT_ID=<client OAuth Drive propriétaire>
+GOOGLE_DRIVE_CLIENT_ID=<client OAuth Drive par utilisateur>
 GOOGLE_DRIVE_CLIENT_SECRET=<secret OAuth Drive>
-GOOGLE_DRIVE_REFRESH_TOKEN=<refresh token propriétaire>
 GEMINI_API_KEY=<clé Google AI Studio>
 CRON_SECRET=<secret du cron>
 CONTACT_SMTP_USERNAME=hello.smartreplyagent@gmail.com
@@ -145,8 +147,10 @@ TELEGRAM_WEBHOOK_SECRET=<secret webhook aléatoire>
 
 `REDIS_URL` est **optionnelle**. `PIPELINE_ALLOWED_COMPANY_IDS` est nécessaire
 uniquement pour activer le traitement réel ; vide, le pipeline reste en
-simulation. `GOOGLE_DRIVE_TEMPLATE_ID`, `ACCESS_TOKEN_EXPIRE_MINUTES`, les
-limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
+simulation. `GOOGLE_DRIVE_REFRESH_TOKEN` et `GOOGLE_DRIVE_TEMPLATE_ID` restent
+optionnels pour réparer les anciens Sheets détenus par le compte plateforme ;
+les nouvelles créations ne les utilisent plus. `ACCESS_TOKEN_EXPIRE_MINUTES`,
+les limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
 valeur vide de `INVITATION_CODES` ferme volontairement les inscriptions ; elle
 n'est acceptable que si cette fermeture est souhaitée.
 
@@ -166,9 +170,9 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `TELEGRAM_WEBHOOK_SECRET` | Optionnel pour le socle ; requis avec le token bot, puis vérifié sur chaque update en mode fail-closed |
 | `BASE_URL` | URL publique du service (ex. `https://xxx.onrender.com`) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON du compte de service ; son `client_email` reçoit l'accès writer à chaque Sheet d'entreprise |
-| `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` | Client OAuth du compte propriétaire des copies d'entreprise |
-| `GOOGLE_DRIVE_REFRESH_TOKEN` | Refresh token OAuth Drive du compte propriétaire |
-| `GOOGLE_DRIVE_TEMPLATE_ID` | (Optionnel) ID du template à copier ; une valeur dédiée est fournie par défaut |
+| `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` | Client OAuth Drive par utilisateur ; callback `/api/v1/drive/callback`, scope unique `drive.file` |
+| `GOOGLE_DRIVE_REFRESH_TOKEN` | Optionnel, compatibilité des anciens Sheets détenus par la plateforme uniquement |
+| `GOOGLE_DRIVE_TEMPLATE_ID` | Optionnel, template des anciennes créations plateforme uniquement |
 | `GEMINI_API_KEY` | Clé API Google AI Studio |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Client OAuth Gmail par utilisateur |
 | `CONTACT_SMTP_USERNAME` | Adresse du compte SMTP expéditeur de la page Contact |
@@ -191,7 +195,7 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `REGISTER_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre de la limite d'inscription (défaut : `3600`, soit une heure) |
 | `CONTACT_IP_RATE_LIMIT` | Envois du formulaire Contact par IP (défaut : `5`) |
 | `CONTACT_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre de la limite Contact (défaut : `3600`, soit une heure) |
-| `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail stockés dans Neon |
+| `TOKEN_ENCRYPTION_KEY` | Clé Fernet des refresh tokens Gmail et Drive stockés séparément dans Neon |
 | `PIPELINE_ALLOWED_COMPANY_IDS` | IDs internes autorisés au traitement réel, séparés par des virgules ; vide ou absent = aucune entreprise traitée |
 | `MAX_EMAILS_PER_COMPANY_PER_RUN` | Plafond par entreprise et par passage (défaut : `10`) |
 | `PIPELINE_RUN_TIME_BUDGET_SECONDS` | Budget total d'un passage (défaut : `240` secondes) |
@@ -565,6 +569,36 @@ couverts par `tests.test_company_telegram_actions` et
    sans appel Gmail ni Sheet. Vérifier enfin que réponses et logs ne contiennent
    ni adresse, contenu, jeton, Sheet ID ou identifiant Telegram.
 
+## 📁 Propriété des Google Sheets
+
+Les nouvelles entreprises doivent d'abord connecter Google Drive. SmartReply
+stocke le refresh token Drive chiffré dans `drive_connections`, séparément de
+Gmail, puis crée le classeur avec le token du client via Google Sheets API. Le
+compte Google autorisé devient ainsi propriétaire du fichier. Seul le compte de
+service reçoit ensuite une permission `writer`, nécessaire aux lectures et
+écritures du pipeline. Le dashboard continue d'ouvrir le fichier à partir du
+`sheet_id` isolé de l'entreprise.
+
+Les entreprises historiques restent marquées `sheet_owner_mode=platform` pour
+éviter une interruption. Toutes les nouvelles créations utilisent
+`sheet_owner_mode=client`. Le pipeline n'est éligible pour un Sheet client que
+tant que sa connexion Drive existe. Une déconnexion applicative retire d'abord
+la permission du compte de service, supprime le secret local, tente de révoquer
+le grant Google et **ne supprime jamais le fichier du client**.
+
+`GET /api/v1/drive/status` distingue `ready`, `oauth_revoked`, `missing`,
+`trashed`, `ownership_changed`, `access_revoked`, `structure_invalid`,
+`disconnected` et `unavailable`. Les tests locaux simulent ces états ; une validation réelle doit
+encore être exécutée dans un projet Google de staging avec un compte test :
+
+1. confirmer dans Drive que le compte test est propriétaire ;
+2. lire et modifier les deux onglets avec le compte de service ;
+3. vérifier que le dashboard ouvre exactement ce `sheet_id` ;
+4. retirer puis rétablir la permission technique ;
+5. mettre le fichier à la corbeille puis le restaurer ;
+6. révoquer le consentement OAuth et exécuter la déconnexion SmartReply ;
+7. confirmer que le pipeline s'arrête et que le fichier reste dans le Drive.
+
 ## 🧪 Endpoints API et de validation
 
 | Endpoint | Module | Description |
@@ -575,10 +609,13 @@ couverts par `tests.test_company_telegram_actions` et
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
 | `GET /api/v1/gmail/connect` | Gmail OAuth | Démarre la connexion Gmail utilisateur |
 | `GET /api/v1/gmail/status` | Gmail OAuth | Retourne le statut de connexion Gmail |
+| `GET /api/v1/drive/connect` | Drive OAuth | Démarre le consentement utilisateur limité à `drive.file` |
+| `GET /api/v1/drive/status` | Drive OAuth | Vérifie propriété, existence, structure et permission technique du Sheet |
+| `DELETE /api/v1/drive/connection` | Drive OAuth | Retire l'accès du compte de service, révoque le grant et laisse le fichier au client |
 | `POST /api/v1/telegram/link-code` | Telegram optionnel | Génère un code temporaire de 15 minutes, ou `503` si désactivé |
 | `GET /api/v1/telegram/status` | Telegram optionnel | Retourne `available`, la liaison et sa date, sans exposer le chat |
 | `POST /api/v1/telegram/webhook` | Telegram | Reçoit commandes, codes et callbacks avec secret |
-| `POST /api/v1/companies` | Companies | Crée l'entreprise et sa copie de Sheet dédiée |
+| `POST /api/v1/companies` | Companies | Crée l'entreprise et son Sheet directement dans le Drive connecté du client |
 | `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
 | `POST /api/v1/pipeline/run` | Pipeline | Plan sûr `202`, puis traitement multi-utilisateur allowlisté en arrière-plan |

@@ -14,6 +14,7 @@ from app.modules.companies.schemas import (
     CompanyResponse,
     PipelineAccessResponse,
 )
+from app.modules.drive_oauth import service as drive_oauth_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/companies", tags=["Companies"])
@@ -25,7 +26,7 @@ def create_company(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CompanyResponse:
-    """Crée l'entreprise, sa copie du template et son partage utilisateur."""
+    """Crée l'entreprise et son Sheet directement dans le Drive du client."""
     try:
         return service.create_company_record(
             db=db,
@@ -38,12 +39,25 @@ def create_company(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
-    except service.DriveConfigurationError as exc:
+    except drive_oauth_service.DriveConnectionRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail=str(exc),
+        ) from exc
+    except drive_oauth_service.DriveAuthorizationRevokedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except (
+        service.DriveConfigurationError,
+        drive_oauth_service.DriveOAuthConfigurationError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
-    except service.DriveOperationError as exc:
+    except (service.DriveOperationError, service.PipelineAccessError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -90,8 +104,35 @@ def ensure_my_pipeline_access(
         )
 
     try:
-        permission_updated = service.ensure_and_verify_pipeline_access(company.sheet_id)
-    except service.DriveConfigurationError as exc:
+        access_token = None
+        if company.sheet_owner_mode == "client":
+            access_token = drive_oauth_service.get_user_access_token(
+                db,
+                current_user.id,
+            )
+        if access_token is None:
+            permission_updated = service.ensure_and_verify_pipeline_access(
+                company.sheet_id
+            )
+        else:
+            permission_updated = service.ensure_and_verify_pipeline_access(
+                company.sheet_id,
+                access_token=access_token,
+            )
+    except drive_oauth_service.DriveConnectionRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail=str(exc),
+        ) from exc
+    except drive_oauth_service.DriveAuthorizationRevokedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except (
+        service.DriveConfigurationError,
+        drive_oauth_service.DriveOAuthConfigurationError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),

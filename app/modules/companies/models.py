@@ -2,16 +2,22 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
 
 
 class Company(Base):
-    """Entreprise unique d'un utilisateur, liée à une copie unique du template."""
+    """Entreprise unique liée à son Sheet historique ou détenu par le client."""
 
     __tablename__ = "companies"
+    __table_args__ = (
+        CheckConstraint(
+            "sheet_owner_mode IN ('platform', 'client')",
+            name="ck_companies_sheet_owner_mode",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -20,6 +26,14 @@ class Company(Base):
     nom_entreprise: Mapped[str] = mapped_column(String(255), nullable=False)
     secteur: Mapped[str] = mapped_column(String(255), nullable=False)
     sheet_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # ``platform`` conserve la compatibilité des Sheets historiques. Toutes les
+    # nouvelles créations utilisent ``client`` et exigent une connexion Drive.
+    sheet_owner_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="platform",
+        server_default="platform",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

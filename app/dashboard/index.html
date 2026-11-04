@@ -153,7 +153,13 @@
       <div class="onboarding-icon"><svg><use href="#icon-building"></use></svg></div>
       <span class="eyebrow">Dernière étape</span>
       <h1>Parlez-nous de votre entreprise</h1>
-      <p>Nous créerons votre espace Google Sheets dédié et préparerons le tableau de bord.</p>
+      <p>Connectez d'abord votre Drive : le Google Sheet sera créé directement dans votre compte et restera votre propriété.</p>
+      <div class="onboarding-drive" aria-live="polite">
+        <span id="onboarding-drive-status" class="status-pill neutral">Vérification…</span>
+        <button id="connect-drive-onboarding" class="button button-secondary" type="button">
+          Connecter Google Drive <svg><use href="#icon-arrow"></use></svg>
+        </button>
+      </div>
       <form id="company-form" class="company-form" novalidate>
         <div id="company-error" class="form-alert error" role="alert" hidden></div>
         <label class="field">
@@ -164,10 +170,10 @@
           <span>Secteur d'activité</span>
           <input id="company-sector" name="secteur" type="text" maxlength="255" placeholder="Ex. Conseil, Commerce, Technologie" required>
         </label>
-        <button class="button button-primary button-block" type="submit">
+        <button id="company-submit" class="button button-primary button-block" type="submit" disabled>
           <span>Créer mon espace</span><svg><use href="#icon-arrow"></use></svg>
         </button>
-        <p class="form-help">La création peut prendre quelques secondes pendant la préparation de votre Sheet.</p>
+        <p class="form-help">La création peut prendre quelques secondes pendant la préparation de votre Sheet dans votre Drive.</p>
       </form>
     </section>
   </main>
@@ -547,12 +553,15 @@
                 <span class="integration-logo sheets-logo large" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6z" fill="currentColor"/><path d="M15 2v5h5" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M9 11h7M9 15h7M12 10v8" fill="none" stroke="#fff" stroke-width="1.5"/></svg></span>
                 <div class="integration-copy">
                   <div class="integration-title-row"><h2 id="sheet-card-title">Google Sheets</h2><span id="sheet-status" class="status-pill neutral">Vérification…</span></div>
-                  <p>Votre espace de données d'entreprise, créé et partagé lors de l'inscription.</p>
+                  <p>Votre espace de données d'entreprise reste dans votre Drive et sous votre propriété.</p>
                   <small id="sheet-company-label">Sheet de votre entreprise</small>
                 </div>
               </div>
-              <div class="integration-action">
+              <div class="integration-action integration-action-stack">
                 <a id="open-sheet" class="button button-secondary" href="#" target="_blank" rel="noopener noreferrer">Ouvrir le Sheet <svg><use href="#icon-external"></use></svg></a>
+                <button id="connect-drive" class="button button-primary" type="button" hidden>Reconnecter Google Drive</button>
+                <button id="repair-sheet-access" class="button button-secondary" type="button" hidden>Rétablir l'accès technique</button>
+                <button id="disconnect-drive" class="button button-ghost button-small" type="button" hidden>Déconnecter Google Drive</button>
               </div>
             </article>
 

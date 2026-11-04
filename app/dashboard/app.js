@@ -8,6 +8,10 @@
     companies: "/api/v1/companies",
     gmailConnect: "/api/v1/gmail/connect",
     gmailStatus: "/api/v1/gmail/status",
+    driveConnect: "/api/v1/drive/connect",
+    driveStatus: "/api/v1/drive/status",
+    driveDisconnect: "/api/v1/drive/connection",
+    pipelineAccess: "/api/v1/companies/me/pipeline-access",
     telegramCode: "/api/v1/telegram/link-code",
     telegramStatus: "/api/v1/telegram/status",
     dashboardOverview: "/api/v1/dashboard/overview",
@@ -130,6 +134,10 @@
       sheet: false,
       telegram: false,
       gmailError: false,
+      sheetError: false,
+      sheetState: "not_created",
+      sheetOwnership: "none",
+      driveConnected: false,
       telegramError: false,
       telegramAvailable: null,
       statusesAvailable: false,
@@ -551,6 +559,10 @@
       sheet: false,
       telegram: false,
       gmailError: false,
+      sheetError: false,
+      sheetState: "not_created",
+      sheetOwnership: "none",
+      driveConnected: false,
       telegramError: false,
       telegramAvailable: null,
       statusesAvailable: false,
@@ -653,6 +665,8 @@
       setSession(response.access_token);
       form.reset();
       showScreen("company-screen");
+      renderOnboardingDriveStatus();
+      await refreshOnboardingDriveStatus();
       $("company-name").focus();
     } catch (error) {
       let message = error.message || "Inscription impossible.";
@@ -663,6 +677,57 @@
       }
       showAlert(errorElement, message);
     } finally {
+      setBusy(button, false);
+    }
+  }
+
+  function renderOnboardingDriveStatus(statusResponse = null, hasError = false) {
+    const statusElement = $("onboarding-drive-status");
+    const connectButton = $("connect-drive-onboarding");
+    const submitButton = $("company-submit");
+    const connected = Boolean(statusResponse && statusResponse.connected);
+
+    statusElement.classList.remove("connected", "neutral", "error");
+    if (hasError) {
+      statusElement.classList.add("error");
+      statusElement.textContent = "Statut Drive indisponible";
+    } else if (connected) {
+      statusElement.classList.add("connected");
+      statusElement.textContent = "Google Drive connecté";
+    } else {
+      statusElement.classList.add("neutral");
+      statusElement.textContent = "Google Drive requis";
+    }
+    connectButton.hidden = connected;
+    connectButton.disabled = hasError;
+    submitButton.disabled = !connected || hasError;
+  }
+
+  async function refreshOnboardingDriveStatus() {
+    try {
+      const response = await apiRequest(API.driveStatus);
+      renderOnboardingDriveStatus(response);
+      return response;
+    } catch (error) {
+      if (error.status !== 401) renderOnboardingDriveStatus(null, true);
+      return null;
+    }
+  }
+
+  async function connectDrive(button = $("connect-drive-onboarding")) {
+    showAlert($("company-error"), "");
+    showAlert($("integrations-error"), "");
+    setBusy(button, true, "Ouverture de Google…");
+    try {
+      const response = await apiRequest(API.driveConnect);
+      const authorizationUrl = new URL(response.authorization_url);
+      if (authorizationUrl.protocol !== "https:" || authorizationUrl.hostname !== "accounts.google.com") {
+        throw new ApiError(500, "L'adresse d'autorisation Google reçue est invalide.");
+      }
+      window.location.assign(authorizationUrl.href);
+    } catch (error) {
+      const target = state.company ? $("integrations-error") : $("company-error");
+      showAlert(target, describeGoogleProblem(error));
       setBusy(button, false);
     }
   }
@@ -688,7 +753,10 @@
       showToast("Votre espace d'entreprise est prêt.");
     } catch (error) {
       let message = error.message || "Création de l'entreprise impossible.";
-      if (error.status === 409) {
+      if (error.status === 428) {
+        message = "Connectez ou renouvelez Google Drive avant de créer votre espace.";
+        await refreshOnboardingDriveStatus();
+      } else if (error.status === 409) {
         message = "Une entreprise est déjà associée à ce compte. Rechargez la page pour ouvrir votre espace.";
       } else if (error.status === 502 || error.status === 503) {
         message = describeGoogleProblem(error);
@@ -696,6 +764,7 @@
       showAlert(errorElement, message);
     } finally {
       setBusy(button, false);
+      if (!state.company) await refreshOnboardingDriveStatus();
     }
   }
 
@@ -715,6 +784,9 @@
       if (error.status === 404) {
         showAlert($("company-error"), "");
         showScreen("company-screen");
+        renderOnboardingDriveStatus();
+        await refreshOnboardingDriveStatus();
+        handleDriveReturn();
         $("company-name").focus();
         return;
       }
@@ -737,6 +809,7 @@
     renderRoute();
     await loadDashboardResourcesIndependently();
     handleGmailReturn();
+    handleDriveReturn();
   }
 
   async function loadDashboardResourcesIndependently(
@@ -867,7 +940,20 @@
     );
     const display = getIntegrationDisplayState(integrations);
     setStatus($("gmail-status"), integrations.gmail, integrations.gmailError);
-    setStatus($("sheet-status"), integrations.sheet);
+    setStatus($("sheet-status"), integrations.sheet, integrations.sheetError);
+    const sheetStatusLabels = {
+      disconnected: "Déconnecté",
+      oauth_revoked: "Autorisation expirée",
+      missing: "Fichier supprimé",
+      trashed: "Dans la corbeille",
+      ownership_changed: "Propriété modifiée",
+      access_revoked: "Accès technique retiré",
+      structure_invalid: "Structure modifiée",
+      unavailable: "Indisponible",
+    };
+    if (!integrations.sheet && sheetStatusLabels[integrations.sheetState]) {
+      $("sheet-status").textContent = sheetStatusLabels[integrations.sheetState];
+    }
     setStatus(
       $("telegram-status"),
       integrations.telegram,
@@ -883,8 +969,8 @@
     const banner = $("readiness-banner");
     banner.classList.toggle("ready", display.ready);
     if (!integrations.statusesAvailable) {
-      $("readiness-title").textContent = "Statut Gmail temporairement indisponible";
-      $("readiness-text").textContent = "Google Sheets reste configuré, mais le statut Gmail n'a pas pu être confirmé. Réessayez dans quelques instants.";
+      $("readiness-title").textContent = "Statut des intégrations temporairement indisponible";
+      $("readiness-text").textContent = "Gmail ou Google Sheets n'a pas pu être confirmé. Réessayez dans quelques instants.";
     } else if (display.ready) {
       $("readiness-title").textContent = "SmartReply est prêt";
       $("readiness-text").textContent = integrations.telegram
@@ -908,6 +994,17 @@
     const sheetLink = $("open-sheet");
     sheetLink.setAttribute("aria-disabled", String(!integrations.sheet));
     sheetLink.tabIndex = integrations.sheet ? 0 : -1;
+    const clientOwnedSheet = integrations.sheetOwnership === "client";
+    const reconnectDriveButton = $("connect-drive");
+    const repairSheetButton = $("repair-sheet-access");
+    const disconnectDriveButton = $("disconnect-drive");
+    reconnectDriveButton.hidden = !clientOwnedSheet || integrations.driveConnected;
+    repairSheetButton.hidden = !clientOwnedSheet
+      || !integrations.driveConnected
+      || integrations.sheetState !== "access_revoked";
+    disconnectDriveButton.hidden = !clientOwnedSheet || (
+      !integrations.driveConnected && integrations.sheetState !== "oauth_revoked"
+    );
 
     const telegramButton = $("generate-telegram-code");
     telegramButton.disabled = integrations.telegram || telegramUnavailable;
@@ -924,9 +1021,12 @@
     }
   }
 
-  function applyIntegrationStatusResults(gmailResult, telegramResult) {
+  function applyIntegrationStatusResults(gmailResult, telegramResult, driveResult = null) {
     const errors = [];
-    const statusesAvailable = gmailResult.status === "fulfilled";
+    const driveAvailable = Boolean(
+      driveResult && driveResult.status === "fulfilled"
+    );
+    const statusesAvailable = gmailResult.status === "fulfilled" && driveAvailable;
     state.integrations.statusesAvailable = statusesAvailable;
 
     if (gmailResult.status === "fulfilled") {
@@ -935,6 +1035,21 @@
       state.integrations.gmail = false;
       state.integrations.gmailError = true;
       errors.push("Gmail");
+    }
+
+    if (driveAvailable) {
+      state.integrations.driveConnected = Boolean(driveResult.value.connected);
+      state.integrations.sheetState = driveResult.value.sheet_state || "unavailable";
+      state.integrations.sheetOwnership = driveResult.value.ownership || "none";
+      state.integrations.sheet = driveResult.value.sheet_state === "ready"
+        && driveResult.value.pipeline_access === true;
+      state.integrations.sheetError = driveResult.value.sheet_state === "unavailable";
+    } else if (driveResult && driveResult.reason.status !== 401) {
+      state.integrations.driveConnected = false;
+      state.integrations.sheet = false;
+      state.integrations.sheetError = true;
+      state.integrations.sheetState = "unavailable";
+      errors.push("Google Sheets");
     }
 
     if (telegramResult.status === "fulfilled") {
@@ -951,20 +1066,23 @@
   async function loadIntegrationStatuses(options = {}) {
     const { silent = false } = options;
     const requestId = ++integrationRequestSequence;
-    state.integrations.sheet = Boolean(state.company && state.company.sheet_id);
+    state.integrations.sheet = false;
     state.integrations.gmailError = false;
+    state.integrations.sheetError = false;
     state.integrations.telegramError = false;
     state.integrations.telegramAvailable = null;
     state.integrations.statusesAvailable = false;
 
-    const [gmailResult, telegramResult] = await Promise.allSettled([
+    const [gmailResult, driveResult, telegramResult] = await Promise.allSettled([
       apiRequest(API.gmailStatus),
+      apiRequest(API.driveStatus),
       apiRequest(API.telegramStatus),
     ]);
     if (requestId !== integrationRequestSequence || !state.token) return null;
     const { errors, statusesAvailable } = applyIntegrationStatusResults(
       gmailResult,
       telegramResult,
+      driveResult,
     );
 
     updateIntegrationUI();
@@ -1947,6 +2065,44 @@
     }
   }
 
+  async function disconnectDrive() {
+    if (!window.confirm("Déconnecter Google Drive ? Le Sheet restera dans votre Drive, mais SmartReply ne pourra plus le modifier.")) return;
+    const button = $("disconnect-drive");
+    showAlert($("integrations-error"), "");
+    setBusy(button, true, "Déconnexion…");
+    try {
+      const response = await apiRequest(API.driveDisconnect, { method: "DELETE" });
+      await checkIntegrationStatuses({ silent: true });
+      if (response.manual_action_required) {
+        showAlert(
+          $("integrations-error"),
+          "SmartReply est arrêté pour ce Sheet. Vérifiez aussi les accès du fichier dans Google Drive.",
+        );
+      } else {
+        showToast("Google Drive a été déconnecté. Votre fichier reste dans votre compte.");
+      }
+    } catch (error) {
+      showAlert($("integrations-error"), describeGoogleProblem(error));
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
+  async function repairSheetAccess() {
+    const button = $("repair-sheet-access");
+    showAlert($("integrations-error"), "");
+    setBusy(button, true, "Rétablissement…");
+    try {
+      await apiRequest(API.pipelineAccess, { method: "POST" });
+      await checkIntegrationStatuses({ silent: true });
+      showToast("L'accès technique au Sheet a été rétabli.");
+    } catch (error) {
+      showAlert($("integrations-error"), describeGoogleProblem(error));
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
   async function refreshIntegrations() {
     const button = $("refresh-integrations");
     setBusy(button, true, "Actualisation…");
@@ -2143,6 +2299,19 @@
     checkIntegrationStatuses({ silent: true });
   }
 
+  function handleDriveReturn() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("drive") !== "connected") return;
+    const target = state.company ? "/dashboard/#integrations" : "/dashboard/";
+    window.history.replaceState(null, "", target);
+    showToast("Google Drive a été connecté avec succès.");
+    if (state.company) {
+      checkIntegrationStatuses({ silent: true });
+    } else {
+      refreshOnboardingDriveStatus();
+    }
+  }
+
   function bindEvents() {
     $("login-tab").addEventListener("click", () => switchAuth("login"));
     $("register-tab").addEventListener("click", () => switchAuth("register"));
@@ -2151,12 +2320,16 @@
     $("login-form").addEventListener("submit", handleLogin);
     $("register-form").addEventListener("submit", handleRegister);
     $("company-form").addEventListener("submit", handleCompanyCreation);
+    $("connect-drive-onboarding").addEventListener("click", (event) => connectDrive(event.currentTarget));
     $("onboarding-logout").addEventListener("click", () => logout());
     $("logout-button").addEventListener("click", () => logout());
     $("open-sidebar").addEventListener("click", openSidebar);
     $("close-sidebar").addEventListener("click", closeSidebar);
     $("sidebar-overlay").addEventListener("click", closeSidebar);
     $("connect-gmail").addEventListener("click", connectGmail);
+    $("connect-drive").addEventListener("click", (event) => connectDrive(event.currentTarget));
+    $("repair-sheet-access").addEventListener("click", repairSheetAccess);
+    $("disconnect-drive").addEventListener("click", disconnectDrive);
     $("refresh-dashboard").addEventListener("click", refreshDashboard);
     emailsViewElements.search.addEventListener("input", scheduleEmailSearch);
     emailsViewElements.category.addEventListener("change", applyEmailFilters);

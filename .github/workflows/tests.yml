@@ -36,6 +36,7 @@ jobs:
           app/modules/auth/router.py
           app/modules/companies
           app/modules/dashboard
+          app/modules/drive_oauth
           app/modules/gmail_oauth/router.py
           app/modules/gmail_oauth/service.py
           app/modules/telegram
@@ -56,6 +57,7 @@ jobs:
           alembic/versions/a4f6c8d2e1b7_add_processed_emails.py
           alembic/versions/f2c4d6e8a0b1_add_company_telegram_actions.py
           alembic/versions/b7d9e3f1a5c2_add_dashboard_phase_b_analytics.py
+          alembic/versions/d3a7f9c1e5b2_add_client_drive_connections.py
           scripts/setup_webhook.py
           scripts/share_company_sheets_with_service_account.py
           tests
