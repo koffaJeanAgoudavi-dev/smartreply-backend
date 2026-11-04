@@ -491,7 +491,9 @@ class CompaniesApiTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_get_db
         self.original_jwt_secret = settings.JWT_SECRET
+        self.original_allowed_company_ids = settings.PIPELINE_ALLOWED_COMPANY_IDS
         settings.JWT_SECRET = "companies-tests-secret-at-least-32-bytes"
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = ""
 
         with self.session_factory() as db:
             user = User(email="user@example.com", hashed_password="not-used")
@@ -506,6 +508,7 @@ class CompaniesApiTests(unittest.TestCase):
         self.client.close()
         app.dependency_overrides.clear()
         settings.JWT_SECRET = self.original_jwt_secret
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = self.original_allowed_company_ids
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
 
@@ -560,6 +563,79 @@ class CompaniesApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 428, response.text)
         self.assertNotIn("token", response.text.lower())
         self.assertNotIn("sheet_id", response.text.lower())
+
+    def test_validation_status_follows_the_pipeline_allowlist(self):
+        with self.session_factory() as db:
+            company = Company(
+                user_id=self.user_id,
+                nom_entreprise="Acme",
+                secteur="Conseil",
+                sheet_id="validation-sheet",
+            )
+            db.add(company)
+            db.commit()
+            db.refresh(company)
+            company_id = company.id
+
+        pending = self.client.get(
+            "/api/v1/companies/me/validation-status",
+            headers=self.authorization,
+        )
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = f"999999, {company_id}, {company_id}"
+        validated = self.client.get(
+            "/api/v1/companies/me/validation-status",
+            headers=self.authorization,
+        )
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = "999999"
+        pending_again = self.client.get(
+            "/api/v1/companies/me/validation-status",
+            headers=self.authorization,
+        )
+
+        self.assertEqual(pending.status_code, 200, pending.text)
+        self.assertEqual(pending.json(), {"validation_status": "pending"})
+        self.assertEqual(validated.status_code, 200, validated.text)
+        self.assertEqual(validated.json(), {"validation_status": "validated"})
+        self.assertEqual(pending_again.status_code, 200, pending_again.text)
+        self.assertEqual(pending_again.json(), {"validation_status": "pending"})
+        self.assertNotIn("999999", validated.text)
+
+    def test_validation_status_fails_closed_for_invalid_allowlist(self):
+        with self.session_factory() as db:
+            db.add(
+                Company(
+                    user_id=self.user_id,
+                    nom_entreprise="Acme",
+                    secteur="Conseil",
+                    sheet_id="validation-sheet",
+                )
+            )
+            db.commit()
+
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = "1,not-an-id"
+        response = self.client.get(
+            "/api/v1/companies/me/validation-status",
+            headers=self.authorization,
+        )
+
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Le statut de validation est temporairement indisponible."},
+        )
+        self.assertNotIn("not-an-id", response.text)
+
+    def test_validation_status_requires_an_authenticated_company(self):
+        without_company = self.client.get(
+            "/api/v1/companies/me/validation-status",
+            headers=self.authorization,
+        )
+        without_authentication = self.client.get(
+            "/api/v1/companies/me/validation-status"
+        )
+
+        self.assertEqual(without_company.status_code, 404, without_company.text)
+        self.assertEqual(without_authentication.status_code, 401)
 
     def test_pipeline_access_endpoint_repairs_and_verifies_the_users_sheet(self):
         with self.session_factory() as db:

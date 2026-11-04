@@ -8,6 +8,7 @@ from typing import Callable
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.core.company_allowlist import parse_allowed_company_ids
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.modules.companies.models import Company
@@ -103,20 +104,6 @@ def _configured_limits() -> tuple[int, int]:
         max(0, settings.MAX_EMAILS_PER_COMPANY_PER_RUN),
         max(0, settings.PIPELINE_RUN_TIME_BUDGET_SECONDS),
     )
-
-
-def parse_allowed_company_ids(raw_value: str | None = None) -> frozenset[int]:
-    """Parse l'allowlist CSV en mode fail-closed; vide signifie aucune entreprise."""
-    raw = settings.PIPELINE_ALLOWED_COMPANY_IDS if raw_value is None else raw_value
-    if not raw.strip():
-        return frozenset()
-    company_ids: set[int] = set()
-    for value in raw.split(","):
-        candidate = value.strip()
-        if not candidate.isdecimal() or int(candidate) <= 0:
-            raise ValueError("PIPELINE_ALLOWED_COMPANY_IDS invalide")
-        company_ids.add(int(candidate))
-    return frozenset(company_ids)
 
 
 def select_eligible_company_plans(

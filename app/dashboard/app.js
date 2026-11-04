@@ -6,6 +6,7 @@
     login: "/api/v1/auth/login",
     company: "/api/v1/companies/me",
     companies: "/api/v1/companies",
+    companyValidationStatus: "/api/v1/companies/me/validation-status",
     gmailConnect: "/api/v1/gmail/connect",
     gmailStatus: "/api/v1/gmail/status",
     driveConnect: "/api/v1/drive/connect",
@@ -129,6 +130,10 @@
     user: null,
     company: null,
     appReady: false,
+    companyValidation: {
+      status: null,
+      error: false,
+    },
     integrations: {
       gmail: false,
       sheet: false,
@@ -424,6 +429,10 @@
       id: payload.sub,
       email: payload.email,
     };
+    state.companyValidation = {
+      status: null,
+      error: false,
+    };
     state.integrationSetup = {
       dismissed: false,
       missing: [],
@@ -497,6 +506,14 @@
     $("sidebar-company-sector").textContent = "—";
     $("topbar-company-name").textContent = "—";
     $("topbar-sector").textContent = "—";
+    ["sidebar-validation-status", "dashboard-validation-status", "dashboard-technical-status"].forEach((id) => {
+      const element = $(id);
+      element.className = "status-pill neutral";
+      element.textContent = "Vérification…";
+    });
+    $("sidebar-technical-status").textContent = "Configuration : vérification…";
+    $("company-status-description").textContent = "Vérification de la validation et des services requis…";
+    $("company-status-panel").classList.remove("ready");
     $("sheet-company-label").textContent = "Sheet de votre entreprise";
     $("open-sheet").setAttribute("href", "#");
     $("open-sheet").setAttribute("aria-disabled", "true");
@@ -554,6 +571,10 @@
     state.user = null;
     state.company = null;
     state.appReady = false;
+    state.companyValidation = {
+      status: null,
+      error: false,
+    };
     state.integrations = {
       gmail: false,
       sheet: false,
@@ -838,6 +859,123 @@
     $("topbar-sector").textContent = sector;
     $("sheet-company-label").textContent = `Sheet : ${name}`;
     $("open-sheet").href = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(state.company.sheet_id)}/edit`;
+    renderCompanyStatuses();
+  }
+
+  function setCompanyStatusPill(element, label, tone) {
+    element.className = `status-pill ${tone}`;
+    element.textContent = label;
+  }
+
+  function getCompanyStatusDisplay(
+    companyValidation = state.companyValidation,
+    integrations = state.integrations,
+  ) {
+    const validationStatus = companyValidation.status;
+    const validationKnown = ["pending", "validated"].includes(validationStatus)
+      && companyValidation.error !== true;
+    const technicalKnown = integrations.statusesAvailable === true;
+    const technicalUnavailable = !technicalKnown
+      && (integrations.gmailError === true || integrations.sheetError === true);
+    const technicalReady = technicalKnown
+      && missingRequiredIntegrations(integrations).length === 0;
+
+    let validationLabel = "Vérification…";
+    let validationTone = "neutral";
+    if (companyValidation.error) {
+      validationLabel = "INDISPONIBLE";
+      validationTone = "error";
+    } else if (validationStatus === "validated") {
+      validationLabel = "VALIDÉE";
+      validationTone = "connected";
+    } else if (validationStatus === "pending") {
+      validationLabel = "EN ATTENTE";
+      validationTone = "warning";
+    }
+
+    let technicalLabel = "Vérification…";
+    let technicalSidebarLabel = "Configuration : vérification…";
+    let technicalTone = "neutral";
+    if (technicalUnavailable) {
+      technicalLabel = "INDISPONIBLE";
+      technicalSidebarLabel = "Configuration : indisponible";
+      technicalTone = "error";
+    } else if (technicalKnown && technicalReady) {
+      technicalLabel = "PRÊTE";
+      technicalSidebarLabel = "Configuration : prête";
+      technicalTone = "connected";
+    } else if (technicalKnown) {
+      technicalLabel = "À COMPLÉTER";
+      technicalSidebarLabel = "Configuration : à compléter";
+      technicalTone = "warning";
+    }
+
+    let description = "Vérification de la validation et des services requis…";
+    if (companyValidation.error) {
+      description = "Le statut de validation DIGICRAFT LABS n'a pas pu être confirmé. Réessayez dans quelques instants.";
+    } else if (!validationKnown || (!technicalKnown && !technicalUnavailable)) {
+      description = "Vérification de la validation et des services requis…";
+    } else if (validationStatus === "validated" && technicalReady) {
+      description = "Votre entreprise est validée et sa configuration est prête pour le traitement des emails.";
+    } else if (validationStatus === "validated") {
+      description = "Votre entreprise est validée. Rétablissez Gmail ou Google Sheets pour permettre le traitement des emails.";
+    } else if (technicalReady) {
+      description = "Votre configuration est prête. La validation manuelle de DIGICRAFT LABS est encore nécessaire avant le traitement des emails.";
+    } else {
+      description = "Finalisez Gmail et Google Sheets pendant que votre entreprise attend la validation de DIGICRAFT LABS.";
+    }
+
+    return Object.freeze({
+      validationLabel,
+      validationTone,
+      technicalLabel,
+      technicalSidebarLabel,
+      technicalTone,
+      description,
+      ready: validationStatus === "validated" && technicalReady,
+    });
+  }
+
+  function renderCompanyStatuses() {
+    const display = getCompanyStatusDisplay();
+    setCompanyStatusPill(
+      $("sidebar-validation-status"),
+      display.validationLabel,
+      display.validationTone,
+    );
+    setCompanyStatusPill(
+      $("dashboard-validation-status"),
+      display.validationLabel,
+      display.validationTone,
+    );
+    setCompanyStatusPill(
+      $("dashboard-technical-status"),
+      display.technicalLabel,
+      display.technicalTone,
+    );
+    $("sidebar-technical-status").textContent = display.technicalSidebarLabel;
+    $("company-status-description").textContent = display.description;
+    $("company-status-panel").classList.toggle("ready", display.ready);
+  }
+
+  function applyCompanyValidationResult(result) {
+    if (result && result.status === "fulfilled") {
+      const validationStatus = result.value.validation_status;
+      if (["pending", "validated"].includes(validationStatus)) {
+        state.companyValidation.status = validationStatus;
+        state.companyValidation.error = false;
+        return null;
+      }
+      state.companyValidation.status = null;
+      state.companyValidation.error = true;
+      return "Validation DIGICRAFT LABS";
+    }
+    if (result && result.reason.status !== 401) {
+      state.companyValidation.status = null;
+      state.companyValidation.error = true;
+      return "Validation DIGICRAFT LABS";
+    }
+    return null;
   }
 
   function setStatus(element, connected, hasError = false) {
@@ -962,6 +1100,7 @@
     setIntegrationConfigurationHighlights(
       integrations.statusesAvailable ? display.missingRequired : [],
     );
+    renderCompanyStatuses();
 
     $("dashboard-connected-count").textContent = display.countLabel;
     $("integrations-progress").textContent = display.countLabel;
@@ -1072,11 +1211,15 @@
     state.integrations.telegramError = false;
     state.integrations.telegramAvailable = null;
     state.integrations.statusesAvailable = false;
+    state.companyValidation.status = null;
+    state.companyValidation.error = false;
+    renderCompanyStatuses();
 
-    const [gmailResult, driveResult, telegramResult] = await Promise.allSettled([
+    const [gmailResult, driveResult, telegramResult, validationResult] = await Promise.allSettled([
       apiRequest(API.gmailStatus),
       apiRequest(API.driveStatus),
       apiRequest(API.telegramStatus),
+      apiRequest(API.companyValidationStatus),
     ]);
     if (requestId !== integrationRequestSequence || !state.token) return null;
     const { errors, statusesAvailable } = applyIntegrationStatusResults(
@@ -1084,6 +1227,8 @@
       telegramResult,
       driveResult,
     );
+    const validationError = applyCompanyValidationResult(validationResult);
+    if (validationError) errors.push(validationError);
 
     updateIntegrationUI();
     if (!silent && errors.length) {

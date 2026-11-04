@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.company_allowlist import get_company_validation_status
 from app.db.database import get_db
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
@@ -12,6 +13,7 @@ from app.modules.companies import service
 from app.modules.companies.schemas import (
     CompanyCreate,
     CompanyResponse,
+    CompanyValidationStatusResponse,
     PipelineAccessResponse,
 )
 from app.modules.drive_oauth import service as drive_oauth_service
@@ -88,6 +90,32 @@ def get_my_company(
             detail="Aucune entreprise trouvée pour cet utilisateur.",
         )
     return company
+
+
+@router.get(
+    "/me/validation-status",
+    response_model=CompanyValidationStatusResponse,
+)
+def get_my_company_validation_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CompanyValidationStatusResponse:
+    """Dérive EN ATTENTE/VALIDÉE de l'allowlist utilisée par le pipeline."""
+    company = service.get_company_by_user_id(db, user_id=current_user.id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune entreprise trouvée pour cet utilisateur.",
+        )
+    try:
+        validation_status = get_company_validation_status(company.id)
+    except ValueError as exc:
+        logger.error("Configuration de l'allowlist pipeline invalide")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Le statut de validation est temporairement indisponible.",
+        ) from exc
+    return CompanyValidationStatusResponse(validation_status=validation_status)
 
 
 @router.post("/me/pipeline-access", response_model=PipelineAccessResponse)

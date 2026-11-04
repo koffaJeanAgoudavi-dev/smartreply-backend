@@ -425,6 +425,15 @@ dont l'ID interne est dans `PIPELINE_ALLOWED_COMPANY_IDS` sont traitées
 réellement ; toutes les autres restent comptées en simulation. Une allowlist
 vide signifie donc zéro traitement réel.
 
+Cette même allowlist est la source unique du statut administratif affiché au
+client : une entreprise absente est **EN ATTENTE**, une entreprise présente est
+**VALIDÉE**. `GET /api/v1/companies/me/validation-status` ne retourne que le
+statut de l'entreprise du JWT, jamais la liste des IDs. Retirer un ID fait
+revenir le statut à **EN ATTENTE** après redémarrage avec la nouvelle
+configuration. Aucun statut supplémentaire ni aucune colonne Neon ne sont
+introduits. Le dashboard affiche séparément la validation administrative et
+l'état technique dérivé de Gmail et du Sheet.
+
 Au premier passage réel, `pipeline_activated_at` est enregistré et validé en
 base **avant** le premier accès Gmail. Gmail est ensuite interrogé avec
 `in:inbox after:<epoch>`, puis `internalDate` est contrôlé strictement : seuls
@@ -617,11 +626,17 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `POST /api/v1/telegram/webhook` | Telegram | Reçoit commandes, codes et callbacks avec secret |
 | `POST /api/v1/companies` | Companies | Crée l'entreprise et son Sheet directement dans le Drive connecté du client |
 | `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
+| `GET /api/v1/companies/me/validation-status` | Companies | Dérive `pending`/`validated` de l'allowlist sans exposer ses IDs |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
 | `POST /api/v1/pipeline/run` | Pipeline | Plan sûr `202`, puis traitement multi-utilisateur allowlisté en arrière-plan |
 
 ## 📊 Statuts (figés par le cadrage)
 
+- **Entreprise** : `EN ATTENTE` si son ID est absent de l'allowlist → `VALIDÉE`
+  s'il est présent. Un retrait de l'allowlist ramène à `EN ATTENTE`.
+- **Configuration technique** : `À compléter` tant que Gmail ou le Sheet requis
+  manque → `Prête` lorsqu'ils sont tous deux confirmés ; les erreurs externes
+  sont affichées séparément comme indisponibles.
 - **Emails** : `Nouveau` → `Analysé` → `Brouillon prêt` → `Envoyé` / `Ignoré`
 - **Brouillons** : `En attente` → `Envoyé` / `Ignoré`
 
