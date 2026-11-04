@@ -1,10 +1,11 @@
 """Client gspread partagé par les Sheets propres à chaque entreprise."""
 
 import json
-import os
 
 import gspread
 from google.oauth2.service_account import Credentials
+
+from app.core.config import settings
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -14,7 +15,7 @@ SCOPES = [
 
 def get_sheets_client():
     """Initialise le client gspread avec les identifiants du compte de service."""
-    service_account_info = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    service_account_info = settings.GOOGLE_SERVICE_ACCOUNT_JSON
 
     if service_account_info:
         info = json.loads(service_account_info)

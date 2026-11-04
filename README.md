@@ -98,8 +98,9 @@ scripts/
 4. Déployer la révision validée. Le `procfile` exécute d'abord
    `alembic upgrade head`, puis :
    `uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers`.
-5. Vérifier `/health`, l'absence de `/docs`, `/redoc` et `/openapi.json`, la
-   redirection relative `/dashboard` → `/dashboard/`, et les en-têtes CSP/HSTS.
+5. Vérifier `/health` (processus HTTP), `/ready` (configuration et connexion
+   PostgreSQL), l'absence de `/docs`, `/redoc` et `/openapi.json`, la redirection
+   relative `/dashboard` → `/dashboard/`, et les en-têtes CSP/HSTS.
 6. Activer les API **Google Drive** et **Google Sheets**, puis enregistrer dans
    Google OAuth les deux URI exactes :
    `https://<service>.onrender.com/api/v1/gmail/callback` et
@@ -131,6 +132,13 @@ CONTACT_SMTP_USERNAME=hello.smartreplyagent@gmail.com
 CONTACT_SMTP_PASSWORD=<mot de passe d'application Gmail>
 ```
 
+En production, SmartReply valide ces réglages avant de créer l’application. Le
+démarrage est bloqué si `ENVIRONMENT` est inconnu, si une valeur obligatoire est
+absente, si `BASE_URL` n’est pas une origine HTTPS, si le JSON du compte de
+service est incomplet, si les budgets sont non positifs ou si Telegram n’est
+configuré qu’à moitié. Les messages d’erreur indiquent uniquement les noms des
+variables concernées.
+
 La page publique `/contact/` envoie les demandes par SMTP authentifié vers
 `hello.smartreplyagent@gmail.com`. Pour Gmail, activer la validation en deux
 étapes sur le compte expéditeur puis créer un mot de passe d'application ; ne
@@ -147,12 +155,17 @@ TELEGRAM_WEBHOOK_SECRET=<secret webhook aléatoire>
 
 `REDIS_URL` est **optionnelle**. `PIPELINE_ALLOWED_COMPANY_IDS` est nécessaire
 uniquement pour activer le traitement réel ; vide, le pipeline reste en
-simulation. `GOOGLE_DRIVE_REFRESH_TOKEN` et `GOOGLE_DRIVE_TEMPLATE_ID` restent
-optionnels pour réparer les anciens Sheets détenus par le compte plateforme ;
-les nouvelles créations ne les utilisent plus. `ACCESS_TOKEN_EXPIRE_MINUTES`,
-les limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
+simulation. `GOOGLE_DRIVE_REFRESH_TOKEN` reste optionnel pour inspecter ou
+réparer les permissions des anciens Sheets détenus par le compte plateforme ;
+les nouvelles créations ne l’utilisent pas. `ACCESS_TOKEN_EXPIRE_MINUTES`, les
+limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
 valeur vide de `INVITATION_CODES` ferme volontairement les inscriptions ; elle
 n'est acceptable que si cette fermeture est souhaitée.
+
+Les anciennes variables globales `GOOGLE_DATA_SHEET_ID`, `GOOGLE_SHEET_ID`,
+`GOOGLE_REFRESH_TOKEN`, `MULTI_TENANT_PIPELINE_ENABLED` et
+`GOOGLE_DRIVE_TEMPLATE_ID` ne sont plus lues par l’application et doivent être
+retirées de l’environnement Render.
 
 Telegram est considéré disponible seulement si `TELEGRAM_BOT_TOKEN` **et**
 `TELEGRAM_WEBHOOK_SECRET` sont tous deux non vides. Il faut ensuite enregistrer
@@ -171,9 +184,9 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `BASE_URL` | URL publique du service (ex. `https://xxx.onrender.com`) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON du compte de service ; son `client_email` reçoit l'accès writer à chaque Sheet d'entreprise |
 | `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` | Client OAuth Drive par utilisateur ; callback `/api/v1/drive/callback`, scope unique `drive.file` |
-| `GOOGLE_DRIVE_REFRESH_TOKEN` | Optionnel, compatibilité des anciens Sheets détenus par la plateforme uniquement |
-| `GOOGLE_DRIVE_TEMPLATE_ID` | Optionnel, template des anciennes créations plateforme uniquement |
+| `GOOGLE_DRIVE_REFRESH_TOKEN` | Optionnel, inspection et réparation des permissions des anciens Sheets détenus par la plateforme uniquement |
 | `GEMINI_API_KEY` | Clé API Google AI Studio |
+| `GEMINI_MODEL` | Modèle Gemini utilisé (défaut : `gemini-2.5-flash`) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Client OAuth Gmail par utilisateur |
 | `CONTACT_SMTP_USERNAME` | Adresse du compte SMTP expéditeur de la page Contact |
 | `CONTACT_SMTP_PASSWORD` | Secret SMTP ; avec Gmail, utiliser un mot de passe d'application |
@@ -667,7 +680,8 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 
 | Endpoint | Module | Description |
 |---|---|---|
-| `GET /health` | — | Santé du service |
+| `GET /health` | — | Confirme uniquement que le processus HTTP répond |
+| `GET /ready` | — | Vérifie la configuration locale et exécute `SELECT 1` sur PostgreSQL |
 | `GET /dashboard` | Dashboard | Ouvre l'interface Phase A (redirection vers `/dashboard/`) |
 | `POST /api/v1/auth/register` | Auth | Crée un utilisateur avec un code d'invitation et renvoie son JWT |
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |

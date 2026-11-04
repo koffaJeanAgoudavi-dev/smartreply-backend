@@ -1,4 +1,5 @@
-"""Schémas Pydantic du module Gmail OAuth — Étape 3 (jamais de token dans les réponses)."""
+"""Schémas Gmail OAuth sans aucun token dans les réponses publiques."""
+
 from pydantic import BaseModel
 
 

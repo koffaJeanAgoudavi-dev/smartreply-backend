@@ -27,7 +27,7 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 
 def create_user(db: Session, email: str, password: str) -> User:
-    """Crée un utilisateur (mot de passe haché Argon2). Lève ValueError si l'email existe déjà."""
+    """Crée un utilisateur Argon2 ou lève ``ValueError`` si l'email existe."""
     user = User(email=normalize_email(email), hashed_password=hash_password(password))
     db.add(user)
     try:
@@ -43,6 +43,7 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
     """Retourne l'utilisateur si les identifiants sont valides, sinon None."""
     user = get_user_by_email(db, email)
     if user is None:
-        verify_password(password, _DUMMY_HASH)  # anti-timing : même coût qu'une vérification réelle
+        # Conserve le même coût qu'une vérification réelle pour limiter le timing.
+        verify_password(password, _DUMMY_HASH)
         return None
     return user if verify_password(password, user.hashed_password) else None

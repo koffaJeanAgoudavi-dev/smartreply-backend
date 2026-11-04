@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from app.core.config import settings
+from app.core.config import RuntimeConfigurationError, settings
 from app.core.rate_limit import (
     InMemoryRateLimiter,
     RateLimitExceeded,
@@ -541,6 +541,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         ("GET", "/contact"),
         ("GET", "/dashboard"),
         ("GET", "/health"),
+        ("GET", "/ready"),
         ("MOUNT", "/conditions"),
         ("MOUNT", "/confidentialite"),
         ("MOUNT", "/contact"),
@@ -743,7 +744,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         cases = {
             "production": (404, 404, 404),
             "development": (200, 200, 200),
-            "staging-typo": (200, 200, 200),
+            "test": (200, 200, 200),
         }
         for environment, expected_statuses in cases.items():
             with self.subTest(environment=environment):
@@ -758,6 +759,9 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
                     tuple(response.status_code for response in responses),
                     expected_statuses,
                 )
+
+        with self.assertRaises(RuntimeConfigurationError):
+            create_app("staging-typo")
 
         development = create_app("development")
         with TestClient(development) as client:
@@ -776,6 +780,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
 
         self.assertEqual(root.json(), {"status": "online"})
         self.assertEqual(health.json(), {"status": "ok"})
+        self.assertEqual(health.headers["Cache-Control"], "no-store")
 
     def test_sensitive_route_inventory_and_rate_limit_dependencies_are_exact(self):
         application = create_app("development")

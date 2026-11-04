@@ -24,7 +24,8 @@ STATE_TTL_SECONDS = 600
 def _fernet() -> Fernet:
     if not settings.TOKEN_ENCRYPTION_KEY:
         raise RuntimeError(
-            "TOKEN_ENCRYPTION_KEY manquante : définissez cette variable d'environnement (Render)."
+            "TOKEN_ENCRYPTION_KEY manquante : définissez cette variable "
+            "d'environnement (Render)."
         )
     key = settings.TOKEN_ENCRYPTION_KEY.strip()
     try:

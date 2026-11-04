@@ -50,17 +50,26 @@ def should_process(expediteur: str, corps: str, list_unsubscribe: str = "") -> d
 
     # 1. En-tête List-Unsubscribe — signal fiable des emails en masse
     if list_unsubscribe:
-        return {"decision": "ignorer", "raison": "newsletter (en-tête List-Unsubscribe)"}
+        return {
+            "decision": "ignorer",
+            "raison": "newsletter (en-tête List-Unsubscribe)",
+        }
 
     # 2. Expéditeur automatique / marketing
     for motif in EXPEDITEURS_BLOQUES:
         if motif in exp:
-            return {"decision": "ignorer", "raison": f"expéditeur automatique ({motif})"}
+            return {
+                "decision": "ignorer",
+                "raison": f"expéditeur automatique ({motif})",
+            }
 
     # 3. Corps contenant un lien de désabonnement
     for motif in MOTS_CORPS_BLOQUES:
         if motif in body:
-            return {"decision": "ignorer", "raison": f"newsletter (lien désabonnement : '{motif}')"}
+            return {
+                "decision": "ignorer",
+                "raison": f"newsletter (lien désabonnement : '{motif}')",
+            }
 
     # 4. Mots-clés spam
     for motif in MOTS_SPAM:

@@ -87,6 +87,14 @@ class ConditionsStaticTests(unittest.TestCase):
             "configuration payante Gemini après le programme pilote",
             page.text,
         )
+        self.assertIn(
+            "Pour toute nouvelle entreprise créée avec le parcours actuel",
+            page.text,
+        )
+        self.assertIn(
+            "peuvent rester détenus par le compte technique de DIGICRAFT LABS",
+            page.text,
+        )
 
     def test_security_address_and_internal_publication_note_are_visible(self):
         page = self.client.get("/conditions/")
