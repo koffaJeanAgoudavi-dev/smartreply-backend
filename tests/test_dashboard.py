@@ -177,6 +177,40 @@ class DashboardStaticTests(unittest.TestCase):
         ):
             self.assertIn(responsive_style, stylesheet.text)
 
+    def test_conditions_are_linked_from_registration_settings_and_footer(self):
+        response = self.client.get("/dashboard/")
+        stylesheet = self.client.get("/dashboard/styles.css")
+        public_conditions = self.client.get("/conditions/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.text.count('href="/conditions/"'), 3)
+        register_markup = response.text.split(
+            '<form id="register-form"', maxsplit=1
+        )[1].split("</form>", maxsplit=1)[0]
+        settings_markup = response.text.split(
+            '<section id="settings-view"', maxsplit=1
+        )[1].split("</main>", maxsplit=1)[0]
+        dashboard_footer = response.text.split(
+            '<footer class="dashboard-footer">', maxsplit=1
+        )[1].split("</footer>", maxsplit=1)[0]
+
+        self.assertIn(
+            "En créant votre compte, vous reconnaissez avoir pris connaissance",
+            register_markup,
+        )
+        self.assertIn('href="/conditions/"', register_markup)
+        self.assertNotIn('type="checkbox"', register_markup)
+        self.assertIn("Conditions générales d’utilisation", settings_markup)
+        self.assertIn('href="/conditions/"', settings_markup)
+        self.assertIn(
+            '<a href="/conditions/">Conditions générales d’utilisation</a>',
+            dashboard_footer,
+        )
+        self.assertEqual(public_conditions.status_code, 200)
+        self.assertIn("Conditions générales d’utilisation", public_conditions.text)
+        self.assertIn(".auth-legal a", stylesheet.text)
+        self.assertIn("grid-template-columns: repeat(3", stylesheet.text)
+
     def test_emails_navigation_and_view_structure_are_ready_for_api_data(self):
         response = self.client.get("/dashboard/")
         js_response = self.client.get("/dashboard/app.js")
@@ -369,6 +403,8 @@ class DashboardStaticTests(unittest.TestCase):
             'id="settings-logout"',
             'href="/contact/"',
             'href="#integrations"',
+            'href="/conditions/"',
+            "Conditions générales d’utilisation",
         ):
             self.assertIn(expected, settings_markup)
         for excluded in (
@@ -381,7 +417,6 @@ class DashboardStaticTests(unittest.TestCase):
             "Modifier mon mot de passe",
             "Demander la suppression de mes données",
             "Politique de confidentialité",
-            "Conditions générales d'utilisation",
         ):
             self.assertNotIn(excluded, settings_markup)
         self.assertIn(

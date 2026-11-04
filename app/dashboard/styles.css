@@ -458,6 +458,21 @@ svg {
   margin: 0;
 }
 
+.auth-legal a {
+  color: var(--color-primary-700);
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
+.auth-legal a:hover {
+  color: var(--color-primary-900);
+}
+
+.register-legal {
+  max-width: 390px;
+  margin: -3px auto 0;
+}
+
 .auth-contact-link {
   color: var(--color-primary-700);
   font-size: 12px;
@@ -909,8 +924,12 @@ svg {
 }
 
 .dashboard-footer {
+  display: flex;
   width: 100%;
   max-width: 1320px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 18px;
   margin: 0 auto;
   padding: 0 18px 28px;
   color: var(--color-muted);
@@ -2844,6 +2863,10 @@ td.subject-cell {
 }
 
 @media (min-width: 920px) {
+  .settings-support-links {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .emails-workspace,
   .email-detail-workspace {
     padding: 22px;

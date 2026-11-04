@@ -74,6 +74,17 @@ def create_app(environment: str | None = None) -> FastAPI:
         name="contact",
     )
 
+    @application.get("/conditions", include_in_schema=False)
+    def conditions_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/conditions/", status_code=307)
+
+    conditions_directory = Path(__file__).resolve().parent / "conditions"
+    application.mount(
+        "/conditions",
+        StaticFiles(directory=conditions_directory, html=True),
+        name="conditions",
+    )
+
     @application.get("/dashboard", include_in_schema=False)
     def dashboard_redirect() -> RedirectResponse:
         # Une cible relative conserve HTTPS même avec Uvicorn --no-proxy-headers.
