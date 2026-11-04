@@ -145,7 +145,7 @@ class DashboardStaticTests(unittest.TestCase):
         public_contact = self.client.get("/contact/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.text.count('href="/contact/"'), 2)
+        self.assertEqual(response.text.count('href="/contact/"'), 4)
         auth_markup = response.text.split(
             '<main id="auth-screen"', maxsplit=1
         )[1].split('<main id="company-screen"', maxsplit=1)[0]
@@ -342,6 +342,80 @@ class DashboardStaticTests(unittest.TestCase):
         )
         self.assertIn("Telegram est optionnel", integrations_markup)
 
+    def test_settings_page_matches_the_selected_first_scope(self):
+        response = self.client.get("/dashboard/")
+        js_response = self.client.get("/dashboard/app.js")
+        css_response = self.client.get("/dashboard/styles.css")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '<a class="nav-item" href="#settings" data-route="settings">',
+            response.text,
+        )
+        settings_markup = response.text.split(
+            '<section id="settings-view"', maxsplit=1
+        )[1].split("</main>", maxsplit=1)[0]
+        for expected in (
+            'id="settings-title"',
+            'id="settings-company-name"',
+            'id="settings-sector"',
+            'id="settings-sector-other"',
+            'id="settings-tone-title"',
+            'name="response_tone" value="professional"',
+            'name="response_tone" value="friendly"',
+            'name="response_tone" value="direct"',
+            'name="response_tone" value="warm"',
+            'id="settings-account-email"',
+            'id="settings-logout"',
+            'href="/contact/"',
+            'href="#integrations"',
+        ):
+            self.assertIn(expected, settings_markup)
+        for excluded in (
+            "settings-validation-status",
+            "settings-gmail-status",
+            "settings-sheet-status",
+            "settings-telegram-status",
+            "response_instruction",
+            'value="formal"',
+            "Modifier mon mot de passe",
+            "Demander la suppression de mes données",
+            "Politique de confidentialité",
+            "Conditions générales d'utilisation",
+        ):
+            self.assertNotIn(excluded, settings_markup)
+        self.assertIn(
+            "Cette action ferme uniquement votre session SmartReply",
+            settings_markup,
+        )
+        self.assertIn(
+            'companySettings: "/api/v1/companies/me/settings"',
+            js_response.text,
+        )
+        self.assertIn('method: "PATCH"', js_response.text)
+        self.assertIn("updateSectorEditingState", js_response.text)
+        self.assertIn(".settings-card", css_response.text)
+        self.assertIn(".tone-option", css_response.text)
+
+        onboarding_markup = response.text.split(
+            '<main id="company-screen"', maxsplit=1
+        )[1].split('<div id="dashboard-shell"', maxsplit=1)[0]
+        self.assertIn('<select id="company-sector"', onboarding_markup)
+        self.assertIn('id="company-sector-other"', onboarding_markup)
+        for sector in (
+            "Conseil",
+            "Services",
+            "Commerce",
+            "E-commerce",
+            "Formation",
+            "Marketing et communication",
+            "Technologie",
+            "Freelance",
+            "Agence",
+            "Immobilier",
+        ):
+            self.assertIn(f'value="{sector}"', onboarding_markup)
+
     def test_company_validation_is_limited_to_sidebar_and_topbar(self):
         response = self.client.get("/dashboard/")
         js_response = self.client.get("/dashboard/app.js")
@@ -357,6 +431,9 @@ class DashboardStaticTests(unittest.TestCase):
         dashboard_markup = response.text.split(
             '<section id="dashboard-view"', maxsplit=1
         )[1].split('<section id="emails-view"', maxsplit=1)[0]
+        settings_markup = response.text.split(
+            '<section id="settings-view"', maxsplit=1
+        )[1].split("</main>", maxsplit=1)[0]
 
         self.assertIn('id="sidebar-validation-status"', sidebar_markup)
         self.assertIn('class="company-summary-copy"', sidebar_markup)
@@ -378,6 +455,8 @@ class DashboardStaticTests(unittest.TestCase):
             self.assertNotIn(removed_central_element, dashboard_markup)
         self.assertIn('id="dashboard-connected-count"', dashboard_markup)
         self.assertIn("intégrations connectées", dashboard_markup)
+        self.assertNotIn("validation-status", settings_markup)
+        self.assertNotIn("Statut de l'entreprise", settings_markup)
         self.assertIn(
             'companyValidationStatus: "/api/v1/companies/me/validation-status"',
             js_response.text,
@@ -437,12 +516,13 @@ const elements = {
   "dashboard-view": makeElement(),
   "emails-view": makeElement(),
   "integrations-view": makeElement(),
+  "settings-view": makeElement(),
   "topbar-title": makeElement(),
   "sidebar": makeElement(),
   "sidebar-overlay": makeElement(),
   "open-sidebar": makeElement(),
 };
-const navItems = ["dashboard", "emails", "integrations"].map(
+const navItems = ["dashboard", "emails", "integrations", "settings"].map(
   (route) => makeElement({ route }),
 );
 const context = {
@@ -474,7 +554,7 @@ const snapshot = (hash) => {
   return {
     route: subject.currentRoute(),
     title: elements["topbar-title"].textContent,
-    visible: ["dashboard", "emails", "integrations"].filter(
+    visible: ["dashboard", "emails", "integrations", "settings"].filter(
       (route) => !elements[`${route}-view`].hidden,
     ),
     active: navItems.filter((item) => item.classList.contains("active"))
@@ -487,6 +567,7 @@ process.stdout.write(JSON.stringify({
   dashboard: snapshot("#dashboard"),
   emails: snapshot("#emails"),
   integrations: snapshot("#integrations"),
+  settings: snapshot("#settings"),
   fallback: snapshot("#unknown"),
   emailsAgain: snapshot("#emails"),
   emailsLoadCount: context.__emailsLoadCount,
@@ -505,6 +586,7 @@ process.stdout.write(JSON.stringify({
             ("dashboard", "Tableau de bord"),
             ("emails", "Emails"),
             ("integrations", "Intégrations"),
+            ("settings", "Paramètres"),
         ):
             with self.subTest(route=route):
                 self.assertEqual(result[route]["route"], route)

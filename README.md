@@ -408,6 +408,35 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - [ ] Vérifier qu'un compte sans historique reste à zéro, sans statistiques,
       emails ou activités factices.
 
+### Paramètres d'entreprise et ton des brouillons
+
+L'onglet `#settings` regroupe uniquement les réglages effectivement gérables :
+
+- le nom de l'entreprise et l'adresse du compte sont affichés en lecture seule ;
+- le secteur utilise la même liste dans l'onboarding et dans Paramètres, avec un
+  choix **Autre** limité à 255 caractères ;
+- le secteur reste modifiable tant que le statut administratif est `pending`.
+  Une entreprise déjà `validated` doit contacter le support ; cette protection
+  est appliquée dans l'API, pas seulement dans le navigateur ;
+- `response_tone` accepte exclusivement `professional`, `friendly`, `direct` ou
+  `warm`, avec `professional` comme valeur par défaut. Le pipeline charge la
+  préférence une fois par passage entreprise et Gemini reçoit uniquement une
+  instruction prédéfinie, jamais un prompt libre du client ;
+- les préférences s'appliquent aux futurs brouillons, toujours produits en
+  français. Les règles système restent prioritaires sur le ton et sur le contenu
+  non fiable de l'email reçu ;
+- la déconnexion Paramètres supprime seulement le JWT SmartReply local. Elle ne
+  révoque ni Gmail, ni Drive, ni Sheets, ni Telegram ;
+- le support renvoie vers l'unique page publique `/contact/`. Aucun lien fictif
+  vers une documentation, une politique de confidentialité ou des CGU n'est
+  affiché tant que ces pages n'existent pas.
+
+Les statuts Gmail, Drive, Sheets et Telegram ne sont pas dupliqués : ils restent
+sur **Intégrations**. Le statut administratif reste lui aussi limité à la carte
+entreprise de la sidebar et à la topbar. Le schéma de mise à jour dédié refuse
+les champs protégés (`nom_entreprise`, `sheet_id`, `user_id`, statut) et la
+migration `e8b4c2d1a7f6` ajoute la colonne et sa contrainte SQL.
+
 ### Pipeline multi-entreprises — Gmail et Sheets requis, Telegram facultatif
 
 La migration de fondations `e1a5c7d9b3f2` ajoute le statut Gmail et les dates de
@@ -626,7 +655,8 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `GET /api/v1/telegram/status` | Telegram optionnel | Retourne `available`, la liaison et sa date, sans exposer le chat |
 | `POST /api/v1/telegram/webhook` | Telegram | Reçoit commandes, codes et callbacks avec secret |
 | `POST /api/v1/companies` | Companies | Crée l'entreprise et son Sheet directement dans le Drive connecté du client |
-| `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT |
+| `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT et son ton de réponse |
+| `PATCH /api/v1/companies/me/settings` | Companies | Modifie uniquement le secteur autorisé et le ton prédéfini |
 | `GET /api/v1/companies/me/validation-status` | Companies | Dérive `pending`/`validated` de l'allowlist sans exposer ses IDs |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
 | `POST /api/v1/pipeline/run` | Pipeline | Plan sûr `202`, puis traitement multi-utilisateur allowlisté en arrière-plan |

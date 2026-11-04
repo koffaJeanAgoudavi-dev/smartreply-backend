@@ -514,6 +514,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         ("POST", "/api/v1/auth/register"),
         ("POST", "/api/v1/companies"),
         ("GET", "/api/v1/companies/me"),
+        ("PATCH", "/api/v1/companies/me/settings"),
         ("GET", "/api/v1/companies/me/validation-status"),
         ("POST", "/api/v1/companies/me/pipeline-access"),
         ("POST", "/api/v1/contact"),
@@ -843,6 +844,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             {
                 ("POST", "/api/v1/companies"),
                 ("GET", "/api/v1/companies/me"),
+                ("PATCH", "/api/v1/companies/me/settings"),
                 ("GET", "/api/v1/companies/me/validation-status"),
                 ("POST", "/api/v1/companies/me/pipeline-access"),
                 ("GET", "/api/v1/dashboard/overview"),

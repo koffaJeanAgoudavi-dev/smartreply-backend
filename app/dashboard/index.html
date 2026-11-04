@@ -168,7 +168,24 @@
         </label>
         <label class="field">
           <span>Secteur d'activité</span>
-          <input id="company-sector" name="secteur" type="text" maxlength="255" placeholder="Ex. Conseil, Commerce, Technologie" required>
+          <select id="company-sector" name="secteur" required>
+            <option value="" selected disabled>Sélectionnez votre secteur</option>
+            <option value="Conseil">Conseil</option>
+            <option value="Services">Services</option>
+            <option value="Commerce">Commerce</option>
+            <option value="E-commerce">E-commerce</option>
+            <option value="Formation">Formation</option>
+            <option value="Marketing et communication">Marketing et communication</option>
+            <option value="Technologie">Technologie</option>
+            <option value="Freelance">Freelance</option>
+            <option value="Agence">Agence</option>
+            <option value="Immobilier">Immobilier</option>
+            <option value="__other__">Autre</option>
+          </select>
+        </label>
+        <label id="company-sector-other-field" class="field" hidden>
+          <span>Précisez votre secteur</span>
+          <input id="company-sector-other" type="text" maxlength="255" placeholder="Votre secteur d'activité">
         </label>
         <button id="company-submit" class="button button-primary button-block" type="submit" disabled>
           <span>Créer mon espace</span><svg><use href="#icon-arrow"></use></svg>
@@ -204,9 +221,9 @@
         <a class="nav-item" href="#integrations" data-route="integrations">
           <svg><use href="#icon-link"></use></svg><span>Intégrations</span>
         </a>
-        <span class="nav-item disabled" aria-disabled="true">
-          <svg><use href="#icon-settings"></use></svg><span>Paramètres</span><small>Bientôt</small>
-        </span>
+        <a class="nav-item" href="#settings" data-route="settings">
+          <svg><use href="#icon-settings"></use></svg><span>Paramètres</span>
+        </a>
       </nav>
 
       <div class="sidebar-divider"></div>
@@ -601,6 +618,140 @@
               </div>
             </article>
           </div>
+        </section>
+
+        <section id="settings-view" class="page-view" aria-labelledby="settings-title" hidden>
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">Votre espace</span>
+              <h1 id="settings-title">Paramètres</h1>
+              <p>Gérez les informations de votre entreprise et personnalisez le fonctionnement de SmartReply.</p>
+            </div>
+          </div>
+
+          <form id="settings-form" class="settings-form" novalidate>
+            <div id="settings-error" class="form-alert error" role="alert" hidden></div>
+
+            <section class="settings-card" aria-labelledby="settings-company-title">
+              <div class="settings-card-heading">
+                <span class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-building"></use></svg></span>
+                <div>
+                  <h2 id="settings-company-title">Mon entreprise</h2>
+                  <p>Consultez l'identité de votre entreprise et tenez son secteur à jour.</p>
+                </div>
+              </div>
+
+              <div class="settings-fields">
+                <div class="settings-readonly-field">
+                  <span>Nom de l'entreprise</span>
+                  <strong id="settings-company-name">—</strong>
+                  <small>Le nom ne peut pas être modifié depuis cette page. Pour une demande exceptionnelle, <a href="/contact/">contactez le support</a>.</small>
+                </div>
+
+                <div class="settings-editable-field">
+                  <label class="field" for="settings-sector">
+                    <span>Secteur d'activité</span>
+                    <select id="settings-sector" name="secteur" required>
+                      <option value="Conseil">Conseil</option>
+                      <option value="Services">Services</option>
+                      <option value="Commerce">Commerce</option>
+                      <option value="E-commerce">E-commerce</option>
+                      <option value="Formation">Formation</option>
+                      <option value="Marketing et communication">Marketing et communication</option>
+                      <option value="Technologie">Technologie</option>
+                      <option value="Freelance">Freelance</option>
+                      <option value="Agence">Agence</option>
+                      <option value="Immobilier">Immobilier</option>
+                      <option value="__other__">Autre</option>
+                    </select>
+                  </label>
+                  <label id="settings-sector-other-field" class="field" hidden>
+                    <span>Précisez votre secteur</span>
+                    <input id="settings-sector-other" type="text" maxlength="255" placeholder="Votre secteur d'activité">
+                  </label>
+                  <p id="settings-sector-help" class="settings-help">Le secteur décrit votre activité. Il ne vaut pas autorisation pour les activités exclues du pilote.</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-card" aria-labelledby="settings-tone-title">
+              <div class="settings-card-heading">
+                <span class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-mail"></use></svg></span>
+                <div>
+                  <h2 id="settings-tone-title">Préférences de réponse</h2>
+                  <p>Choisissez le style général des futurs brouillons préparés en français.</p>
+                </div>
+              </div>
+
+              <fieldset class="tone-options">
+                <legend>Ton des réponses</legend>
+                <label class="tone-option">
+                  <input type="radio" name="response_tone" value="professional" checked>
+                  <span><strong>Professionnel</strong><small>Clair, sérieux et adapté aux échanges professionnels</small></span>
+                </label>
+                <label class="tone-option">
+                  <input type="radio" name="response_tone" value="friendly">
+                  <span><strong>Convivial</strong><small>Accessible, humain et cordial</small></span>
+                </label>
+                <label class="tone-option">
+                  <input type="radio" name="response_tone" value="direct">
+                  <span><strong>Direct</strong><small>Court, précis et orienté vers l'action</small></span>
+                </label>
+                <label class="tone-option">
+                  <input type="radio" name="response_tone" value="warm">
+                  <span><strong>Chaleureux</strong><small>Attentif, poli et plus personnel</small></span>
+                </label>
+              </fieldset>
+
+              <div class="settings-save-row">
+                <p>Les modifications s'appliquent uniquement aux prochains brouillons.</p>
+                <button id="save-settings" class="button button-primary" type="submit">Enregistrer les paramètres</button>
+              </div>
+            </section>
+          </form>
+
+          <section class="settings-card" aria-labelledby="settings-account-title">
+            <div class="settings-card-heading">
+              <span class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></span>
+              <div>
+                <h2 id="settings-account-title">Mon compte</h2>
+                <p>Consultez l'adresse utilisée pour accéder à SmartReply.</p>
+              </div>
+            </div>
+            <div class="settings-account-row">
+              <div class="settings-readonly-field compact">
+                <span>Adresse e-mail</span>
+                <strong id="settings-account-email">—</strong>
+                <small>Cette adresse ne peut pas être modifiée depuis cette page.</small>
+              </div>
+              <div class="settings-logout-action">
+                <button id="settings-logout" class="button button-secondary" type="button">
+                  <svg><use href="#icon-logout"></use></svg><span>Se déconnecter</span>
+                </button>
+                <small>Cette action ferme uniquement votre session SmartReply. Elle ne déconnecte pas Gmail, Google Drive, Google Sheets ou Telegram.</small>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-card" aria-labelledby="settings-help-title">
+            <div class="settings-card-heading">
+              <span class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-link"></use></svg></span>
+              <div>
+                <h2 id="settings-help-title">Données et assistance</h2>
+                <p>Accédez au support et retrouvez la gestion des services connectés.</p>
+              </div>
+            </div>
+            <div class="settings-support-links">
+              <a class="settings-action-link" href="/contact/">
+                <span><strong>Contacter le support</strong><small>Utilisez la page Contact existante pour toute demande.</small></span>
+                <svg><use href="#icon-arrow"></use></svg>
+              </a>
+              <a class="settings-action-link" href="#integrations" data-route-link="integrations">
+                <span><strong>Gérer mes intégrations</strong><small>Gmail, Google Drive, Google Sheets et Telegram restent dans l'onglet Intégrations.</small></span>
+                <svg><use href="#icon-arrow"></use></svg>
+              </a>
+            </div>
+          </section>
         </section>
       </main>
       <footer class="dashboard-footer">

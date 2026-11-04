@@ -80,6 +80,7 @@ class CompanyExecutionContext:
     telegram_chat_id: int | None = field(repr=False)
     telegram_connected_at: datetime | None = field(repr=False)
     pipeline_activated_at: datetime
+    response_tone: str
     email_limit: int
 
 
@@ -177,6 +178,7 @@ def _activate_and_load_context(
                 else None
             ),
             pipeline_activated_at=_as_utc(activated_at),
+            response_tone=company.response_tone,
             email_limit=plan.email_limit,
         )
 
@@ -463,6 +465,7 @@ async def _process_reserved_email(
             email["expediteur"],
             email["objet"],
             email["corps"][:body_limit],
+            context.response_tone,
         )
         required_keys = {"urgence", "categorie", "resume", "brouillon"}
         if not isinstance(analysis, dict) or not required_keys.issubset(analysis):

@@ -547,6 +547,7 @@ class CompaniesApiTests(unittest.TestCase):
         self.assertEqual(created.status_code, 201, created.text)
         self.assertEqual(created.json()["sheet_id"], "sheet-company-one")
         self.assertEqual(created.json()["nom_entreprise"], "Acme")
+        self.assertEqual(created.json()["response_tone"], "professional")
         self.assertEqual(fetched.status_code, 200, fetched.text)
         self.assertEqual(fetched.json()["id"], created.json()["id"])
         self.assertEqual(duplicate_attempt.status_code, 409, duplicate_attempt.text)
@@ -563,6 +564,136 @@ class CompaniesApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 428, response.text)
         self.assertNotIn("token", response.text.lower())
         self.assertNotIn("sheet_id", response.text.lower())
+
+    def test_pending_company_can_update_sector_and_response_tone(self):
+        with self.session_factory() as db:
+            company = Company(
+                user_id=self.user_id,
+                nom_entreprise="Acme",
+                secteur="Conseil",
+                sheet_id="settings-sheet",
+            )
+            db.add(company)
+            db.commit()
+            db.refresh(company)
+            company_id = company.id
+
+        response = self.client.patch(
+            "/api/v1/companies/me/settings",
+            headers=self.authorization,
+            json={"secteur": "  Artisanat  ", "response_tone": "friendly"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["secteur"], "Artisanat")
+        self.assertEqual(response.json()["response_tone"], "friendly")
+        self.assertEqual(response.json()["nom_entreprise"], "Acme")
+        with self.session_factory() as db:
+            company = db.get(Company, company_id)
+            self.assertEqual(company.secteur, "Artisanat")
+            self.assertEqual(company.response_tone, "friendly")
+
+    def test_validated_company_updates_tone_but_not_sector(self):
+        with self.session_factory() as db:
+            company = Company(
+                user_id=self.user_id,
+                nom_entreprise="Acme",
+                secteur="Conseil",
+                sheet_id="validated-settings-sheet",
+            )
+            db.add(company)
+            db.commit()
+            db.refresh(company)
+            company_id = company.id
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = str(company_id)
+
+        sector_response = self.client.patch(
+            "/api/v1/companies/me/settings",
+            headers=self.authorization,
+            json={"secteur": "Commerce"},
+        )
+        tone_response = self.client.patch(
+            "/api/v1/companies/me/settings",
+            headers=self.authorization,
+            json={"response_tone": "direct"},
+        )
+
+        self.assertEqual(sector_response.status_code, 409, sector_response.text)
+        self.assertNotIn(str(company_id), sector_response.text)
+        self.assertEqual(tone_response.status_code, 200, tone_response.text)
+        self.assertEqual(tone_response.json()["secteur"], "Conseil")
+        self.assertEqual(tone_response.json()["response_tone"], "direct")
+
+    def test_company_settings_reject_protected_and_invalid_fields(self):
+        with self.session_factory() as db:
+            db.add(
+                Company(
+                    user_id=self.user_id,
+                    nom_entreprise="Acme",
+                    secteur="Conseil",
+                    sheet_id="protected-settings-sheet",
+                )
+            )
+            db.commit()
+
+        for payload in (
+            {},
+            {"nom_entreprise": "Renamed"},
+            {"validation_status": "validated"},
+            {"response_tone": "formal"},
+            {"secteur": "   "},
+            {"secteur": None},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.patch(
+                    "/api/v1/companies/me/settings",
+                    headers=self.authorization,
+                    json=payload,
+                )
+                self.assertEqual(response.status_code, 422, response.text)
+
+    def test_invalid_allowlist_blocks_sector_but_not_tone_update(self):
+        with self.session_factory() as db:
+            db.add(
+                Company(
+                    user_id=self.user_id,
+                    nom_entreprise="Acme",
+                    secteur="Conseil",
+                    sheet_id="invalid-allowlist-settings-sheet",
+                )
+            )
+            db.commit()
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = "1,not-an-id"
+
+        sector_response = self.client.patch(
+            "/api/v1/companies/me/settings",
+            headers=self.authorization,
+            json={"secteur": "Commerce"},
+        )
+        tone_response = self.client.patch(
+            "/api/v1/companies/me/settings",
+            headers=self.authorization,
+            json={"response_tone": "warm"},
+        )
+
+        self.assertEqual(sector_response.status_code, 503, sector_response.text)
+        self.assertNotIn("not-an-id", sector_response.text)
+        self.assertEqual(tone_response.status_code, 200, tone_response.text)
+        self.assertEqual(tone_response.json()["response_tone"], "warm")
+
+    def test_company_settings_require_authentication_and_company(self):
+        without_company = self.client.patch(
+            "/api/v1/companies/me/settings",
+            headers=self.authorization,
+            json={"response_tone": "friendly"},
+        )
+        without_authentication = self.client.patch(
+            "/api/v1/companies/me/settings",
+            json={"response_tone": "friendly"},
+        )
+
+        self.assertEqual(without_company.status_code, 404, without_company.text)
+        self.assertEqual(without_authentication.status_code, 401)
 
     def test_validation_status_follows_the_pipeline_allowlist(self):
         with self.session_factory() as db:
