@@ -431,8 +431,9 @@ client : une entreprise absente est **EN ATTENTE**, une entreprise présente est
 statut de l'entreprise du JWT, jamais la liste des IDs. Retirer un ID fait
 revenir le statut à **EN ATTENTE** après redémarrage avec la nouvelle
 configuration. Aucun statut supplémentaire ni aucune colonne Neon ne sont
-introduits. Le dashboard affiche séparément la validation administrative et
-l'état technique dérivé de Gmail et du Sheet.
+introduits. Le badge administratif apparaît dans la carte entreprise de la
+sidebar et dans la topbar. Les états techniques Gmail, Sheets et Telegram
+restent regroupés dans la page **Intégrations**.
 
 Au premier passage réel, `pipeline_activated_at` est enregistré et validé en
 base **avant** le premier accès Gmail. Gmail est ensuite interrogé avec

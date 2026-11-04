@@ -342,7 +342,7 @@ class DashboardStaticTests(unittest.TestCase):
         )
         self.assertIn("Telegram est optionnel", integrations_markup)
 
-    def test_company_validation_and_technical_statuses_are_visible(self):
+    def test_company_validation_is_limited_to_sidebar_and_topbar(self):
         response = self.client.get("/dashboard/")
         js_response = self.client.get("/dashboard/app.js")
         css_response = self.client.get("/dashboard/styles.css")
@@ -351,39 +351,45 @@ class DashboardStaticTests(unittest.TestCase):
         sidebar_markup = response.text.split(
             '<aside id="sidebar"', maxsplit=1
         )[1].split("</aside>", maxsplit=1)[0]
+        topbar_markup = response.text.split(
+            '<header class="topbar">', maxsplit=1
+        )[1].split("</header>", maxsplit=1)[0]
         dashboard_markup = response.text.split(
             '<section id="dashboard-view"', maxsplit=1
         )[1].split('<section id="emails-view"', maxsplit=1)[0]
 
-        for element_id in (
-            "sidebar-validation-status",
-            "sidebar-technical-status",
-        ):
-            self.assertIn(f'id="{element_id}"', sidebar_markup)
-        for element_id in (
+        self.assertIn('id="sidebar-validation-status"', sidebar_markup)
+        self.assertIn('class="company-summary-copy"', sidebar_markup)
+        self.assertNotIn("sidebar-technical-status", sidebar_markup)
+        self.assertIn('id="topbar-validation-status"', topbar_markup)
+        self.assertIn(
+            'aria-label="Statut de validation de l\'entreprise"',
+            topbar_markup,
+        )
+        for removed_central_element in (
             "company-status-panel",
             "company-status-title",
             "company-status-description",
             "dashboard-validation-status",
             "dashboard-technical-status",
+            "Validation DIGICRAFT LABS",
+            "Configuration technique",
         ):
-            self.assertIn(f'id="{element_id}"', dashboard_markup)
-        self.assertIn("Validation DIGICRAFT LABS", dashboard_markup)
-        self.assertIn("Configuration technique", dashboard_markup)
+            self.assertNotIn(removed_central_element, dashboard_markup)
+        self.assertIn('id="dashboard-connected-count"', dashboard_markup)
+        self.assertIn("intégrations connectées", dashboard_markup)
         self.assertIn(
             'companyValidationStatus: "/api/v1/companies/me/validation-status"',
             js_response.text,
         )
-        for expected_label in (
-            "EN ATTENTE",
-            "VALIDÉE",
-            "À COMPLÉTER",
-            "PRÊTE",
-        ):
+        for expected_label in ("EN ATTENTE", "VALIDÉE", "INDISPONIBLE"):
             self.assertIn(expected_label, js_response.text)
-        self.assertIn(".company-status-panel", css_response.text)
-        self.assertIn(".company-summary-statuses", css_response.text)
+        self.assertNotIn("À COMPLÉTER", js_response.text)
+        self.assertNotIn("PRÊTE", js_response.text)
+        self.assertIn(".company-summary-copy .status-pill", css_response.text)
+        self.assertIn(".topbar-validation-status", css_response.text)
         self.assertIn(".status-pill.warning", css_response.text)
+        self.assertNotIn(".company-status-panel", css_response.text)
 
     def test_dashboard_email_and_integration_routes_render_the_expected_view(self):
         repository_root = Path(__file__).resolve().parents[1]
@@ -2403,7 +2409,7 @@ process.stdout.write(JSON.stringify({
             ["sheet"],
         )
 
-    def test_company_status_display_combines_allowlist_and_required_services(self):
+    def test_company_status_display_uses_only_the_allowlist_result(self):
         repository_root = Path(__file__).resolve().parents[1]
         script = r"""
 const fs = require("fs");
@@ -2433,37 +2439,16 @@ const fulfilled = (validation_status) => ({
   value: { validation_status },
 });
 const rejected = (status) => ({ status: "rejected", reason: { status } });
-const setTechnical = ({ ready, available = true }) => {
-  subject.state.integrations = {
-    gmail: ready,
-    sheet: ready,
-    telegram: false,
-    gmailError: !available,
-    sheetError: false,
-    sheetState: ready ? "ready" : "not_created",
-    sheetOwnership: "client",
-    driveConnected: ready,
-    telegramError: false,
-    telegramAvailable: true,
-    statusesAvailable: available,
-  };
-};
-const displayAfter = (result, technical) => {
+const displayAfter = (result) => {
   subject.state.companyValidation = { status: null, error: false };
-  setTechnical(technical);
   subject.applyCompanyValidationResult(result);
   return subject.getCompanyStatusDisplay();
 };
 const result = {
-  pendingReady: displayAfter(fulfilled("pending"), { ready: true }),
-  validatedReady: displayAfter(fulfilled("validated"), { ready: true }),
-  validatedIncomplete: displayAfter(fulfilled("validated"), { ready: false }),
-  pendingIncomplete: displayAfter(fulfilled("pending"), { ready: false }),
-  validationUnavailable: displayAfter(rejected(503), { ready: true }),
-  technicalUnavailable: displayAfter(fulfilled("validated"), {
-    ready: false,
-    available: false,
-  }),
+  pending: displayAfter(fulfilled("pending")),
+  validated: displayAfter(fulfilled("validated")),
+  unavailable: displayAfter(rejected(503)),
+  invalidPayload: displayAfter(fulfilled("unexpected")),
 };
 process.stdout.write(JSON.stringify(result));
 """
@@ -2476,25 +2461,21 @@ process.stdout.write(JSON.stringify(result));
         )
         result = json.loads(completed.stdout)
 
-        self.assertEqual(result["pendingReady"]["validationLabel"], "EN ATTENTE")
-        self.assertEqual(result["pendingReady"]["technicalLabel"], "PRÊTE")
-        self.assertFalse(result["pendingReady"]["ready"])
-        self.assertEqual(result["validatedReady"]["validationLabel"], "VALIDÉE")
-        self.assertEqual(result["validatedReady"]["technicalLabel"], "PRÊTE")
-        self.assertTrue(result["validatedReady"]["ready"])
         self.assertEqual(
-            result["validatedIncomplete"]["technicalLabel"],
-            "À COMPLÉTER",
-        )
-        self.assertFalse(result["validatedIncomplete"]["ready"])
-        self.assertEqual(result["pendingIncomplete"]["validationTone"], "warning")
-        self.assertEqual(
-            result["validationUnavailable"]["validationLabel"],
-            "INDISPONIBLE",
+            result["pending"],
+            {"label": "EN ATTENTE", "tone": "warning"},
         )
         self.assertEqual(
-            result["technicalUnavailable"]["technicalLabel"],
-            "INDISPONIBLE",
+            result["validated"],
+            {"label": "VALIDÉE", "tone": "connected"},
+        )
+        self.assertEqual(
+            result["unavailable"],
+            {"label": "INDISPONIBLE", "tone": "error"},
+        )
+        self.assertEqual(
+            result["invalidPayload"],
+            {"label": "INDISPONIBLE", "tone": "error"},
         )
 
     def test_integration_setup_dismissal_resets_with_the_authenticated_session(self):
