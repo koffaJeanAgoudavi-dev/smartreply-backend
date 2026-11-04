@@ -73,29 +73,33 @@ class ConditionsStaticTests(unittest.TestCase):
 
         approved_flow = (
             "Création du compte",
+            "Renseignement du nom et du secteur de l’entreprise",
             "Autorisation de Google Drive",
-            "Création de l’entreprise et de son Google Sheet",
+            "Création de l’entreprise et de son Google Sheet nommé",
             "Connexion des autres services nécessaires",
             "Statut EN ATTENTE",
             "Validation manuelle par DIGICRAFT LABS",
-            "Statut VALIDÉE",
-            "Début du traitement autorisé",
+            "Statut VALIDÉE puis début du traitement autorisé",
         )
         flow_positions = [page.text.index(step) for step in approved_flow]
         self.assertEqual(flow_positions, sorted(flow_positions))
-
-    def test_internal_note_and_inactive_security_address_are_not_published(self):
-        page = self.client.get("/conditions/")
-
-        self.assertNotIn("Note de publication", page.text)
-        self.assertNotIn("Avant publication", page.text)
-        self.assertNotIn("security.smartreplyagent@gmail.com", page.text)
         self.assertIn(
-            "Pour signaler un problème de sécurité, utilisez également "
-            "l’adresse générale",
+            "configuration payante Gemini après le programme pilote",
             page.text,
         )
+
+    def test_security_address_and_internal_publication_note_are_visible(self):
+        page = self.client.get("/conditions/")
+
+        self.assertIn("Note de publication", page.text)
+        self.assertIn("Avant publication", page.text)
+        self.assertIn("security.smartreplyagent@gmail.com", page.text)
+        self.assertIn("Si cette adresse n’est pas encore active", page.text)
+        self.assertIn("que le modèle Gemini utilisé", page.text)
         self.assertIn('href="mailto:hello.smartreplyagent@gmail.com"', page.text)
+        self.assertIn(
+            'href="mailto:security.smartreplyagent@gmail.com"', page.text
+        )
 
     def test_selected_privacy_links_and_local_navigation_are_preserved(self):
         page = self.client.get("/conditions/")

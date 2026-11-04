@@ -443,20 +443,21 @@ Les pages statiques `/conditions/` et `/confidentialite/` sont publiques et ne
 dépendent pas d'un JWT. Les routes sans slash final redirigent vers ces URL
 canoniques. Les versions pilote datées du 4 novembre 2026 sont reliées depuis le
 formulaire d'inscription, la section **Données et assistance** de Paramètres et
-le footer du dashboard. Leur parcours pilote reflète l'onboarding réel :
-autorisation Drive avant la création de l'entreprise et de son Sheet.
+le footer du dashboard. Leur parcours pilote reflète l'onboarding réel : le nom
+et le secteur sont renseignés avant l'autorisation Drive, puis l'entreprise et
+son Sheet nommé sont créés après le retour Google.
 
 La politique décrit notamment le statut administratif dérivé de l'allowlist,
 le ton de réponse, les refresh tokens Gmail et Drive chiffrés, les données du
-formulaire Contact et l'empreinte HMAC utilisée pour les limites anti-abus. La
-restriction EEE/Suisse/Royaume-Uni y est présentée comme une règle de validation
-manuelle. Les informations Gemini restent prudentes et dépendent des conditions
-Google applicables à la configuration effectivement utilisée.
+formulaire Contact et l'empreinte HMAC utilisée pour les limites anti-abus. Elle
+ne publie aucune restriction régionale que l'application ne peut pas appliquer.
+Les informations Gemini restent prudentes : quota gratuit pendant le pilote,
+puis passage prévu à une configuration payante après le pilote.
 
 Ce lot ajoute des liens informatifs à l'inscription, mais aucune case obligatoire
-et aucun suivi d'acceptation en base. Les checklists internes des documents source
-et l'adresse de sécurité inactive ne sont pas publiées. Le formulaire Contact et
-son API ne sont pas modifiés.
+et aucun suivi d'acceptation en base. À la demande de l'éditeur, les checklists
+internes et l'adresse de sécurité encore inactive restent visibles comme rappels
+avant finalisation. Le formulaire Contact et son API ne sont pas modifiés.
 
 ### Pipeline multi-entreprises — Gmail et Sheets requis, Telegram facultatif
 
@@ -631,13 +632,16 @@ couverts par `tests.test_company_telegram_actions` et
 
 ## 📁 Propriété des Google Sheets
 
-Les nouvelles entreprises doivent d'abord connecter Google Drive. SmartReply
-stocke le refresh token Drive chiffré dans `drive_connections`, séparément de
-Gmail, puis crée le classeur avec le token du client via Google Sheets API. Le
-compte Google autorisé devient ainsi propriétaire du fichier. Seul le compte de
-service reçoit ensuite une permission `writer`, nécessaire aux lectures et
-écritures du pipeline. Le dashboard continue d'ouvrir le fichier à partir du
-`sheet_id` isolé de l'entreprise.
+Les nouveaux utilisateurs renseignent d'abord le nom et le secteur de leur
+entreprise. Ces valeurs sont conservées dans `sessionStorage` pendant l'aller-
+retour OAuth, puis restaurées au retour Google. SmartReply stocke le refresh
+token Drive chiffré dans `drive_connections`, séparément de Gmail. Le clic final
+crée ensuite simultanément l'entreprise et son classeur via Google Sheets API,
+avec le titre `SmartReply Data - <nom de l'entreprise>`. Le compte Google
+autorisé devient ainsi propriétaire du fichier. Seul le compte de service reçoit
+ensuite une permission `writer`, nécessaire aux lectures et écritures du
+pipeline. Le dashboard continue d'ouvrir le fichier à partir du `sheet_id` isolé
+de l'entreprise.
 
 Les entreprises historiques restent marquées `sheet_owner_mode=platform` pour
 éviter une interruption. Toutes les nouvelles créations utilisent

@@ -449,6 +449,15 @@ class DashboardStaticTests(unittest.TestCase):
         )[1].split('<div id="dashboard-shell"', maxsplit=1)[0]
         self.assertIn('<select id="company-sector"', onboarding_markup)
         self.assertIn('id="company-sector-other"', onboarding_markup)
+        self.assertLess(
+            onboarding_markup.index('id="company-name"'),
+            onboarding_markup.index('id="connect-drive-onboarding"'),
+        )
+        self.assertIn(
+            "Renseignez d'abord votre entreprise, puis autorisez Google Drive",
+            onboarding_markup,
+        )
+        self.assertIn("Créer mon entreprise et mon Sheet", onboarding_markup)
         for sector in (
             "Conseil",
             "Services",
@@ -462,6 +471,107 @@ class DashboardStaticTests(unittest.TestCase):
             "Immobilier",
         ):
             self.assertIn(f'value="{sector}"', onboarding_markup)
+
+    def test_company_details_are_saved_before_drive_and_restored_after_oauth(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        script = r"""
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync("app/dashboard/app.js", "utf8");
+const marker = '  document.addEventListener("DOMContentLoaded", initialize);\n})();';
+if (!source.includes(marker)) throw new Error("Dashboard test export marker missing");
+source = source.replace(
+  marker,
+  `  globalThis.__onboardingDraftTest = {
+    persistOnboardingCompanyDraft,
+    readOnboardingCompanyDraft,
+    restoreOnboardingCompanyDraft,
+    clearOnboardingCompanyDraft,
+  };\n})();`,
+);
+const storage = new Map();
+const elements = new Map();
+const element = (id) => {
+  if (!elements.has(id)) {
+    elements.set(id, {
+      value: "",
+      hidden: false,
+      disabled: false,
+      required: false,
+    });
+  }
+  return elements.get(id);
+};
+const context = {
+  window: {
+    localStorage: { getItem: () => null },
+    sessionStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, String(value)),
+      removeItem: (key) => storage.delete(key),
+    },
+  },
+  document: { getElementById: (id) => element(id) },
+  console,
+  Intl,
+  Set,
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const subject = context.__onboardingDraftTest;
+element("company-name").value = "  Atelier Koffa  ";
+element("company-sector").value = "__other__";
+element("company-sector-other").value = "  Artisanat local  ";
+const persisted = subject.persistOnboardingCompanyDraft();
+element("company-name").value = "";
+element("company-sector").value = "";
+element("company-sector-other").value = "";
+const restored = subject.restoreOnboardingCompanyDraft();
+const result = {
+  persisted,
+  restored,
+  draft: subject.readOnboardingCompanyDraft(),
+  companyName: element("company-name").value,
+  sectorSelect: element("company-sector").value,
+  otherSector: element("company-sector-other").value,
+  otherVisible: !element("company-sector-other-field").hidden,
+};
+subject.clearOnboardingCompanyDraft();
+result.cleared = subject.readOnboardingCompanyDraft() === null;
+process.stdout.write(JSON.stringify(result));
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertTrue(result["persisted"])
+        self.assertTrue(result["restored"])
+        self.assertTrue(result["cleared"])
+        self.assertEqual(
+            result["draft"],
+            {
+                "nom_entreprise": "Atelier Koffa",
+                "secteur": "Artisanat local",
+            },
+        )
+        self.assertEqual(result["companyName"], "Atelier Koffa")
+        self.assertEqual(result["sectorSelect"], "__other__")
+        self.assertEqual(result["otherSector"], "Artisanat local")
+        self.assertTrue(result["otherVisible"])
+
+        javascript = (repository_root / "app/dashboard/app.js").read_text()
+        connect_drive_source = javascript.split(
+            "async function connectDrive", maxsplit=1
+        )[1].split("async function handleCompanyCreation", maxsplit=1)[0]
+        self.assertLess(
+            connect_drive_source.index("persistOnboardingCompanyDraft()"),
+            connect_drive_source.index("apiRequest(API.driveConnect)"),
+        )
 
     def test_company_validation_is_limited_to_sidebar_and_topbar(self):
         response = self.client.get("/dashboard/")

@@ -375,6 +375,47 @@
   text-decoration: none;
 }
 
+.legal-publication-note {
+  padding: clamp(23px, 5vw, 38px);
+  border: 1px dashed var(--color-warning);
+  border-radius: var(--radius-lg);
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+}
+
+.legal-publication-note h2 {
+  margin: 8px 0 14px;
+  color: var(--color-ink);
+  font-size: clamp(21px, 4vw, 28px);
+  letter-spacing: -0.03em;
+}
+
+.legal-publication-note p,
+.legal-publication-note li {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.legal-publication-note p {
+  margin: 0;
+}
+
+.legal-publication-note ul {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0 0;
+  padding-left: 22px;
+}
+
+.legal-publication-note code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--color-ink);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
 .legal-footer {
   display: grid;
   width: min(100% - 32px, 1160px);

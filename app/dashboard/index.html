@@ -154,13 +154,7 @@
       <div class="onboarding-icon"><svg><use href="#icon-building"></use></svg></div>
       <span class="eyebrow">Dernière étape</span>
       <h1>Parlez-nous de votre entreprise</h1>
-      <p>Connectez d'abord votre Drive : le Google Sheet sera créé directement dans votre compte et restera votre propriété.</p>
-      <div class="onboarding-drive" aria-live="polite">
-        <span id="onboarding-drive-status" class="status-pill neutral">Vérification…</span>
-        <button id="connect-drive-onboarding" class="button button-secondary" type="button">
-          Connecter Google Drive <svg><use href="#icon-arrow"></use></svg>
-        </button>
-      </div>
+      <p>Renseignez d'abord votre entreprise, puis autorisez Google Drive. SmartReply utilisera ce nom pour créer le Sheet directement dans votre compte ; il restera votre propriété.</p>
       <form id="company-form" class="company-form" novalidate>
         <div id="company-error" class="form-alert error" role="alert" hidden></div>
         <label class="field">
@@ -188,10 +182,16 @@
           <span>Précisez votre secteur</span>
           <input id="company-sector-other" type="text" maxlength="255" placeholder="Votre secteur d'activité">
         </label>
+        <div class="onboarding-drive" aria-live="polite">
+          <span id="onboarding-drive-status" class="status-pill neutral">Vérification…</span>
+          <button id="connect-drive-onboarding" class="button button-secondary" type="button">
+            Enregistrer et connecter Google Drive <svg><use href="#icon-arrow"></use></svg>
+          </button>
+        </div>
         <button id="company-submit" class="button button-primary button-block" type="submit" disabled>
-          <span>Créer mon espace</span><svg><use href="#icon-arrow"></use></svg>
+          <span>Créer mon entreprise et mon Sheet</span><svg><use href="#icon-arrow"></use></svg>
         </button>
-        <p class="form-help">La création peut prendre quelques secondes pendant la préparation de votre Sheet dans votre Drive.</p>
+        <p class="form-help">Le nom et le secteur sont conservés pendant l'autorisation Google. La création peut ensuite prendre quelques secondes.</p>
       </form>
     </section>
   </main>

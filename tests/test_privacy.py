@@ -62,25 +62,22 @@ class PrivacyStaticTests(unittest.TestCase):
         ):
             self.assertIn(approved_claim, page.text)
 
-    def test_policy_matches_the_confirmed_onboarding_and_regional_rule(self):
+    def test_policy_matches_company_first_onboarding_without_regional_restriction(self):
         page = self.client.get("/confidentialite/")
         approved_flow = (
             "l’utilisateur crée un compte SmartReply",
+            "il renseigne le nom et le secteur de son entreprise",
             "il autorise Google Drive",
-            "il crée son entreprise et le Google Sheet associé",
-            "il connecte Gmail",
-            "il peut connecter Telegram",
+            "SmartReply crée l’entreprise et le Google Sheet nommé",
+            "il connecte Gmail et peut connecter Telegram",
             "DIGICRAFT LABS vérifie et valide manuellement l’entreprise",
             "le traitement des e-mails commence après cette validation",
         )
         flow_positions = [page.text.index(step) for step in approved_flow]
 
         self.assertEqual(flow_positions, sorted(flow_positions))
-        self.assertIn(
-            "cette règle est appliquée manuellement par DIGICRAFT LABS avant "
-            "l’ajout de l’entreprise à l’allowlist",
-            page.text,
-        )
+        self.assertNotIn("Espace économique européen", page.text)
+        self.assertNotIn("avant l’ajout de l’entreprise à l’allowlist", page.text)
 
     def test_technical_disclosures_match_the_current_implementation(self):
         page = self.client.get("/confidentialite/")
@@ -112,19 +109,27 @@ class PrivacyStaticTests(unittest.TestCase):
             page.text,
         )
         self.assertIn("Elles peuvent évoluer", page.text)
+        self.assertIn(
+            "configuration payante Gemini après le programme pilote",
+            page.text,
+        )
         self.assertNotIn("Des évaluateurs humains", page.text)
         self.assertNotIn(
             "ne sont pas utilisés pour améliorer les produits Google",
             page.text,
         )
 
-    def test_internal_note_and_inactive_security_address_are_not_published(self):
+    def test_security_address_and_internal_publication_note_are_visible(self):
         page = self.client.get("/confidentialite/")
 
-        self.assertNotIn("Note de publication", page.text)
-        self.assertNotIn("Avant de publier", page.text)
-        self.assertNotIn("security.smartreplyagent@gmail.com", page.text)
+        self.assertIn("Note de publication", page.text)
+        self.assertIn("Avant de publier", page.text)
+        self.assertIn("security.smartreplyagent@gmail.com", page.text)
+        self.assertIn("confirmer les régions d’accès au pilote", page.text)
         self.assertIn('href="mailto:hello.smartreplyagent@gmail.com"', page.text)
+        self.assertIn(
+            'href="mailto:security.smartreplyagent@gmail.com"', page.text
+        )
 
     def test_assets_navigation_and_contact_scope_are_safe_and_local(self):
         page = self.client.get("/confidentialite/")
