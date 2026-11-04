@@ -1015,6 +1015,10 @@ class PipelineExecutionTests(unittest.TestCase):
 
     def test_cutoff_is_strict_and_body_is_truncated_for_gemini(self):
         plan = self.create_company("Cutoff", activated_at=self.activation)
+        with self.session_factory() as db:
+            company = db.get(Company, plan.company_id)
+            company.response_tone = "warm"
+            db.commit()
         prepared = self.prepared([plan])
         analyzed_bodies = []
         filter_email = Mock(return_value={"decision": "traiter"})
@@ -1027,8 +1031,8 @@ class PipelineExecutionTests(unittest.TestCase):
                 received_at=self.activation + timedelta(milliseconds=1),
             )
 
-        async def analyze(_sender, _subject, body):
-            analyzed_bodies.append(body)
+        async def analyze(_sender, _subject, body, response_tone):
+            analyzed_bodies.append((body, response_tone))
             return await self.successful_analysis()
 
         with (
@@ -1069,7 +1073,8 @@ class PipelineExecutionTests(unittest.TestCase):
         self.assertEqual(summary.processed, 1)
         self.assertEqual(filter_email.call_count, 1)
         self.assertEqual(len(analyzed_bodies), 1)
-        self.assertEqual(len(analyzed_bodies[0]), 12)
+        self.assertEqual(len(analyzed_bodies[0][0]), 12)
+        self.assertEqual(analyzed_bodies[0][1], "warm")
         with self.session_factory() as db:
             records = db.scalars(
                 select(ProcessedEmail).order_by(ProcessedEmail.id)

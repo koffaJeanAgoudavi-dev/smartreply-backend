@@ -6,6 +6,7 @@
     login: "/api/v1/auth/login",
     company: "/api/v1/companies/me",
     companies: "/api/v1/companies",
+    companySettings: "/api/v1/companies/me/settings",
     companyValidationStatus: "/api/v1/companies/me/validation-status",
     gmailConnect: "/api/v1/gmail/connect",
     gmailStatus: "/api/v1/gmail/status",
@@ -50,11 +51,26 @@
   ];
   const ALL_INTEGRATIONS = Object.freeze(["gmail", "sheet", "telegram"]);
   const REQUIRED_INTEGRATIONS = Object.freeze(["gmail", "sheet"]);
-  const APP_ROUTES = Object.freeze(["dashboard", "emails", "integrations"]);
+  const SECTOR_OPTIONS = Object.freeze([
+    "Conseil",
+    "Services",
+    "Commerce",
+    "E-commerce",
+    "Formation",
+    "Marketing et communication",
+    "Technologie",
+    "Freelance",
+    "Agence",
+    "Immobilier",
+  ]);
+  const RESPONSE_TONES = Object.freeze(["professional", "friendly", "direct", "warm"]);
+  const OTHER_SECTOR_VALUE = "__other__";
+  const APP_ROUTES = Object.freeze(["dashboard", "emails", "integrations", "settings"]);
   const ROUTE_TITLES = Object.freeze({
     dashboard: "Tableau de bord",
     emails: "Emails",
     integrations: "Intégrations",
+    settings: "Paramètres",
   });
   const EMAILS_VIEW_IDS = Object.freeze({
     workspace: "emails-workspace",
@@ -275,6 +291,31 @@
   function showAlert(element, message) {
     element.textContent = message;
     element.hidden = !message;
+  }
+
+  function syncOtherSectorField(select, field, input) {
+    const isOther = select.value === OTHER_SECTOR_VALUE;
+    field.hidden = !isOther;
+    input.disabled = !isOther || select.disabled;
+    input.required = isOther && !select.disabled;
+  }
+
+  function setSectorControlValue(select, field, input, sector) {
+    if (SECTOR_OPTIONS.includes(sector)) {
+      select.value = sector;
+      input.value = "";
+    } else if (sector) {
+      select.value = OTHER_SECTOR_VALUE;
+      input.value = sector;
+    } else {
+      select.value = "";
+      input.value = "";
+    }
+    syncOtherSectorField(select, field, input);
+  }
+
+  function selectedSectorValue(select, input) {
+    return select.value === OTHER_SECTOR_VALUE ? input.value.trim() : select.value;
   }
 
   function setBusy(button, busy, label = "Traitement…") {
@@ -513,6 +554,24 @@
         : "status-pill neutral";
       element.textContent = "Vérification…";
     });
+    $("settings-company-name").textContent = "—";
+    $("settings-account-email").textContent = "—";
+    const settingsForm = $("settings-form");
+    if (settingsForm && typeof settingsForm.reset === "function") settingsForm.reset();
+    setSectorControlValue(
+      $("settings-sector"),
+      $("settings-sector-other-field"),
+      $("settings-sector-other"),
+      "",
+    );
+    $("settings-sector").disabled = true;
+    syncOtherSectorField(
+      $("settings-sector"),
+      $("settings-sector-other-field"),
+      $("settings-sector-other"),
+    );
+    $("settings-sector-help").textContent = "Le secteur sera modifiable après vérification du statut de l'entreprise.";
+    showAlert($("settings-error"), "");
     $("sheet-company-label").textContent = "Sheet de votre entreprise";
     $("open-sheet").setAttribute("href", "#");
     $("open-sheet").setAttribute("aria-disabled", "true");
@@ -758,6 +817,12 @@
     if (!form.reportValidity()) return;
     const button = form.querySelector('button[type="submit"]');
     const errorElement = $("company-error");
+    const sector = selectedSectorValue($("company-sector"), $("company-sector-other"));
+    if (!sector) {
+      showAlert(errorElement, "Précisez votre secteur d'activité.");
+      $("company-sector-other").focus();
+      return;
+    }
     showAlert(errorElement, "");
     setBusy(button, true, "Préparation du Sheet…");
     try {
@@ -765,10 +830,15 @@
         method: "POST",
         body: {
           nom_entreprise: $("company-name").value.trim(),
-          secteur: $("company-sector").value.trim(),
+          secteur: sector,
         },
       });
       form.reset();
+      syncOtherSectorField(
+        $("company-sector"),
+        $("company-sector-other-field"),
+        $("company-sector-other"),
+      );
       await enterDashboard();
       showToast("Votre espace d'entreprise est prêt.");
     } catch (error) {
@@ -858,7 +928,93 @@
     $("topbar-sector").textContent = sector;
     $("sheet-company-label").textContent = `Sheet : ${name}`;
     $("open-sheet").href = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(state.company.sheet_id)}/edit`;
+    renderSettings();
     renderCompanyStatuses();
+  }
+
+  function renderSettings() {
+    if (!state.company || !state.user) return;
+    $("settings-company-name").textContent = state.company.nom_entreprise;
+    $("settings-account-email").textContent = state.user.email;
+    setSectorControlValue(
+      $("settings-sector"),
+      $("settings-sector-other-field"),
+      $("settings-sector-other"),
+      state.company.secteur,
+    );
+    const responseTone = RESPONSE_TONES.includes(state.company.response_tone)
+      ? state.company.response_tone
+      : "professional";
+    const toneInput = document.querySelector(
+      `input[name="response_tone"][value="${responseTone}"]`,
+    );
+    if (toneInput) toneInput.checked = true;
+    updateSectorEditingState();
+  }
+
+  function updateSectorEditingState() {
+    const select = $("settings-sector");
+    const otherField = $("settings-sector-other-field");
+    const otherInput = $("settings-sector-other");
+    const help = $("settings-sector-help");
+    const editable = state.companyValidation.status === "pending"
+      && !state.companyValidation.error;
+    select.disabled = !editable;
+    if (state.companyValidation.status === "validated") {
+      help.textContent = "Votre entreprise est validée. Contactez le support pour modifier son secteur.";
+    } else if (state.companyValidation.error) {
+      help.textContent = "La modification du secteur est temporairement indisponible.";
+    } else if (editable) {
+      help.textContent = "Le secteur décrit votre activité. Il ne vaut pas autorisation pour les activités exclues du pilote.";
+    } else {
+      help.textContent = "Le secteur sera modifiable après vérification du statut de l'entreprise.";
+    }
+    syncOtherSectorField(select, otherField, otherInput);
+  }
+
+  async function handleSettingsSave(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+    const errorElement = $("settings-error");
+    const button = $("save-settings");
+    const toneInput = form.querySelector('input[name="response_tone"]:checked');
+    const responseTone = toneInput ? toneInput.value : "";
+    if (!RESPONSE_TONES.includes(responseTone)) {
+      showAlert(errorElement, "Choisissez un ton de réponse valide.");
+      return;
+    }
+
+    const body = { response_tone: responseTone };
+    if (state.companyValidation.status === "pending" && !state.companyValidation.error) {
+      const sector = selectedSectorValue($("settings-sector"), $("settings-sector-other"));
+      if (!sector) {
+        showAlert(errorElement, "Précisez votre secteur d'activité.");
+        $("settings-sector-other").focus();
+        return;
+      }
+      body.secteur = sector;
+    }
+
+    showAlert(errorElement, "");
+    setBusy(button, true, "Enregistrement…");
+    try {
+      state.company = await apiRequest(API.companySettings, {
+        method: "PATCH",
+        body,
+      });
+      renderIdentity();
+      showToast("Vos paramètres ont été enregistrés.");
+    } catch (error) {
+      let message = error.message || "Impossible d'enregistrer vos paramètres.";
+      if (error.status === 409) {
+        message = "Votre entreprise est désormais validée. Le secteur doit être modifié via le support.";
+        await loadIntegrationStatuses({ silent: true });
+      }
+      showAlert(errorElement, message);
+    } finally {
+      setBusy(button, false);
+    }
   }
 
   function setCompanyStatusPill(element, label, tone) {
@@ -885,6 +1041,7 @@
     ["sidebar-validation-status", "topbar-validation-status"].forEach((id) => {
       setCompanyStatusPill($(id), display.label, display.tone);
     });
+    updateSectorEditingState();
   }
 
   function applyCompanyValidationResult(result) {
@@ -2319,6 +2476,7 @@
     $("dashboard-view").hidden = route !== "dashboard";
     $("emails-view").hidden = route !== "emails";
     $("integrations-view").hidden = route !== "integrations";
+    $("settings-view").hidden = route !== "settings";
     $("topbar-title").textContent = ROUTE_TITLES[route];
     document.querySelectorAll("[data-route]").forEach((item) => {
       item.classList.toggle("active", item.dataset.route === route);
@@ -2394,9 +2552,25 @@
     $("login-form").addEventListener("submit", handleLogin);
     $("register-form").addEventListener("submit", handleRegister);
     $("company-form").addEventListener("submit", handleCompanyCreation);
+    $("company-sector").addEventListener("change", () => {
+      syncOtherSectorField(
+        $("company-sector"),
+        $("company-sector-other-field"),
+        $("company-sector-other"),
+      );
+    });
+    $("settings-form").addEventListener("submit", handleSettingsSave);
+    $("settings-sector").addEventListener("change", () => {
+      syncOtherSectorField(
+        $("settings-sector"),
+        $("settings-sector-other-field"),
+        $("settings-sector-other"),
+      );
+    });
     $("connect-drive-onboarding").addEventListener("click", (event) => connectDrive(event.currentTarget));
     $("onboarding-logout").addEventListener("click", () => logout());
     $("logout-button").addEventListener("click", () => logout());
+    $("settings-logout").addEventListener("click", () => logout());
     $("open-sidebar").addEventListener("click", openSidebar);
     $("close-sidebar").addEventListener("click", closeSidebar);
     $("sidebar-overlay").addEventListener("click", closeSidebar);

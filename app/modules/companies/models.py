@@ -17,6 +17,10 @@ class Company(Base):
             "sheet_owner_mode IN ('platform', 'client')",
             name="ck_companies_sheet_owner_mode",
         ),
+        CheckConstraint(
+            "response_tone IN ('professional', 'friendly', 'direct', 'warm')",
+            name="ck_companies_response_tone",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -25,6 +29,12 @@ class Company(Base):
     )
     nom_entreprise: Mapped[str] = mapped_column(String(255), nullable=False)
     secteur: Mapped[str] = mapped_column(String(255), nullable=False)
+    response_tone: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="professional",
+        server_default="professional",
+    )
     sheet_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     # ``platform`` conserve la compatibilité des Sheets historiques. Toutes les
     # nouvelles créations utilisent ``client`` et exigent une connexion Drive.

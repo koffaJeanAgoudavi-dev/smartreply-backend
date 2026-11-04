@@ -11,10 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.company_allowlist import get_company_validation_status
 from app.core.config import settings
 from app.db.sheets_client import get_sheets_client
 from app.modules.companies.models import Company
-from app.modules.companies.schemas import CompanyCreate
+from app.modules.companies.schemas import CompanyCreate, CompanySettingsUpdate
 from app.modules.drive_oauth import service as drive_oauth_service
 from app.modules.sheets.service import DRAFT_HEADERS, EMAIL_HEADERS
 
@@ -44,6 +45,10 @@ class PipelineAccessError(RuntimeError):
 
 class CompanyPersistenceError(RuntimeError):
     """L'enregistrement PostgreSQL de l'entreprise a échoué."""
+
+
+class SectorUpdateLockedError(RuntimeError):
+    """Le secteur d'une entreprise validée doit passer par le support."""
 
 
 def get_service_account_email() -> str:
@@ -612,6 +617,36 @@ def get_company_by_sheet_id(db: Session, sheet_id: str) -> Company | None:
     return db.execute(
         select(Company).where(Company.sheet_id == sheet_id)
     ).scalar_one_or_none()
+
+
+def update_company_settings(
+    db: Session,
+    company: Company,
+    data: CompanySettingsUpdate,
+) -> Company:
+    """Met à jour uniquement le secteur autorisé et le ton de réponse."""
+    updates = data.model_dump(exclude_unset=True)
+    requested_sector = updates.get("secteur")
+    if requested_sector is not None and requested_sector != company.secteur:
+        if get_company_validation_status(company.id) == "validated":
+            raise SectorUpdateLockedError(
+                "Le secteur d'une entreprise validée doit être modifié via le support."
+            )
+        company.secteur = requested_sector
+
+    requested_tone = updates.get("response_tone")
+    if requested_tone is not None:
+        company.response_tone = requested_tone
+
+    try:
+        db.commit()
+        db.refresh(company)
+    except Exception as exc:
+        db.rollback()
+        raise CompanyPersistenceError(
+            "Impossible d'enregistrer les paramètres de l'entreprise."
+        ) from exc
+    return company
 
 
 def _permission_has_writer_access(

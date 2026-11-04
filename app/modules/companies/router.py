@@ -13,6 +13,7 @@ from app.modules.companies import service
 from app.modules.companies.schemas import (
     CompanyCreate,
     CompanyResponse,
+    CompanySettingsUpdate,
     CompanyValidationStatusResponse,
     PipelineAccessResponse,
 )
@@ -90,6 +91,40 @@ def get_my_company(
             detail="Aucune entreprise trouvée pour cet utilisateur.",
         )
     return company
+
+
+@router.patch("/me/settings", response_model=CompanyResponse)
+def update_my_company_settings(
+    data: CompanySettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CompanyResponse:
+    """Modifie le secteur admissible et le ton, jamais le nom ni le statut."""
+    company = service.get_company_by_user_id(db, user_id=current_user.id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune entreprise trouvée pour cet utilisateur.",
+        )
+    try:
+        return service.update_company_settings(db, company, data)
+    except service.SectorUpdateLockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        logger.error("Configuration de l'allowlist pipeline invalide")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La modification du secteur est temporairement indisponible.",
+        ) from exc
+    except service.CompanyPersistenceError as exc:
+        logger.error("Enregistrement des paramètres d'entreprise impossible")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Impossible d'enregistrer les paramètres de l'entreprise.",
+        ) from exc
 
 
 @router.get(

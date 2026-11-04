@@ -311,7 +311,8 @@ svg {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   min-height: 48px;
   padding: 0 14px;
@@ -323,13 +324,25 @@ svg {
   transition: border var(--transition-fast), box-shadow var(--transition-fast);
 }
 
+.field select {
+  appearance: auto;
+}
+
 .field input::placeholder {
   color: var(--color-subtle);
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   border-color: var(--color-primary-600);
   box-shadow: var(--shadow-focus);
+}
+
+.field input:disabled,
+.field select:disabled {
+  cursor: not-allowed;
+  background: var(--color-background);
+  color: var(--color-muted);
 }
 
 .button {
@@ -2386,12 +2399,276 @@ td.subject-cell {
   stroke-linejoin: round;
 }
 
+.settings-form {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.settings-card {
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.settings-form .settings-card {
+  margin-bottom: 0;
+}
+
+.settings-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  margin-bottom: 20px;
+}
+
+.settings-card-heading h2 {
+  margin: 1px 0 0;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.settings-card-heading p {
+  margin: 5px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.settings-card-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+}
+
+.settings-card-icon svg,
+.settings-action-link svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.settings-fields {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-readonly-field {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+
+.settings-readonly-field > span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settings-readonly-field strong {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.settings-readonly-field small,
+.settings-help,
+.settings-logout-action small,
+.settings-save-row p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.settings-readonly-field a {
+  color: var(--color-primary-700);
+  font-weight: 750;
+  text-underline-offset: 2px;
+}
+
+.settings-editable-field {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.tone-options {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tone-options legend {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tone-option {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 14px;
+  cursor: pointer;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition: border var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.tone-option:hover,
+.tone-option:has(input:checked) {
+  border-color: var(--color-primary-600);
+  background: var(--color-primary-50);
+}
+
+.tone-option:has(input:focus-visible) {
+  box-shadow: var(--shadow-focus);
+}
+
+.tone-option input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: var(--color-primary-700);
+}
+
+.tone-option > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.tone-option strong {
+  font-size: 13px;
+}
+
+.tone-option small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-save-row {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+.settings-account-row {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-readonly-field.compact {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-logout-action {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.settings-support-links {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-action-link {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  text-decoration: none;
+  transition: border var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+}
+
+.settings-action-link:hover {
+  transform: translateY(-1px);
+  border-color: var(--color-primary-600);
+  background: var(--color-primary-50);
+}
+
+.settings-action-link > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settings-action-link strong {
+  font-size: 13px;
+}
+
+.settings-action-link small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-action-link > svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: var(--color-primary-700);
+}
+
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @media (min-width: 540px) {
+  .tone-options,
+  .settings-support-links {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-save-row {
+    align-items: center;
+    justify-content: space-between;
+    flex-direction: row;
+  }
+
+  .settings-save-row .button {
+    flex: 0 0 auto;
+  }
+
   .emails-workspace,
   .email-detail-workspace {
     padding: 20px;
@@ -2525,6 +2802,19 @@ td.subject-cell {
 }
 
 @media (min-width: 768px) {
+  .settings-card {
+    padding: 24px;
+  }
+
+  .settings-fields,
+  .settings-account-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-logout-action {
+    justify-items: start;
+  }
+
   .email-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
