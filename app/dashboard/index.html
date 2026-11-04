@@ -214,11 +214,11 @@
         <p id="company-summary-title">Mon entreprise</p>
         <div class="company-summary-row">
           <span class="company-icon"><svg><use href="#icon-building"></use></svg></span>
-          <span><strong id="sidebar-company-name">—</strong><small id="sidebar-company-sector">—</small></span>
-        </div>
-        <div class="company-summary-statuses" aria-label="Statuts de l'entreprise">
-          <span id="sidebar-validation-status" class="status-pill neutral">Vérification…</span>
-          <small id="sidebar-technical-status">Configuration : vérification…</small>
+          <span class="company-summary-copy">
+            <strong id="sidebar-company-name">—</strong>
+            <small id="sidebar-company-sector">—</small>
+            <span id="sidebar-validation-status" class="status-pill neutral">Vérification…</span>
+          </span>
         </div>
       </section>
 
@@ -245,6 +245,11 @@
           <span class="company-icon compact"><svg><use href="#icon-building"></use></svg></span>
           <span><strong id="topbar-company-name">—</strong><small id="topbar-sector">—</small></span>
         </div>
+        <span
+          id="topbar-validation-status"
+          class="status-pill neutral topbar-validation-status"
+          aria-label="Statut de validation de l'entreprise"
+        >Vérification…</span>
       </header>
 
       <main id="main-content" class="content" tabindex="-1">
@@ -265,29 +270,6 @@
               </div>
             </div>
           </div>
-
-          <section
-            id="company-status-panel"
-            class="company-status-panel"
-            aria-labelledby="company-status-title"
-            aria-live="polite"
-          >
-            <div class="company-status-copy">
-              <span class="eyebrow">Activation de l'entreprise</span>
-              <h2 id="company-status-title">Statut SmartReply</h2>
-              <p id="company-status-description">Vérification de la validation et des services requis…</p>
-            </div>
-            <div class="company-status-grid">
-              <div class="company-status-item">
-                <small>Validation DIGICRAFT LABS</small>
-                <span id="dashboard-validation-status" class="status-pill neutral">Vérification…</span>
-              </div>
-              <div class="company-status-item">
-                <small>Configuration technique</small>
-                <span id="dashboard-technical-status" class="status-pill neutral">Vérification…</span>
-              </div>
-            </div>
-          </section>
 
           <div id="dashboard-data-error" class="form-alert error" role="alert" hidden></div>
 

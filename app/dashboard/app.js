@@ -506,14 +506,13 @@
     $("sidebar-company-sector").textContent = "—";
     $("topbar-company-name").textContent = "—";
     $("topbar-sector").textContent = "—";
-    ["sidebar-validation-status", "dashboard-validation-status", "dashboard-technical-status"].forEach((id) => {
+    ["sidebar-validation-status", "topbar-validation-status"].forEach((id) => {
       const element = $(id);
-      element.className = "status-pill neutral";
+      element.className = id === "topbar-validation-status"
+        ? "status-pill neutral topbar-validation-status"
+        : "status-pill neutral";
       element.textContent = "Vérification…";
     });
-    $("sidebar-technical-status").textContent = "Configuration : vérification…";
-    $("company-status-description").textContent = "Vérification de la validation et des services requis…";
-    $("company-status-panel").classList.remove("ready");
     $("sheet-company-label").textContent = "Sheet de votre entreprise";
     $("open-sheet").setAttribute("href", "#");
     $("open-sheet").setAttribute("aria-disabled", "true");
@@ -863,99 +862,29 @@
   }
 
   function setCompanyStatusPill(element, label, tone) {
-    element.className = `status-pill ${tone}`;
+    element.classList.remove("connected", "neutral", "warning", "error");
+    element.classList.add(tone);
     element.textContent = label;
   }
 
-  function getCompanyStatusDisplay(
-    companyValidation = state.companyValidation,
-    integrations = state.integrations,
-  ) {
-    const validationStatus = companyValidation.status;
-    const validationKnown = ["pending", "validated"].includes(validationStatus)
-      && companyValidation.error !== true;
-    const technicalKnown = integrations.statusesAvailable === true;
-    const technicalUnavailable = !technicalKnown
-      && (integrations.gmailError === true || integrations.sheetError === true);
-    const technicalReady = technicalKnown
-      && missingRequiredIntegrations(integrations).length === 0;
-
-    let validationLabel = "Vérification…";
-    let validationTone = "neutral";
+  function getCompanyStatusDisplay(companyValidation = state.companyValidation) {
     if (companyValidation.error) {
-      validationLabel = "INDISPONIBLE";
-      validationTone = "error";
-    } else if (validationStatus === "validated") {
-      validationLabel = "VALIDÉE";
-      validationTone = "connected";
-    } else if (validationStatus === "pending") {
-      validationLabel = "EN ATTENTE";
-      validationTone = "warning";
+      return Object.freeze({ label: "INDISPONIBLE", tone: "error" });
     }
-
-    let technicalLabel = "Vérification…";
-    let technicalSidebarLabel = "Configuration : vérification…";
-    let technicalTone = "neutral";
-    if (technicalUnavailable) {
-      technicalLabel = "INDISPONIBLE";
-      technicalSidebarLabel = "Configuration : indisponible";
-      technicalTone = "error";
-    } else if (technicalKnown && technicalReady) {
-      technicalLabel = "PRÊTE";
-      technicalSidebarLabel = "Configuration : prête";
-      technicalTone = "connected";
-    } else if (technicalKnown) {
-      technicalLabel = "À COMPLÉTER";
-      technicalSidebarLabel = "Configuration : à compléter";
-      technicalTone = "warning";
+    if (companyValidation.status === "validated") {
+      return Object.freeze({ label: "VALIDÉE", tone: "connected" });
     }
-
-    let description = "Vérification de la validation et des services requis…";
-    if (companyValidation.error) {
-      description = "Le statut de validation DIGICRAFT LABS n'a pas pu être confirmé. Réessayez dans quelques instants.";
-    } else if (!validationKnown || (!technicalKnown && !technicalUnavailable)) {
-      description = "Vérification de la validation et des services requis…";
-    } else if (validationStatus === "validated" && technicalReady) {
-      description = "Votre entreprise est validée et sa configuration est prête pour le traitement des emails.";
-    } else if (validationStatus === "validated") {
-      description = "Votre entreprise est validée. Rétablissez Gmail ou Google Sheets pour permettre le traitement des emails.";
-    } else if (technicalReady) {
-      description = "Votre configuration est prête. La validation manuelle de DIGICRAFT LABS est encore nécessaire avant le traitement des emails.";
-    } else {
-      description = "Finalisez Gmail et Google Sheets pendant que votre entreprise attend la validation de DIGICRAFT LABS.";
+    if (companyValidation.status === "pending") {
+      return Object.freeze({ label: "EN ATTENTE", tone: "warning" });
     }
-
-    return Object.freeze({
-      validationLabel,
-      validationTone,
-      technicalLabel,
-      technicalSidebarLabel,
-      technicalTone,
-      description,
-      ready: validationStatus === "validated" && technicalReady,
-    });
+    return Object.freeze({ label: "Vérification…", tone: "neutral" });
   }
 
   function renderCompanyStatuses() {
     const display = getCompanyStatusDisplay();
-    setCompanyStatusPill(
-      $("sidebar-validation-status"),
-      display.validationLabel,
-      display.validationTone,
-    );
-    setCompanyStatusPill(
-      $("dashboard-validation-status"),
-      display.validationLabel,
-      display.validationTone,
-    );
-    setCompanyStatusPill(
-      $("dashboard-technical-status"),
-      display.technicalLabel,
-      display.technicalTone,
-    );
-    $("sidebar-technical-status").textContent = display.technicalSidebarLabel;
-    $("company-status-description").textContent = display.description;
-    $("company-status-panel").classList.toggle("ready", display.ready);
+    ["sidebar-validation-status", "topbar-validation-status"].forEach((id) => {
+      setCompanyStatusPill($(id), display.label, display.tone);
+    });
   }
 
   function applyCompanyValidationResult(result) {
