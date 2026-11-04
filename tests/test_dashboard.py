@@ -181,9 +181,11 @@ class DashboardStaticTests(unittest.TestCase):
         response = self.client.get("/dashboard/")
         stylesheet = self.client.get("/dashboard/styles.css")
         public_conditions = self.client.get("/conditions/")
+        public_privacy = self.client.get("/confidentialite/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.text.count('href="/conditions/"'), 3)
+        self.assertEqual(response.text.count('href="/confidentialite/"'), 3)
         register_markup = response.text.split(
             '<form id="register-form"', maxsplit=1
         )[1].split("</form>", maxsplit=1)[0]
@@ -199,17 +201,26 @@ class DashboardStaticTests(unittest.TestCase):
             register_markup,
         )
         self.assertIn('href="/conditions/"', register_markup)
+        self.assertIn('href="/confidentialite/"', register_markup)
         self.assertNotIn('type="checkbox"', register_markup)
         self.assertIn("Conditions générales d’utilisation", settings_markup)
         self.assertIn('href="/conditions/"', settings_markup)
+        self.assertIn("Politique de confidentialité", settings_markup)
+        self.assertIn('href="/confidentialite/"', settings_markup)
         self.assertIn(
             '<a href="/conditions/">Conditions générales d’utilisation</a>',
             dashboard_footer,
         )
+        self.assertIn(
+            '<a href="/confidentialite/">Politique de confidentialité</a>',
+            dashboard_footer,
+        )
         self.assertEqual(public_conditions.status_code, 200)
         self.assertIn("Conditions générales d’utilisation", public_conditions.text)
+        self.assertEqual(public_privacy.status_code, 200)
+        self.assertIn("Politique de confidentialité", public_privacy.text)
         self.assertIn(".auth-legal a", stylesheet.text)
-        self.assertIn("grid-template-columns: repeat(3", stylesheet.text)
+        self.assertIn("grid-template-columns: repeat(2", stylesheet.text)
 
     def test_emails_navigation_and_view_structure_are_ready_for_api_data(self):
         response = self.client.get("/dashboard/")
@@ -405,6 +416,8 @@ class DashboardStaticTests(unittest.TestCase):
             'href="#integrations"',
             'href="/conditions/"',
             "Conditions générales d’utilisation",
+            'href="/confidentialite/"',
+            "Politique de confidentialité",
         ):
             self.assertIn(expected, settings_markup)
         for excluded in (
@@ -416,7 +429,6 @@ class DashboardStaticTests(unittest.TestCase):
             'value="formal"',
             "Modifier mon mot de passe",
             "Demander la suppression de mes données",
-            "Politique de confidentialité",
         ):
             self.assertNotIn(excluded, settings_markup)
         self.assertIn(

@@ -537,10 +537,12 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
     expected_public_routes = {
         ("GET", "/"),
         ("GET", "/conditions"),
+        ("GET", "/confidentialite"),
         ("GET", "/contact"),
         ("GET", "/dashboard"),
         ("GET", "/health"),
         ("MOUNT", "/conditions"),
+        ("MOUNT", "/confidentialite"),
         ("MOUNT", "/contact"),
         ("MOUNT", "/dashboard"),
     }
@@ -606,6 +608,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             contact_stylesheet = client.get("/contact/styles.css")
             conditions = client.get("/conditions/")
             conditions_stylesheet = client.get("/conditions/styles.css")
+            privacy = client.get("/confidentialite/")
             dashboard = client.get("/dashboard/")
             javascript = client.get("/dashboard/app.js")
             stylesheet = client.get("/dashboard/styles.css")
@@ -622,6 +625,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             contact_stylesheet,
             conditions,
             conditions_stylesheet,
+            privacy,
             dashboard,
             javascript,
             stylesheet,

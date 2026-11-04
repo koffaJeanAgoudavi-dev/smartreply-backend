@@ -2863,10 +2863,6 @@ td.subject-cell {
 }
 
 @media (min-width: 920px) {
-  .settings-support-links {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .emails-workspace,
   .email-detail-workspace {
     padding: 22px;

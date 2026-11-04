@@ -427,9 +427,9 @@ L'onglet `#settings` regroupe uniquement les réglages effectivement gérables :
   non fiable de l'email reçu ;
 - la déconnexion Paramètres supprime seulement le JWT SmartReply local. Elle ne
   révoque ni Gmail, ni Drive, ni Sheets, ni Telegram ;
-- le support renvoie vers l'unique page publique `/contact/` et les CGU publiées
-  sont accessibles à `/conditions/`. La politique de confidentialité annoncée
-  dans les CGU reste un chantier distinct à la route `/confidentialite`.
+- le support renvoie vers l'unique page publique `/contact/`. Les CGU et la
+  politique de confidentialité sont accessibles respectivement à `/conditions/`
+  et `/confidentialite/`.
 
 Les statuts Gmail, Drive, Sheets et Telegram ne sont pas dupliqués : ils restent
 sur **Intégrations**. Le statut administratif reste lui aussi limité à la carte
@@ -437,17 +437,26 @@ entreprise de la sidebar et à la topbar. Le schéma de mise à jour dédié ref
 les champs protégés (`nom_entreprise`, `sheet_id`, `user_id`, statut) et la
 migration `e8b4c2d1a7f6` ajoute la colonne et sa contrainte SQL.
 
-### Conditions générales d'utilisation
+### Conditions générales et politique de confidentialité
 
-La page statique `/conditions/` est publique et ne dépend pas d'un JWT. La route
-`/conditions` redirige vers cette URL canonique. La version pilote datée du
-4 novembre 2026 est reliée depuis le formulaire d'inscription, la section
-**Données et assistance** de Paramètres et le footer du dashboard. Son parcours
-pilote reflète l'onboarding réel : autorisation Drive avant la création de
-l'entreprise et de son Sheet. Ce lot ajoute un lien informatif à l'inscription
-mais aucune case obligatoire et aucun suivi d'acceptation en base. La checklist
-interne du document source et l'adresse de sécurité inactive ne sont pas
-publiées.
+Les pages statiques `/conditions/` et `/confidentialite/` sont publiques et ne
+dépendent pas d'un JWT. Les routes sans slash final redirigent vers ces URL
+canoniques. Les versions pilote datées du 4 novembre 2026 sont reliées depuis le
+formulaire d'inscription, la section **Données et assistance** de Paramètres et
+le footer du dashboard. Leur parcours pilote reflète l'onboarding réel :
+autorisation Drive avant la création de l'entreprise et de son Sheet.
+
+La politique décrit notamment le statut administratif dérivé de l'allowlist,
+le ton de réponse, les refresh tokens Gmail et Drive chiffrés, les données du
+formulaire Contact et l'empreinte HMAC utilisée pour les limites anti-abus. La
+restriction EEE/Suisse/Royaume-Uni y est présentée comme une règle de validation
+manuelle. Les informations Gemini restent prudentes et dépendent des conditions
+Google applicables à la configuration effectivement utilisée.
+
+Ce lot ajoute des liens informatifs à l'inscription, mais aucune case obligatoire
+et aucun suivi d'acceptation en base. Les checklists internes des documents source
+et l'adresse de sécurité inactive ne sont pas publiées. Le formulaire Contact et
+son API ne sont pas modifiés.
 
 ### Pipeline multi-entreprises — Gmail et Sheets requis, Telegram facultatif
 

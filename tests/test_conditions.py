@@ -99,8 +99,16 @@ class ConditionsStaticTests(unittest.TestCase):
 
     def test_selected_privacy_links_and_local_navigation_are_preserved(self):
         page = self.client.get("/conditions/")
+        privacy_redirect = self.client.get(
+            "/confidentialite", follow_redirects=False
+        )
+        privacy_page = self.client.get("/confidentialite/")
 
         self.assertEqual(page.text.count('href="/confidentialite"'), 2)
+        self.assertIn('href="/confidentialite/"', page.text)
+        self.assertEqual(privacy_redirect.status_code, 307)
+        self.assertEqual(privacy_redirect.headers["location"], "/confidentialite/")
+        self.assertEqual(privacy_page.status_code, 200)
         self.assertIn('href="/contact/"', page.text)
         self.assertIn('href="/dashboard/"', page.text)
         self.assertIn('aria-current="page" href="/conditions/"', page.text)
