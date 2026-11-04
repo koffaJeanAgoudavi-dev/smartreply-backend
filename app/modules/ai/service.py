@@ -12,14 +12,12 @@ Modèle configurable via GEMINI_MODEL (défaut : gemini-2.5-flash).
 """
 
 import json
-import os
 
 import httpx
 
 from app.core.config import settings
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 RESPONSE_TONE_INSTRUCTIONS = {
     "professional": "Clair, sérieux et adapté aux échanges professionnels.",
@@ -86,7 +84,7 @@ async def analyze_email(
         "FIN DES DONNÉES DE L'EMAIL"
     )
 
-    url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent"
+    url = f"{GEMINI_API_URL}/{settings.GEMINI_MODEL}:generateContent"
     payload = {
         "system_instruction": {
             "parts": [{"text": system_prompt_for_tone(response_tone)}]

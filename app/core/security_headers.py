@@ -87,7 +87,10 @@ def security_header_values(request: Request, *, production: bool) -> dict[str, s
             DOCS_CSP if _is_docs_path(request.url.path) else DASHBOARD_CSP
         ),
     }
-    if request.url.path.startswith("/api/v1/"):
+    if request.url.path.startswith("/api/v1/") or request.url.path in {
+        "/health",
+        "/ready",
+    }:
         values["Cache-Control"] = "no-store"
     if production and is_external_https(request):
         values["Strict-Transport-Security"] = "max-age=31536000"

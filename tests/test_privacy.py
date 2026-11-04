@@ -99,6 +99,14 @@ class PrivacyStaticTests(unittest.TestCase):
         self.assertNotIn("les dates de création et de connexion", page.text)
         self.assertIn("le nom de l’entreprise", page.text)
         self.assertIn("le motif, l’objet et le message", page.text)
+        self.assertIn(
+            "Pour toute nouvelle entreprise créée avec le parcours actuel",
+            page.text,
+        )
+        self.assertIn(
+            "peuvent rester détenus par le compte technique de DIGICRAFT LABS",
+            page.text,
+        )
 
     def test_gemini_disclosure_is_cautious_and_does_not_promise_provider_terms(self):
         page = self.client.get("/confidentialite/")

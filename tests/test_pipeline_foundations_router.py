@@ -16,21 +16,21 @@ class PipelineFoundationsRouterTests(unittest.TestCase):
     def setUp(self):
         self.original_max = settings.MAX_EMAILS_PER_COMPANY_PER_RUN
         self.original_budget = settings.PIPELINE_RUN_TIME_BUDGET_SECONDS
-        self.original_cron_secret = pipeline_router.CRON_SECRET
+        self.original_cron_secret = settings.CRON_SECRET
         settings.MAX_EMAILS_PER_COMPANY_PER_RUN = 10
         settings.PIPELINE_RUN_TIME_BUDGET_SECONDS = 240
-        pipeline_router.CRON_SECRET = "expected-secret"
+        settings.CRON_SECRET = "expected-secret"
         self.client = TestClient(app)
 
     def tearDown(self):
         self.client.close()
         settings.MAX_EMAILS_PER_COMPANY_PER_RUN = self.original_max
         settings.PIPELINE_RUN_TIME_BUDGET_SECONDS = self.original_budget
-        pipeline_router.CRON_SECRET = self.original_cron_secret
+        settings.CRON_SECRET = self.original_cron_secret
 
     @property
     def cron_headers(self) -> dict[str, str]:
-        return {"X-CRON-SECRET": pipeline_router.CRON_SECRET}
+        return {"X-CRON-SECRET": settings.CRON_SECRET}
 
     @staticmethod
     def prepared_run(*, lock_acquired: bool = True):
@@ -119,7 +119,7 @@ class PipelineFoundationsRouterTests(unittest.TestCase):
         add_task.assert_not_called()
 
     def test_cron_fails_closed_when_server_secret_is_empty(self):
-        pipeline_router.CRON_SECRET = ""
+        settings.CRON_SECRET = ""
         with patch.object(
             pipeline_router,
             "prepare_multi_tenant_simulation",

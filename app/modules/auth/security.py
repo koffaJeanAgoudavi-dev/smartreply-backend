@@ -50,7 +50,7 @@ def create_access_token(user_id: int, email: str) -> str:
 
 
 def decode_access_token(token: str) -> Dict[str, Any]:
-    """Décode et vérifie (signature + expiration) un JWT. Lève jwt.PyJWTError si invalide."""
+    """Vérifie la signature et l'expiration, ou lève ``jwt.PyJWTError``."""
     if not settings.JWT_SECRET:
         raise RuntimeError(
             "JWT_SECRET manquant : définissez cette variable d'environnement (Render)."
