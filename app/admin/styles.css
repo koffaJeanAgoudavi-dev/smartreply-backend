@@ -299,6 +299,44 @@ a {
   margin-top: 28px;
 }
 
+.gate-icon-lock {
+  background: var(--green-100);
+  color: var(--green-700);
+}
+
+.admin-code-form .field {
+  margin-top: 24px;
+  text-align: left;
+}
+
+.admin-code-form .field input {
+  min-height: 50px;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+}
+
+.admin-code-form > .button-primary {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.admin-code-form > .form-error {
+  margin-top: 10px;
+  color: var(--danger);
+  font-weight: 750;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.admin-code-form > .admin-code-note {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--green-50);
+  color: var(--green-900);
+  font-size: 11px;
+  text-align: left;
+}
+
 .spinner {
   width: 24px;
   height: 24px;

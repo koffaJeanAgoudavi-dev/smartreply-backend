@@ -55,8 +55,14 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")
     )  # 24 h
-    # Console interne : liste CSV d'identifiants users.id. Vide = aucun admin.
+    # Console interne : compte allowlisté + code secondaire. Une valeur vide
+    # sur l'un ou l'autre réglage ferme l'administration sans arrêter le SaaS.
     ADMIN_ALLOWED_USER_IDS: str = os.getenv("ADMIN_ALLOWED_USER_IDS", "")
+    ADMIN_ACCESS_CODE: str = os.getenv("ADMIN_ACCESS_CODE", "")
+    ADMIN_UNLOCK_RATE_LIMIT: int = int(os.getenv("ADMIN_UNLOCK_RATE_LIMIT", "5"))
+    ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS: int = int(
+        os.getenv("ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS", "900")
+    )
 
     # Protection anti-abus partagée. CLIENT_IP_HEADER doit uniquement nommer
     # un en-tête remplacé par la plateforme (Render public : CF-Connecting-IP).
@@ -196,6 +202,8 @@ def production_configuration_errors(
 
     positive_integer_fields = (
         "ACCESS_TOKEN_EXPIRE_MINUTES",
+        "ADMIN_UNLOCK_RATE_LIMIT",
+        "ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS",
         "CONTACT_SMTP_PORT",
         "CONTACT_SMTP_TIMEOUT_SECONDS",
         "LOGIN_IP_EMAIL_RATE_LIMIT",
@@ -215,6 +223,10 @@ def production_configuration_errors(
         value = getattr(config, field_name, None)
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             errors.add(field_name)
+
+    admin_access_code = str(getattr(config, "ADMIN_ACCESS_CODE", "")).strip()
+    if admin_access_code and len(admin_access_code) != 8:
+        errors.add("ADMIN_ACCESS_CODE")
 
     for field_name in (
         "ADMIN_ALLOWED_USER_IDS",

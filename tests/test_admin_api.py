@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.admin_allowlist import parse_admin_user_ids
 from app.core.config import settings
+from app.core.rate_limit import InMemoryRateLimiter, get_rate_limiter
 from app.db.database import Base, get_db
 from app.main import app
 from app.modules.auth.models import User
@@ -26,6 +27,13 @@ class AdminApiTests(unittest.TestCase):
     def setUp(self):
         self.original_settings = {
             "ADMIN_ALLOWED_USER_IDS": settings.ADMIN_ALLOWED_USER_IDS,
+            "ADMIN_ACCESS_CODE": settings.ADMIN_ACCESS_CODE,
+            "ADMIN_UNLOCK_RATE_LIMIT": settings.ADMIN_UNLOCK_RATE_LIMIT,
+            "ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS": (
+                settings.ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS
+            ),
+            "CLIENT_IP_HEADER": settings.CLIENT_IP_HEADER,
+            "ENVIRONMENT": settings.ENVIRONMENT,
             "JWT_SECRET": settings.JWT_SECRET,
             "PIPELINE_ALLOWED_COMPANY_IDS": settings.PIPELINE_ALLOWED_COMPANY_IDS,
             "PIPELINE_PROCESSING_STALE_SECONDS": (
@@ -33,6 +41,11 @@ class AdminApiTests(unittest.TestCase):
             ),
         }
         settings.JWT_SECRET = "admin-tests-jwt-secret-at-least-32-characters"
+        settings.ADMIN_ACCESS_CODE = "Adm7K2qP"
+        settings.ADMIN_UNLOCK_RATE_LIMIT = 5
+        settings.ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS = 900
+        settings.CLIENT_IP_HEADER = "X-Test-Client-IP"
+        settings.ENVIRONMENT = "test"
         settings.PIPELINE_PROCESSING_STALE_SECONDS = 900
 
         self.engine = create_engine(
@@ -53,7 +66,13 @@ class AdminApiTests(unittest.TestCase):
                 session.close()
 
         app.dependency_overrides[get_db] = override_get_db
-        self.client = TestClient(app)
+        self.rate_limiter = InMemoryRateLimiter("admin-test-rate-limit-secret")
+        app.dependency_overrides[get_rate_limiter] = lambda: self.rate_limiter
+        self.client = TestClient(
+            app,
+            base_url="https://testserver",
+            headers={"X-Test-Client-IP": "192.0.2.10"},
+        )
         admin_token = create_access_token(self.admin.id, self.admin.email)
         member_token = create_access_token(self.owner_one.id, self.owner_one.email)
         self.admin_headers = {"Authorization": f"Bearer {admin_token}"}
@@ -198,6 +217,15 @@ class AdminApiTests(unittest.TestCase):
         )
         self.db.commit()
 
+    def _unlock_admin(self, code: str = "Adm7K2qP"):
+        response = self.client.post(
+            "/api/v1/admin/unlock",
+            headers=self.admin_headers,
+            json={"code": code},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response
+
     def test_admin_allowlist_parser_is_strict_and_deduplicates_ids(self):
         self.assertEqual(parse_admin_user_ids(""), frozenset())
         self.assertEqual(
@@ -215,11 +243,27 @@ class AdminApiTests(unittest.TestCase):
     def test_admin_access_is_fail_closed(self):
         missing = self.client.get("/api/v1/admin/me")
         member = self.client.get("/api/v1/admin/me", headers=self.member_headers)
-        allowed = self.client.get("/api/v1/admin/me", headers=self.admin_headers)
+        member_unlock = self.client.post(
+            "/api/v1/admin/unlock",
+            headers=self.member_headers,
+            json={"code": settings.ADMIN_ACCESS_CODE},
+        )
+        locked = self.client.get("/api/v1/admin/me", headers=self.admin_headers)
+        access = self.client.get("/api/v1/admin/access", headers=self.admin_headers)
 
         self.assertEqual(missing.status_code, 401)
         self.assertEqual(member.status_code, 403)
+        self.assertEqual(member_unlock.status_code, 403)
+        self.assertNotIn("set-cookie", member_unlock.headers)
         self.assertEqual(member.json(), {"detail": "Accès administrateur refusé"})
+        self.assertEqual(locked.status_code, 423)
+        self.assertEqual(locked.json(), {"detail": "Code administrateur requis"})
+        self.assertEqual(access.status_code, 200)
+        self.assertFalse(access.json()["unlocked"])
+        self.assertIsNone(access.json()["expires_at"])
+
+        self._unlock_admin()
+        allowed = self.client.get("/api/v1/admin/me", headers=self.admin_headers)
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(
             allowed.json(),
@@ -244,7 +288,90 @@ class AdminApiTests(unittest.TestCase):
             {"detail": "Configuration administrateur indisponible"},
         )
 
+    def test_admin_code_unlock_uses_a_short_secure_cookie_session(self):
+        wrong = self.client.post(
+            "/api/v1/admin/unlock",
+            headers=self.admin_headers,
+            json={"code": "Bad8Code"},
+        )
+        self.assertEqual(wrong.status_code, 403)
+        self.assertEqual(wrong.json(), {"detail": "Code administrateur invalide"})
+        self.assertNotIn("set-cookie", wrong.headers)
+
+        settings.ENVIRONMENT = "production"
+        unlocked = self._unlock_admin()
+        cookie = unlocked.headers["set-cookie"]
+        self.assertIn("smartreply_admin_session=", cookie)
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("Max-Age=1800", cookie)
+        self.assertIn("Path=/api/v1/admin", cookie)
+        self.assertIn("SameSite=strict", cookie)
+        self.assertIn("Secure", cookie)
+        self.assertNotIn(settings.ADMIN_ACCESS_CODE, unlocked.text)
+        self.assertTrue(unlocked.json()["unlocked"])
+
+        access = self.client.get("/api/v1/admin/access", headers=self.admin_headers)
+        self.assertTrue(access.json()["unlocked"])
+        self.assertIsNotNone(access.json()["expires_at"])
+
+        settings.ADMIN_ALLOWED_USER_IDS = f"{self.admin.id},{self.owner_one.id}"
+        other_account = self.client.get(
+            "/api/v1/admin/me",
+            headers=self.member_headers,
+        )
+        self.assertEqual(other_account.status_code, 423)
+        settings.ADMIN_ALLOWED_USER_IDS = str(self.admin.id)
+
+        settings.ADMIN_ACCESS_CODE = "New8Code"
+        rotated = self.client.get("/api/v1/admin/me", headers=self.admin_headers)
+        self.assertEqual(rotated.status_code, 423)
+
+        settings.ADMIN_ACCESS_CODE = "Adm7K2qP"
+        self._unlock_admin()
+        locked = self.client.post("/api/v1/admin/lock", headers=self.admin_headers)
+        self.assertEqual(locked.status_code, 204)
+        after_lock = self.client.get("/api/v1/admin/me", headers=self.admin_headers)
+        self.assertEqual(after_lock.status_code, 423)
+
+    def test_admin_code_configuration_and_attempts_fail_closed(self):
+        settings.ADMIN_ACCESS_CODE = ""
+        unavailable = self.client.get(
+            "/api/v1/admin/access",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(unavailable.status_code, 503)
+        self.assertEqual(
+            unavailable.json(),
+            {"detail": "Configuration du code administrateur indisponible"},
+        )
+
+        settings.ADMIN_ACCESS_CODE = "NineChars"
+        wrong_length = self.client.get(
+            "/api/v1/admin/access",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(wrong_length.status_code, 503)
+
+        settings.ADMIN_ACCESS_CODE = "Adm7K2qP"
+        settings.ADMIN_UNLOCK_RATE_LIMIT = 2
+        for _ in range(2):
+            rejected = self.client.post(
+                "/api/v1/admin/unlock",
+                headers=self.admin_headers,
+                json={"code": "Nope7Key"},
+            )
+            self.assertEqual(rejected.status_code, 403)
+        limited = self.client.post(
+            "/api/v1/admin/unlock",
+            headers=self.admin_headers,
+            json={"code": settings.ADMIN_ACCESS_CODE},
+        )
+        self.assertEqual(limited.status_code, 429)
+        self.assertIn("Retry-After", limited.headers)
+        self.assertNotIn(settings.ADMIN_ACCESS_CODE, limited.text)
+
     def test_overview_uses_neon_metadata_without_external_content(self):
+        self._unlock_admin()
         response = self.client.get(
             "/api/v1/admin/overview",
             headers=self.admin_headers,
@@ -282,6 +409,7 @@ class AdminApiTests(unittest.TestCase):
             self.assertNotIn(forbidden_value, serialized)
 
     def test_company_list_is_paginated_filterable_and_secret_free(self):
+        self._unlock_admin()
         all_companies = self.client.get(
             "/api/v1/admin/companies?page=1&page_size=1",
             headers=self.admin_headers,
@@ -326,6 +454,7 @@ class AdminApiTests(unittest.TestCase):
                 self.assertNotIn(forbidden_value, response.text)
 
     def test_company_detail_exposes_completeness_not_profile_content(self):
+        self._unlock_admin()
         response = self.client.get(
             f"/api/v1/admin/companies/{self.company_one.id}",
             headers=self.admin_headers,
@@ -350,6 +479,7 @@ class AdminApiTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 404)
 
     def test_incidents_use_only_safe_internal_references(self):
+        self._unlock_admin()
         response = self.client.get(
             "/api/v1/admin/incidents?page=1&page_size=25",
             headers=self.admin_headers,

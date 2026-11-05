@@ -178,10 +178,13 @@ TELEGRAM_WEBHOOK_SECRET=<secret webhook aléatoire>
 
 `REDIS_URL` est **optionnelle**. `PIPELINE_ALLOWED_COMPANY_IDS` est nécessaire
 uniquement pour activer le traitement réel ; vide, le pipeline reste en
-simulation. `ADMIN_ALLOWED_USER_IDS` est une allowlist séparée d'identifiants
-`users.id` : vide, aucun compte n'accède à l'administration. Elle n'accorde
-aucun accès au pipeline et l'administration ne modifie aucune allowlist.
-`GOOGLE_DRIVE_REFRESH_TOKEN` reste optionnel pour inspecter ou
+simulation. L'administration exige deux réglages Render distincts :
+`ADMIN_ALLOWED_USER_IDS` contient les `users.id` éligibles et
+`ADMIN_ACCESS_CODE` contient un code secret composé d'exactement 8 caractères.
+Si l'un des deux est vide ou invalide, aucun compte n'accède aux données
+administratives.
+Ces réglages n'accordent aucun accès au pipeline et l'administration ne modifie
+aucune allowlist. `GOOGLE_DRIVE_REFRESH_TOKEN` reste optionnel pour inspecter ou
 réparer les permissions des anciens Sheets détenus par le compte plateforme ;
 les nouvelles créations ne l’utilisent pas. `ACCESS_TOKEN_EXPIRE_MINUTES`, les
 limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
@@ -221,10 +224,13 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `CONTACT_RECIPIENT_EMAIL` | Destinataire des demandes (défaut : `hello.smartreplyagent@gmail.com`) |
 | `DATABASE_URL` | URL PostgreSQL Neon |
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
-| `ADMIN_ALLOWED_USER_IDS` | IDs internes `users.id` autorisés sur `/admin/`, séparés par des virgules ; vide ou absent = aucun administrateur |
+| `ADMIN_ALLOWED_USER_IDS` | IDs internes `users.id` éligibles sur `/admin/`, séparés par des virgules ; vide ou absent = aucun administrateur |
+| `ADMIN_ACCESS_CODE` | Code administrateur secondaire composé d'exactement 8 caractères, défini comme secret Render et jamais conservé dans le navigateur ; vide ou invalide = administration verrouillée |
+| `ADMIN_UNLOCK_RATE_LIMIT` | Tentatives de code par couple IP + administrateur (défaut : `5`) |
+| `ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre de limitation du code administrateur (défaut : `900`, soit 15 minutes) |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
 | `ENVIRONMENT` | Utiliser exactement `production` sur Render ; cette valeur seule désactive `/docs`, `/redoc` et `/openapi.json` |
-| `REDIS_URL` | Optionnelle : Redis partagé pour les limites login/register/contact ; absence, configuration invalide ou panne = repli automatique sur les compteurs mémoire du processus |
+| `REDIS_URL` | Optionnelle : Redis partagé pour les limites login/register/contact/admin ; absence, configuration invalide ou panne = repli automatique sur les compteurs mémoire du processus |
 | `RATE_LIMIT_HMAC_SECRET` | Obligatoire en production : HMAC des identités sans email/IP en clair ; s'il manque, Redis est désactivé et le repli mémoire utilise un secret éphémère |
 | `CLIENT_IP_HEADER` | En-tête client remplacé par la plateforme ; sur un service web public Render, utiliser `CF-Connecting-IP` (requis en production) |
 | `LOGIN_IP_EMAIL_RATE_LIMIT` | Tentatives login par couple IP + email (défaut : `5`) |
@@ -482,10 +488,18 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 ### Centre de pilotage administrateur V1
 
 FastAPI sert `/admin/` sur la même origine, sans lien dans l'accueil public ni
-la navigation utilisateur. L'interface réutilise le JWT SmartReply existant,
-mais chaque route `/api/v1/admin/*` exige aussi que le `users.id` soit présent
-dans `ADMIN_ALLOWED_USER_IDS`. Une allowlist vide ferme donc tout accès et une
-valeur mal formée provoque un refus côté serveur.
+la navigation utilisateur. L'accès se fait en trois étapes : JWT SmartReply
+valide, `users.id` présent dans `ADMIN_ALLOWED_USER_IDS`, puis saisie du secret
+`ADMIN_ACCESS_CODE` configuré dans Render. Le code est comparé en temps constant
+et ses tentatives sont limitées par IP + administrateur. Il n'est jamais placé
+dans `localStorage` ni renvoyé par l'API.
+
+Après un code correct, le serveur émet une session signée de 30 minutes dans un
+cookie `HttpOnly`, `SameSite=Strict` et `Secure` en production, limité au chemin
+`/api/v1/admin`. La session est liée au compte allowlisté et à la version
+courante du code : changer `ADMIN_ACCESS_CODE` invalide immédiatement les
+sessions précédentes. Une allowlist ou un code vide ferme l'administration sans
+arrêter les autres fonctions du SaaS.
 
 Cette console opérationnelle reste strictement en lecture seule :
 
@@ -786,7 +800,10 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `GET /ready` | — | Vérifie la configuration locale et exécute `SELECT 1` sur PostgreSQL |
 | `GET /dashboard` | Dashboard | Ouvre l'interface Phase A (redirection vers `/dashboard/`) |
 | `GET /admin` | Administration | Ouvre la console privée en lecture seule (redirection vers `/admin/`) |
-| `GET /api/v1/admin/me` | Administration | Vérifie JWT et allowlist admin dédiée, puis retourne l'identité interne sûre |
+| `GET /api/v1/admin/access` | Administration | Vérifie JWT, allowlist et état de la session secondaire sans exposer le code |
+| `POST /api/v1/admin/unlock` | Administration | Vérifie le code administrateur limité contre les abus et émet le cookie de 30 minutes |
+| `POST /api/v1/admin/lock` | Administration | Supprime immédiatement le cookie de session administrateur |
+| `GET /api/v1/admin/me` | Administration | Exige les trois contrôles puis retourne l'identité interne sûre |
 | `GET /api/v1/admin/overview` | Administration | Agrège les indicateurs opérationnels depuis Neon |
 | `GET /api/v1/admin/companies` | Administration | Liste filtrée et paginée des entreprises, sans secret ni contenu métier |
 | `GET /api/v1/admin/companies/{company_id}` | Administration | Retourne la fiche opérationnelle sûre d'une entreprise |
@@ -847,9 +864,11 @@ encore être exécutée dans un projet Google de staging avec un compte test :
   header `X-Telegram-Bot-Api-Secret-Token` ou incorrect
 - Endpoint pipeline refusé si `CRON_SECRET` est vide, absent du header
   `X-CRON-SECRET` ou incorrect
-- Administration refusée sans JWT valide et sans appartenance à
-  `ADMIN_ALLOWED_USER_IDS` ; sa configuration vide ferme tout accès et ses
-  réponses excluent secrets, identifiants externes et contenus métier
+- Administration refusée sans JWT valide, appartenance à
+  `ADMIN_ALLOWED_USER_IDS` et session secondaire issue de `ADMIN_ACCESS_CODE` ;
+  cinq tentatives par tranche de 15 minutes sont autorisées par défaut, le
+  cookie `HttpOnly` expire après 30 minutes et les réponses excluent secrets,
+  identifiants externes et contenus métier
 - Aucune clé en dur dans le code : 100 % variables d'environnement
 - ⚠️ Avant mise en production : régénérer les tokens de test,
   restreindre les scopes OAuth au strict nécessaire
