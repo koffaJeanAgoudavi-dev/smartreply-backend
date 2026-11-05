@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -71,9 +71,12 @@ def create_app(environment: str | None = None) -> FastAPI:
     application.include_router(contact_router)
     application.include_router(dashboard_router)
 
-    @application.get("/")
-    def read_root():
-        return {"status": "online"}
+    home_directory = Path(__file__).resolve().parent / "home"
+
+    @application.get("/", include_in_schema=False)
+    def read_root() -> FileResponse:
+        """Sert la page d'accueil publique de SmartReply Agent."""
+        return FileResponse(home_directory / "index.html")
 
     @application.get("/health")
     def health_check():
@@ -105,6 +108,12 @@ def create_app(environment: str | None = None) -> FastAPI:
 
     if docs_enabled:
         register_non_production_docs(application)
+
+    application.mount(
+        "/home",
+        StaticFiles(directory=home_directory, html=True),
+        name="home",
+    )
 
     @application.get("/contact", include_in_schema=False)
     def contact_redirect() -> RedirectResponse:
