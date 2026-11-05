@@ -27,7 +27,7 @@ class PrivacyStaticTests(unittest.TestCase):
         self.assertIn("text/html", page.headers["content-type"])
         self.assertIn('lang="fr"', page.text)
         self.assertIn("Politique de confidentialité", page.text)
-        self.assertIn('<time datetime="2026-11-04">4 novembre 2026</time>', page.text)
+        self.assertIn('<time datetime="2026-11-05">5 novembre 2026</time>', page.text)
         self.assertIn("Version : programme pilote", page.text)
 
     def test_policy_contains_the_thirteen_approved_sections(self):
