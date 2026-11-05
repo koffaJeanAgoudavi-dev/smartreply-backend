@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.rate_limit import InMemoryRateLimiter, get_rate_limiter
 from app.db.database import Base, get_db
 from app.main import app
+from app.modules.admin.models import AdminAuditEvent, AdminUserMessage
 from app.modules.auth.models import User
 from app.modules.auth.security import create_access_token
 from app.modules.companies.models import Company
@@ -477,6 +478,169 @@ class AdminApiTests(unittest.TestCase):
         self.assertNotIn("secret-sheet-alpha", response.text)
         self.assertNotIn("encrypted-gmail-alpha", response.text)
         self.assertEqual(missing.status_code, 404)
+
+    def test_admin_v2_message_suspension_and_tenant_isolation(self):
+        self._unlock_admin()
+        message_body = "Une maintenance est prévue demain à 18 h."
+        sent = self.client.post(
+            f"/api/v1/admin/companies/{self.company_one.id}/messages",
+            headers=self.admin_headers,
+            json={"title": "Maintenance planifiée", "body": message_body},
+        )
+        self.assertEqual(sent.status_code, 201, sent.text)
+        self.assertNotIn(message_body, sent.text)
+        notice_ref = sent.json()["message_ref"]
+
+        owner_two_token = create_access_token(
+            self.owner_two.id,
+            self.owner_two.email,
+        )
+        owner_two_headers = {"Authorization": f"Bearer {owner_two_token}"}
+        owner_notices = self.client.get(
+            "/api/v1/dashboard/notices",
+            headers=self.member_headers,
+        )
+        other_notices = self.client.get(
+            "/api/v1/dashboard/notices",
+            headers=owner_two_headers,
+        )
+        cross_tenant_read = self.client.post(
+            f"/api/v1/dashboard/notices/{notice_ref}/read",
+            headers=owner_two_headers,
+        )
+        self.assertEqual(owner_notices.status_code, 200)
+        self.assertEqual(owner_notices.json()["unread_count"], 1)
+        self.assertEqual(
+            owner_notices.json()["latest_unread"]["notice_ref"],
+            notice_ref,
+        )
+        self.assertEqual(owner_notices.json()["items"][0]["body"], message_body)
+        self.assertEqual(other_notices.json()["items"], [])
+        self.assertEqual(cross_tenant_read.status_code, 404)
+
+        read = self.client.post(
+            f"/api/v1/dashboard/notices/{notice_ref}/read",
+            headers=self.member_headers,
+        )
+        self.assertEqual(read.status_code, 200)
+        self.assertIsNotNone(read.json()["read_at"])
+        after_read = self.client.get(
+            "/api/v1/dashboard/notices",
+            headers=self.member_headers,
+        )
+        self.assertEqual(after_read.json()["unread_count"], 0)
+        self.assertIsNone(after_read.json()["latest_unread"])
+
+        suspended_until = datetime.now(timezone.utc) + timedelta(hours=4)
+        suspended = self.client.put(
+            f"/api/v1/admin/companies/{self.company_one.id}/suspension",
+            headers=self.admin_headers,
+            json={
+                "reason": "Maintenance temporaire du traitement",
+                "suspended_until": suspended_until.isoformat(),
+            },
+        )
+        self.assertEqual(suspended.status_code, 200, suspended.text)
+        self.assertEqual(suspended.json()["operational_status"], "suspended")
+        self.assertEqual(
+            settings.PIPELINE_ALLOWED_COMPANY_IDS,
+            str(self.company_one.id),
+        )
+
+        owner_status = self.client.get(
+            "/api/v1/dashboard/operational-status",
+            headers=self.member_headers,
+        )
+        dashboard_still_accessible = self.client.get(
+            "/api/v1/dashboard/overview",
+            headers=self.member_headers,
+        )
+        self.assertEqual(owner_status.status_code, 200)
+        self.assertEqual(owner_status.json()["operational_status"], "suspended")
+        self.assertEqual(
+            owner_status.json()["suspension_reason"],
+            "Maintenance temporaire du traitement",
+        )
+        self.assertEqual(dashboard_still_accessible.status_code, 200)
+
+        detail = self.client.get(
+            f"/api/v1/admin/companies/{self.company_one.id}",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["operational_status"], "suspended")
+        self.assertEqual(
+            [item["event_type"] for item in detail.json()["audit_events"]],
+            ["company_suspended", "message_sent"],
+        )
+        self.assertNotIn(message_body, detail.text)
+
+        self.db.expire_all()
+        stored_company = self.db.get(Company, self.company_one.id)
+        stored_company.suspended_until = datetime.now(timezone.utc) - timedelta(
+            minutes=1
+        )
+        self.db.commit()
+        automatically_active = self.client.get(
+            "/api/v1/dashboard/operational-status",
+            headers=self.member_headers,
+        )
+        self.assertEqual(
+            automatically_active.json()["operational_status"],
+            "active",
+        )
+        self.assertIsNone(automatically_active.json()["suspension_reason"])
+
+        resumed = self.client.delete(
+            f"/api/v1/admin/companies/{self.company_one.id}/suspension",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(resumed.status_code, 200)
+        self.assertEqual(resumed.json()["operational_status"], "active")
+        after_resume = self.client.get(
+            "/api/v1/dashboard/operational-status",
+            headers=self.member_headers,
+        )
+        self.assertEqual(after_resume.json()["operational_status"], "active")
+        self.assertIsNone(after_resume.json()["suspension_reason"])
+
+        self.db.expire_all()
+        self.assertEqual(self.db.query(AdminUserMessage).count(), 1)
+        self.assertEqual(self.db.query(AdminAuditEvent).count(), 3)
+
+    def test_admin_v2_actions_validate_input_and_remain_admin_only(self):
+        self._unlock_admin()
+        member_message = self.client.post(
+            f"/api/v1/admin/companies/{self.company_one.id}/messages",
+            headers=self.member_headers,
+            json={"title": "Titre", "body": "Message"},
+        )
+        empty_message = self.client.post(
+            f"/api/v1/admin/companies/{self.company_one.id}/messages",
+            headers=self.admin_headers,
+            json={"title": "   ", "body": "Message"},
+        )
+        empty_reason = self.client.put(
+            f"/api/v1/admin/companies/{self.company_one.id}/suspension",
+            headers=self.admin_headers,
+            json={"reason": "   ", "suspended_until": None},
+        )
+        past_suspension = self.client.put(
+            f"/api/v1/admin/companies/{self.company_one.id}/suspension",
+            headers=self.admin_headers,
+            json={
+                "reason": "Date invalide",
+                "suspended_until": (
+                    datetime.now(timezone.utc) - timedelta(minutes=1)
+                ).isoformat(),
+            },
+        )
+        self.assertEqual(member_message.status_code, 403)
+        self.assertEqual(empty_message.status_code, 422)
+        self.assertEqual(empty_reason.status_code, 422)
+        self.assertEqual(past_suspension.status_code, 409)
+        self.assertEqual(self.db.query(AdminUserMessage).count(), 0)
+        self.assertEqual(self.db.query(AdminAuditEvent).count(), 0)
 
     def test_incidents_use_only_safe_internal_references(self):
         self._unlock_admin()

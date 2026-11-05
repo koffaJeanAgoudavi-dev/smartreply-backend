@@ -110,6 +110,28 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertNotIn("#fff3c4", badge_styles)
         self.assertNotIn("dismiss-new-badge", response.text)
 
+    def test_admin_information_and_suspension_ui_keep_sidebar_unchanged(self):
+        page = self.client.get("/dashboard/")
+        javascript = self.client.get("/dashboard/app.js")
+        stylesheet = self.client.get("/dashboard/styles.css")
+        sidebar = page.text.split(
+            '<nav class="primary-nav">',
+            maxsplit=1,
+        )[1].split("</nav>", maxsplit=1)[0]
+
+        self.assertEqual(sidebar.count('class="nav-badge-new"'), 3)
+        self.assertNotIn("Administrateur", sidebar)
+        self.assertIn('id="company-suspension-banner"', page.text)
+        self.assertIn('id="unread-notice-banner"', page.text)
+        self.assertIn('id="information-history-list"', page.text)
+        self.assertIn("Informations SmartReply", page.text)
+        self.assertGreaterEqual(page.text.count(">Nouveau</small>"), 5)
+        self.assertIn("/api/v1/dashboard/operational-status", javascript.text)
+        self.assertIn("/api/v1/dashboard/notices", javascript.text)
+        self.assertIn("textContent = notice.body", javascript.text)
+        self.assertIn(".operational-banner", stylesheet.text)
+        self.assertIn(".information-history-list", stylesheet.text)
+
     def test_dashboard_serves_official_brand_assets_and_metadata(self):
         response = self.client.get("/dashboard/")
         standard_path = "/dashboard/assets/brand/smartreply-mark-standard.png"

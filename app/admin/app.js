@@ -25,6 +25,8 @@
     revoked: "Révoqué",
     missing: "Absent",
     configured: "Configuré",
+    active: "Active",
+    suspended: "Suspendue",
     critical: "Critique",
     warning: "Attention",
   });
@@ -42,6 +44,8 @@
     incidentsPage: 1,
     incidentsTotalPages: 0,
     currentCompanyId: null,
+    currentCompany: null,
+    pendingSuspensionAction: null,
     adminEmail: null,
   };
 
@@ -135,11 +139,19 @@
     return new Intl.DateTimeFormat("fr-FR", options).format(date);
   }
 
+  function formatDateTimeLocal(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+
   function statusTone(status) {
-    if (["validated", "ready", "connected", "configured"].includes(status)) {
+    if (["validated", "ready", "connected", "configured", "active"].includes(status)) {
       return "success";
     }
-    if (["revoked", "critical"].includes(status)) {
+    if (["revoked", "critical", "suspended"].includes(status)) {
       return "danger";
     }
     if (["pending", "incomplete", "warning"].includes(status)) {
@@ -361,6 +373,8 @@
 
     const validationCell = document.createElement("td");
     validationCell.append(statusBadge(company.validation_status));
+    const operationalCell = document.createElement("td");
+    operationalCell.append(statusBadge(company.operational_status));
     const configurationCell = document.createElement("td");
     configurationCell.append(statusBadge(company.configuration_status));
 
@@ -394,6 +408,7 @@
     row.append(
       identityCell,
       validationCell,
+      operationalCell,
       configurationCell,
       integrationsCell,
       processedCell,
@@ -446,6 +461,7 @@
     setHidden("companies-list-workspace", false);
     setHidden("company-detail-workspace", true);
     state.currentCompanyId = null;
+    state.currentCompany = null;
   }
 
   async function openCompanyDetail(companyId) {
@@ -457,6 +473,7 @@
     setHidden("company-detail-content", true);
     try {
       const company = await apiRequest(`${API.companies}/${companyId}`);
+      state.currentCompany = company;
       renderCompanyDetail(company);
       setHidden("company-detail-loading", true);
       setHidden("company-detail-content", false);
@@ -499,8 +516,179 @@
     clearElement(statuses);
     statuses.append(
       statusBadge(company.validation_status),
+      statusBadge(company.operational_status),
       statusBadge(company.configuration_status),
     );
+    renderAdminActions(company);
+  }
+
+  function setActionFeedback(id, message, isError = false) {
+    const feedback = element(id);
+    feedback.textContent = message;
+    feedback.classList.toggle("error", isError);
+    feedback.hidden = !message;
+  }
+
+  function renderAdminActions(company) {
+    const suspended = company.operational_status === "suspended";
+    setHidden("admin-suspension-current", !suspended);
+    setHidden("admin-resume-company", !suspended);
+    setText("admin-suspension-current-reason", company.suspension_reason);
+    setText(
+      "admin-suspension-current-until",
+      company.suspended_until
+        ? `Réactivation automatique : ${formatDate(company.suspended_until)}`
+        : "Réactivation manuelle requise",
+    );
+    element("admin-suspension-submit").textContent = suspended
+      ? "Modifier la suspension"
+      : "Suspendre l’entreprise";
+    element("admin-suspension-reason").value = suspended
+      ? company.suspension_reason || ""
+      : "";
+    element("admin-suspension-until").value = suspended
+      ? formatDateTimeLocal(company.suspended_until)
+      : "";
+    setActionFeedback("admin-message-feedback", "");
+    setActionFeedback("admin-suspension-feedback", "");
+
+    const auditList = element("admin-audit-list");
+    clearElement(auditList);
+    (company.audit_events || []).forEach((audit) => {
+      const item = document.createElement("li");
+      const label = document.createElement("strong");
+      label.textContent = audit.label;
+      const actor = document.createElement("span");
+      actor.textContent = audit.actor_email;
+      const occurredAt = document.createElement("time");
+      occurredAt.dateTime = audit.occurred_at;
+      occurredAt.textContent = formatDate(audit.occurred_at);
+      item.append(label, actor, occurredAt);
+      auditList.append(item);
+    });
+    setHidden("admin-audit-empty", (company.audit_events || []).length > 0);
+  }
+
+  async function sendCompanyMessage(event) {
+    event.preventDefault();
+    if (!state.currentCompanyId) return;
+    const form = element("admin-message-form");
+    if (!form.reportValidity()) return;
+    const button = element("admin-message-submit");
+    button.disabled = true;
+    setActionFeedback("admin-message-feedback", "");
+    try {
+      await apiRequest(`${API.companies}/${state.currentCompanyId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: element("admin-message-title").value.trim(),
+          body: element("admin-message-body").value.trim(),
+        }),
+      });
+      form.reset();
+      await openCompanyDetail(state.currentCompanyId);
+      setActionFeedback(
+        "admin-message-feedback",
+        "Le message est maintenant visible dans le dashboard utilisateur.",
+      );
+    } catch (error) {
+      if (!handleAuthorizationError(error)) {
+        setActionFeedback(
+          "admin-message-feedback",
+          error.message || "Impossible d’envoyer le message.",
+          true,
+        );
+      }
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function openSuspensionConfirmation(mode) {
+    if (!state.currentCompanyId) return;
+    if (mode === "suspend") {
+      const form = element("admin-suspension-form");
+      if (!form.reportValidity()) return;
+      const untilValue = element("admin-suspension-until").value;
+      if (untilValue && new Date(untilValue).getTime() <= Date.now()) {
+        setActionFeedback(
+          "admin-suspension-feedback",
+          "La date de réactivation doit être dans le futur.",
+          true,
+        );
+        return;
+      }
+      setText(
+        "admin-suspension-dialog-title",
+        state.currentCompany?.operational_status === "suspended"
+          ? "Modifier la suspension"
+          : "Confirmer la suspension",
+      );
+      setText(
+        "admin-suspension-dialog-text",
+        "Les futurs traitements seront arrêtés. Le dashboard de l’utilisateur restera accessible.",
+      );
+      element("admin-suspension-confirm").textContent = "Confirmer la suspension";
+    } else {
+      setText("admin-suspension-dialog-title", "Réactiver l’entreprise");
+      setText(
+        "admin-suspension-dialog-text",
+        "L’entreprise pourra être sélectionnée dès le prochain passage du pipeline si elle reste validée et correctement configurée.",
+      );
+      element("admin-suspension-confirm").textContent = "Confirmer la réactivation";
+    }
+    state.pendingSuspensionAction = mode;
+    const dialog = element("admin-suspension-dialog");
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+      element("admin-suspension-confirm").focus();
+    }
+  }
+
+  async function confirmSuspensionAction() {
+    const mode = state.pendingSuspensionAction;
+    if (!mode || !state.currentCompanyId) return;
+    const companyId = state.currentCompanyId;
+    const button = element("admin-suspension-confirm");
+    button.disabled = true;
+    setActionFeedback("admin-suspension-feedback", "");
+    try {
+      if (mode === "suspend") {
+        const untilValue = element("admin-suspension-until").value;
+        await apiRequest(`${API.companies}/${companyId}/suspension`, {
+          method: "PUT",
+          body: JSON.stringify({
+            reason: element("admin-suspension-reason").value.trim(),
+            suspended_until: untilValue ? new Date(untilValue).toISOString() : null,
+          }),
+        });
+      } else {
+        await apiRequest(`${API.companies}/${companyId}/suspension`, {
+          method: "DELETE",
+        });
+      }
+      element("admin-suspension-dialog").close();
+      state.pendingSuspensionAction = null;
+      await openCompanyDetail(companyId);
+      setActionFeedback(
+        "admin-suspension-feedback",
+        mode === "suspend"
+          ? "La suspension est active et visible par l’utilisateur."
+          : "L’entreprise est de nouveau active.",
+      );
+    } catch (error) {
+      element("admin-suspension-dialog").close();
+      state.pendingSuspensionAction = null;
+      if (!handleAuthorizationError(error)) {
+        setActionFeedback(
+          "admin-suspension-feedback",
+          error.message || "Action impossible.",
+          true,
+        );
+      }
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function incidentFiltersQuery() {
@@ -685,6 +873,21 @@
       }
     });
     element("copy-company-id").addEventListener("click", copyCompanyId);
+    element("admin-message-form").addEventListener("submit", sendCompanyMessage);
+    element("admin-suspension-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      openSuspensionConfirmation("suspend");
+    });
+    element("admin-resume-company").addEventListener("click", () => {
+      openSuspensionConfirmation("resume");
+    });
+    element("admin-suspension-confirm").addEventListener(
+      "click",
+      confirmSuspensionAction,
+    );
+    element("admin-suspension-dialog").addEventListener("close", () => {
+      state.pendingSuspensionAction = null;
+    });
     element("refresh-incidents").addEventListener("click", loadIncidents);
     element("incidents-retry").addEventListener("click", loadIncidents);
     element("incident-filters").addEventListener("submit", (event) => {

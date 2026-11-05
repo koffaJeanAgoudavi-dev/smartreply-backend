@@ -105,3 +105,12 @@ class Company(Base):
     pipeline_last_processed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    # Suspension opérationnelle indépendante de la validation Render. Une date
+    # de fin passée réactive automatiquement la sélection du pipeline.
+    suspended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    suspended_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

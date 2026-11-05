@@ -55,7 +55,7 @@ son propre Google Sheet.
 app/
 ├── main.py                  # Point d'entrée FastAPI + routes et pages publiques
 ├── home/                    # Page d'accueil publique responsive, servie sur `/`
-├── admin/                   # Centre de pilotage interne en lecture seule
+├── admin/                   # Centre de pilotage interne et actions V2 bornées
 ├── dashboard/               # Dashboard Phase B : HTML/CSS/JS statiques, sans build
 ├── contact/                 # Centre public Contact et assistance
 ├── conditions/              # Conditions générales publiques
@@ -66,7 +66,7 @@ app/
 │   ├── database.py          # Connexion SQLAlchemy vers Neon
 │   └── sheets_client.py     # Client gspread des Sheets d'entreprise
 └── modules/
-    ├── admin/               # API opérationnelle agrégée, JWT + allowlist admin
+    ├── admin/               # API agrégée + message/suspension, triple protection admin
     ├── auth/                # Comptes utilisateurs + JWT
     ├── gmail_oauth/         # Connexion Gmail chiffrée par utilisateur
     ├── companies/           # Entreprise unique + copie Google Sheet dédiée
@@ -485,7 +485,7 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - [ ] Vérifier qu'un compte sans historique reste à zéro, sans statistiques,
       emails ou activités factices.
 
-### Centre de pilotage administrateur V1
+### Centre de pilotage administrateur V1 et V2 ciblée
 
 FastAPI sert `/admin/` sur la même origine, sans lien dans l'accueil public ni
 la navigation utilisateur. L'accès se fait en trois étapes : JWT SmartReply
@@ -501,15 +501,15 @@ courante du code : changer `ADMIN_ACCESS_CODE` invalide immédiatement les
 sessions précédentes. Une allowlist ou un code vide ferme l'administration sans
 arrêter les autres fonctions du SaaS.
 
-Cette console opérationnelle reste strictement en lecture seule :
+Les vues opérationnelles V1 restent en lecture seule :
 
 - la vue d'ensemble agrège utilisateurs, entreprises, validations,
   configurations, intégrations, traitements, échecs, brouillons en attente et
   dernier traitement connu ;
 - la liste des entreprises est filtrable et paginée ; la fiche affiche
   l'identité, le propriétaire, la complétude du profil, les statuts et les
-  volumes, puis permet uniquement de copier l'identifiant interne pour la
-  validation manuelle dans Render ;
+  volumes, puis permet de copier l'identifiant interne pour la validation
+  manuelle dans Render ;
 - la page Incidents regroupe les révocations, échecs, réservations bloquées,
   notifications bloquées et synchronisations en attente sous des références
   internes sûres ;
@@ -518,9 +518,28 @@ Cette console opérationnelle reste strictement en lecture seule :
 - aucune route admin ne renvoie token, secret, identifiant externe, contenu
   d'email, contenu de brouillon ou texte du profil de réponse.
 
-`PIPELINE_ALLOWED_COMPANY_IDS` reste l'unique source de validation manuelle :
-la V1 admin ne l'édite pas et ne propose ni validation automatique, ni relance,
-ni suspension, ni envoi d'email.
+La V2 ajoute uniquement deux actions dans la fiche entreprise, signalées par le
+badge vert permanent **Nouveau** :
+
+- un **message d'information interne** avec titre et texte bornés. Il n'envoie
+  aucun e-mail : l'utilisateur le voit dans une bannière non lue et dans
+  l'historique de son dashboard, puis peut le marquer comme lu ;
+- une **suspension temporaire** avec motif obligatoire et date de fin
+  facultative. Elle bloque seulement la sélection de l'entreprise par le
+  pipeline. Le dashboard reste accessible et affiche le statut, le motif et la
+  fin éventuelle. La réactivation est manuelle ou automatique à l'expiration.
+
+Les envois de message, suspensions et réactivations sont journalisés avec
+l'entreprise, l'administrateur, le type d'événement et la date. Le journal ne
+stocke pas le corps du message. Toutes les lectures utilisateur sont filtrées
+par l'entreprise issue du JWT ; une référence appartenant à un autre tenant
+renvoie `404`.
+
+`PIPELINE_ALLOWED_COMPANY_IDS` reste l'unique source de validation manuelle et
+n'est jamais modifié par la console. La suspension est un état opérationnel
+indépendant : une entreprise doit toujours être allowlistée pour le traitement
+réel après sa réactivation. La V2 ne propose ni validation automatique, ni
+relance, ni envoi d'e-mail.
 
 ### Paramètres d'entreprise et profil de réponse
 
@@ -799,14 +818,17 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `GET /health` | — | Confirme uniquement que le processus HTTP répond |
 | `GET /ready` | — | Vérifie la configuration locale et exécute `SELECT 1` sur PostgreSQL |
 | `GET /dashboard` | Dashboard | Ouvre l'interface Phase A (redirection vers `/dashboard/`) |
-| `GET /admin` | Administration | Ouvre la console privée en lecture seule (redirection vers `/admin/`) |
+| `GET /admin` | Administration | Ouvre la console privée et ses deux actions V2 bornées (redirection vers `/admin/`) |
 | `GET /api/v1/admin/access` | Administration | Vérifie JWT, allowlist et état de la session secondaire sans exposer le code |
 | `POST /api/v1/admin/unlock` | Administration | Vérifie le code administrateur limité contre les abus et émet le cookie de 30 minutes |
 | `POST /api/v1/admin/lock` | Administration | Supprime immédiatement le cookie de session administrateur |
 | `GET /api/v1/admin/me` | Administration | Exige les trois contrôles puis retourne l'identité interne sûre |
 | `GET /api/v1/admin/overview` | Administration | Agrège les indicateurs opérationnels depuis Neon |
 | `GET /api/v1/admin/companies` | Administration | Liste filtrée et paginée des entreprises, sans secret ni contenu métier |
-| `GET /api/v1/admin/companies/{company_id}` | Administration | Retourne la fiche opérationnelle sûre d'une entreprise |
+| `GET /api/v1/admin/companies/{company_id}` | Administration | Retourne la fiche opérationnelle sûre et le journal d'audit borné d'une entreprise |
+| `POST /api/v1/admin/companies/{company_id}/messages` | Administration | Crée une information interne pour le dashboard, sans e-mail ni corps dans l'audit |
+| `PUT /api/v1/admin/companies/{company_id}/suspension` | Administration | Suspend le pipeline avec motif et fin facultative, sans changer l'allowlist |
+| `DELETE /api/v1/admin/companies/{company_id}/suspension` | Administration | Réactive manuellement l'entreprise sans modifier sa validation |
 | `GET /api/v1/admin/incidents` | Administration | Liste les incidents via références internes et codes courts sûrs |
 | `POST /api/v1/auth/register` | Auth | Crée un utilisateur avec un code d'invitation et renvoie son JWT |
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
@@ -823,12 +845,18 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `PATCH /api/v1/companies/me/settings` | Companies | Modifie le secteur autorisé, le ton prédéfini et le profil de réponse borné |
 | `GET /api/v1/companies/me/validation-status` | Companies | Dérive `pending`/`validated` de l'allowlist sans exposer ses IDs |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
+| `GET /api/v1/dashboard/operational-status` | Dashboard | Retourne le statut actif/suspendu, le motif et la fin éventuelle du tenant JWT |
+| `GET /api/v1/dashboard/notices` | Dashboard | Liste et pagine les informations internes de l'entreprise JWT |
+| `POST /api/v1/dashboard/notices/{notice_ref}/read` | Dashboard | Marque comme lue une information appartenant au tenant JWT |
 | `POST /api/v1/pipeline/run` | Pipeline | Plan sûr `202`, puis traitement multi-utilisateur allowlisté en arrière-plan |
 
 ## 📊 Statuts (figés par le cadrage)
 
 - **Entreprise** : `EN ATTENTE` si son ID est absent de l'allowlist → `VALIDÉE`
   s'il est présent. Un retrait de l'allowlist ramène à `EN ATTENTE`.
+- **Exploitation** : `Active` par défaut → `Entreprise suspendue` quand le
+  pipeline est arrêté par la V2 → `Active` après réactivation manuelle ou
+  expiration. Ce statut ne change pas la validation.
 - **Configuration technique** : `À compléter` tant que Gmail ou le Sheet requis
   manque → `Prête` lorsqu'ils sont tous deux confirmés ; les erreurs externes
   sont affichées séparément comme indisponibles.

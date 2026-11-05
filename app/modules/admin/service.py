@@ -1,4 +1,4 @@
-"""Lectures opérationnelles bornées de la console administrateur."""
+"""Lectures et actions V2 bornées de la console administrateur."""
 
 from __future__ import annotations
 
@@ -7,12 +7,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from sqlalchemy import and_, case, false, func, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.company_allowlist import parse_allowed_company_ids
 from app.core.config import settings
+from app.modules.admin.models import AdminAuditEvent, AdminUserMessage
 from app.modules.auth.models import User
 from app.modules.companies.models import Company
+from app.modules.companies.operational_status import as_utc, is_company_suspended
 from app.modules.drive_oauth.models import DriveConnection
 from app.modules.gmail_oauth.models import GmailConnection
 from app.modules.processed_emails.models import ProcessedEmail
@@ -26,6 +29,24 @@ _PROFILE_FIELDS = (
     "business_rules",
     "response_instructions",
 )
+_ADMIN_AUDIT_LABELS = {
+    "message_sent": "Message d’information envoyé",
+    "company_suspended": "Entreprise suspendue",
+    "company_resumed": "Entreprise réactivée",
+}
+_ADMIN_AUDIT_LIMIT = 20
+
+
+class AdminCompanyNotFoundError(LookupError):
+    """L'entreprise ciblée n'existe pas."""
+
+
+class AdminActionConflictError(RuntimeError):
+    """L'état actuel ne permet pas l'action demandée."""
+
+
+class AdminActionPersistenceError(RuntimeError):
+    """L'action n'a pas pu être enregistrée atomiquement."""
 
 
 def _email_metrics_subquery():
@@ -88,6 +109,7 @@ def _row_to_company_summary(row: Any, allowed_ids: frozenset[int]) -> dict[str, 
     gmail_status = _connection_status(row[2])
     drive_status = _connection_status(row[5])
     sheet_status = "configured" if company.sheet_id.strip() else "missing"
+    suspended = is_company_suspended(company)
     return {
         "company_id": company.id,
         "name": company.nom_entreprise,
@@ -102,6 +124,8 @@ def _row_to_company_summary(row: Any, allowed_ids: frozenset[int]) -> dict[str, 
             if gmail_status == "connected" and sheet_status == "configured"
             else "incomplete"
         ),
+        "operational_status": "suspended" if suspended else "active",
+        "suspended_until": company.suspended_until if suspended else None,
         "gmail_status": gmail_status,
         "drive_status": drive_status,
         "sheet_status": sheet_status,
@@ -308,11 +332,28 @@ def get_company_detail(db: Session, company_id: int) -> dict[str, Any] | None:
         return None
 
     company: Company = row[0]
+    suspended = is_company_suspended(company)
+    audit_rows = db.execute(
+        select(
+            AdminAuditEvent.event_type,
+            User.email,
+            AdminAuditEvent.occurred_at,
+        )
+        .join(User, User.id == AdminAuditEvent.actor_user_id)
+        .where(AdminAuditEvent.company_id == company_id)
+        .order_by(
+            AdminAuditEvent.occurred_at.desc(),
+            AdminAuditEvent.id.desc(),
+        )
+        .limit(_ADMIN_AUDIT_LIMIT)
+    ).all()
     detail = _row_to_company_summary(row, allowed_ids)
     detail.update(
         {
             "updated_at": company.updated_at,
             "sheet_owner_mode": company.sheet_owner_mode,
+            "suspended_at": company.suspended_at if suspended else None,
+            "suspension_reason": company.suspension_reason if suspended else None,
             "gmail_connected_at": row[3],
             "gmail_updated_at": row[4],
             "drive_connected_at": row[6],
@@ -327,9 +368,145 @@ def get_company_detail(db: Session, company_id: int) -> dict[str, Any] | None:
                 "total_fields": len(_PROFILE_FIELDS),
                 "response_tone": company.response_tone,
             },
+            "audit_events": [
+                {
+                    "event_type": audit_row.event_type,
+                    "label": _ADMIN_AUDIT_LABELS[audit_row.event_type],
+                    "actor_email": audit_row.email,
+                    "occurred_at": audit_row.occurred_at,
+                }
+                for audit_row in audit_rows
+                if audit_row.event_type in _ADMIN_AUDIT_LABELS
+            ],
         }
     )
     return detail
+
+
+def _required_company(db: Session, company_id: int) -> Company:
+    company = db.get(Company, company_id)
+    if company is None:
+        raise AdminCompanyNotFoundError("Entreprise introuvable")
+    return company
+
+
+def _commit_admin_action(db: Session) -> None:
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise AdminActionPersistenceError(
+            "Action administrateur non enregistrée"
+        ) from exc
+
+
+def send_company_information_message(
+    db: Session,
+    *,
+    company_id: int,
+    actor_user_id: int,
+    title: str,
+    body: str,
+) -> AdminUserMessage:
+    """Crée un message interne et son audit dans la même transaction."""
+
+    _required_company(db, company_id)
+    message = AdminUserMessage(
+        company_id=company_id,
+        created_by_user_id=actor_user_id,
+        title=title.strip(),
+        body=body.strip(),
+    )
+    db.add(message)
+    try:
+        db.flush()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise AdminActionPersistenceError(
+            "Message administrateur non enregistré"
+        ) from exc
+    db.add(
+        AdminAuditEvent(
+            company_id=company_id,
+            actor_user_id=actor_user_id,
+            event_type="message_sent",
+            related_message_id=message.id,
+        )
+    )
+    _commit_admin_action(db)
+    db.refresh(message)
+    return message
+
+
+def suspend_company(
+    db: Session,
+    *,
+    company_id: int,
+    actor_user_id: int,
+    reason: str,
+    suspended_until: datetime | None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Suspend le pipeline sans modifier la validation ni les intégrations."""
+
+    company = _required_company(db, company_id)
+    current_time = as_utc(now or datetime.now(timezone.utc))
+    normalized_until = (
+        as_utc(suspended_until) if suspended_until is not None else None
+    )
+    if normalized_until is not None and normalized_until <= current_time:
+        raise AdminActionConflictError(
+            "La date de réactivation doit être dans le futur"
+        )
+    company.suspended_at = current_time
+    company.suspended_until = normalized_until
+    company.suspension_reason = reason.strip()
+    db.add(
+        AdminAuditEvent(
+            company_id=company_id,
+            actor_user_id=actor_user_id,
+            event_type="company_suspended",
+        )
+    )
+    _commit_admin_action(db)
+    return {
+        "company_id": company.id,
+        "operational_status": "suspended",
+        "suspended_at": company.suspended_at,
+        "suspended_until": company.suspended_until,
+        "suspension_reason": company.suspension_reason,
+    }
+
+
+def resume_company(
+    db: Session,
+    *,
+    company_id: int,
+    actor_user_id: int,
+) -> dict[str, Any]:
+    """Réactive explicitement une entreprise et conserve la trace d'audit."""
+
+    company = _required_company(db, company_id)
+    if company.suspended_at is None:
+        raise AdminActionConflictError("L'entreprise est déjà active")
+    company.suspended_at = None
+    company.suspended_until = None
+    company.suspension_reason = None
+    db.add(
+        AdminAuditEvent(
+            company_id=company_id,
+            actor_user_id=actor_user_id,
+            event_type="company_resumed",
+        )
+    )
+    _commit_admin_action(db)
+    return {
+        "company_id": company.id,
+        "operational_status": "active",
+        "suspended_at": None,
+        "suspended_until": None,
+        "suspension_reason": None,
+    }
 
 
 def _aware_sort_value(value: datetime) -> datetime:

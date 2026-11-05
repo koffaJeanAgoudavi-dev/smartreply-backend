@@ -25,7 +25,11 @@ from app.modules.admin.schemas import (
     AdminCompanyListResponse,
     AdminIdentityResponse,
     AdminIncidentListResponse,
+    AdminMessageCreate,
+    AdminMessageResponse,
     AdminOverviewResponse,
+    AdminSuspensionCreate,
+    AdminSuspensionResponse,
     AdminUnlockRequest,
     AdminUnlockResponse,
 )
@@ -197,6 +201,112 @@ def admin_company_detail(
             detail="Entreprise introuvable",
         )
     return AdminCompanyDetailResponse.model_validate(result)
+
+
+@router.post(
+    "/companies/{company_id}/messages",
+    response_model=AdminMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def admin_send_company_message(
+    company_id: int,
+    payload: AdminMessageCreate,
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    db: Session = Depends(get_db),
+) -> AdminMessageResponse:
+    try:
+        message = service.send_company_information_message(
+            db,
+            company_id=company_id,
+            actor_user_id=current_admin.id,
+            title=payload.title,
+            body=payload.body,
+        )
+    except service.AdminCompanyNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entreprise introuvable",
+        ) from exc
+    except service.AdminActionPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Impossible d’enregistrer le message",
+        ) from exc
+    return AdminMessageResponse(
+        message_ref=f"INFO-{message.id}",
+        company_id=message.company_id,
+        title=message.title,
+        created_at=message.created_at,
+    )
+
+
+@router.put(
+    "/companies/{company_id}/suspension",
+    response_model=AdminSuspensionResponse,
+)
+def admin_suspend_company(
+    company_id: int,
+    payload: AdminSuspensionCreate,
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    db: Session = Depends(get_db),
+) -> AdminSuspensionResponse:
+    try:
+        result = service.suspend_company(
+            db,
+            company_id=company_id,
+            actor_user_id=current_admin.id,
+            reason=payload.reason,
+            suspended_until=payload.suspended_until,
+        )
+    except service.AdminCompanyNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entreprise introuvable",
+        ) from exc
+    except service.AdminActionConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except service.AdminActionPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Impossible de suspendre l’entreprise",
+        ) from exc
+    return AdminSuspensionResponse.model_validate(result)
+
+
+@router.delete(
+    "/companies/{company_id}/suspension",
+    response_model=AdminSuspensionResponse,
+)
+def admin_resume_company(
+    company_id: int,
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    db: Session = Depends(get_db),
+) -> AdminSuspensionResponse:
+    try:
+        result = service.resume_company(
+            db,
+            company_id=company_id,
+            actor_user_id=current_admin.id,
+        )
+    except service.AdminCompanyNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entreprise introuvable",
+        ) from exc
+    except service.AdminActionConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except service.AdminActionPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Impossible de réactiver l’entreprise",
+        ) from exc
+    return AdminSuspensionResponse.model_validate(result)
 
 
 @router.get("/incidents", response_model=AdminIncidentListResponse)

@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
+from app.modules.companies.operational_status import is_company_suspended
 from app.modules.companies.service import get_company_by_user_id
-from app.modules.dashboard import service
+from app.modules.dashboard import notices, service
 from app.modules.dashboard.drafts import (
     DraftActionConflictError,
     get_company_draft,
@@ -18,11 +19,14 @@ from app.modules.dashboard.drafts import (
 )
 from app.modules.dashboard.emails import get_company_email, list_company_emails
 from app.modules.dashboard.schemas import (
+    CompanyOperationalStatusResponse,
     DashboardDraftDetail,
     DashboardDraftIgnoreResponse,
     DashboardDraftsResponse,
     DashboardEmailItem,
     DashboardEmailsResponse,
+    DashboardNoticeReadResponse,
+    DashboardNoticesResponse,
     DashboardOverviewResponse,
     RecentEmailsResponse,
 )
@@ -44,6 +48,81 @@ def _current_company(db: Session, user_id: int):
 def _sheet_error_type(exc: service.CompanySheetReadError) -> str:
     cause = exc.__cause__
     return type(cause).__name__ if cause is not None else type(exc).__name__
+
+
+@router.get(
+    "/operational-status",
+    response_model=CompanyOperationalStatusResponse,
+)
+def company_operational_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CompanyOperationalStatusResponse:
+    company = _current_company(db, current_user.id)
+    suspended = is_company_suspended(company)
+    return CompanyOperationalStatusResponse(
+        operational_status="suspended" if suspended else "active",
+        suspension_reason=company.suspension_reason if suspended else None,
+        suspended_at=company.suspended_at if suspended else None,
+        suspended_until=company.suspended_until if suspended else None,
+    )
+
+
+@router.get("/notices", response_model=DashboardNoticesResponse)
+def dashboard_notices(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DashboardNoticesResponse:
+    company = _current_company(db, current_user.id)
+    result = notices.list_company_notices(
+        db,
+        company_id=company.id,
+        page=page,
+        page_size=page_size,
+    )
+    return DashboardNoticesResponse.model_validate(result)
+
+
+@router.post(
+    "/notices/{notice_ref}/read",
+    response_model=DashboardNoticeReadResponse,
+)
+def dashboard_mark_notice_read(
+    notice_ref: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DashboardNoticeReadResponse:
+    company = _current_company(db, current_user.id)
+    prefix, separator, raw_id = notice_ref.partition("-")
+    if (
+        prefix != "INFO"
+        or separator != "-"
+        or not raw_id.isdecimal()
+        or len(raw_id) > 19
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Information introuvable.",
+        )
+    message_id = int(raw_id)
+    if message_id < 1 or message_id > 2_147_483_647:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Information introuvable.",
+        )
+    result = notices.mark_company_notice_read(
+        db,
+        company_id=company.id,
+        message_id=message_id,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Information introuvable.",
+        )
+    return DashboardNoticeReadResponse.model_validate(result)
 
 
 @router.get("/overview", response_model=DashboardOverviewResponse)
