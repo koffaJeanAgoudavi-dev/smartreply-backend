@@ -180,8 +180,9 @@ TELEGRAM_WEBHOOK_SECRET=<secret webhook aléatoire>
 uniquement pour activer le traitement réel ; vide, le pipeline reste en
 simulation. L'administration exige deux réglages Render distincts :
 `ADMIN_ALLOWED_USER_IDS` contient les `users.id` éligibles et
-`ADMIN_ACCESS_CODE` contient un code secret de 16 à 256 caractères. Si l'un des
-deux est vide ou invalide, aucun compte n'accède aux données administratives.
+`ADMIN_ACCESS_CODE` contient un code secret composé d'exactement 8 caractères.
+Si l'un des deux est vide ou invalide, aucun compte n'accède aux données
+administratives.
 Ces réglages n'accordent aucun accès au pipeline et l'administration ne modifie
 aucune allowlist. `GOOGLE_DRIVE_REFRESH_TOKEN` reste optionnel pour inspecter ou
 réparer les permissions des anciens Sheets détenus par le compte plateforme ;
@@ -224,7 +225,7 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `DATABASE_URL` | URL PostgreSQL Neon |
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
 | `ADMIN_ALLOWED_USER_IDS` | IDs internes `users.id` éligibles sur `/admin/`, séparés par des virgules ; vide ou absent = aucun administrateur |
-| `ADMIN_ACCESS_CODE` | Code administrateur secondaire de 16 à 256 caractères, défini comme secret Render et jamais conservé dans le navigateur ; vide ou invalide = administration verrouillée |
+| `ADMIN_ACCESS_CODE` | Code administrateur secondaire composé d'exactement 8 caractères, défini comme secret Render et jamais conservé dans le navigateur ; vide ou invalide = administration verrouillée |
 | `ADMIN_UNLOCK_RATE_LIMIT` | Tentatives de code par couple IP + administrateur (défaut : `5`) |
 | `ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS` | Fenêtre de limitation du code administrateur (défaut : `900`, soit 15 minutes) |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |

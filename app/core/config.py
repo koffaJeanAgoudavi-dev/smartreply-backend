@@ -225,7 +225,7 @@ def production_configuration_errors(
             errors.add(field_name)
 
     admin_access_code = str(getattr(config, "ADMIN_ACCESS_CODE", "")).strip()
-    if admin_access_code and not 16 <= len(admin_access_code) <= 256:
+    if admin_access_code and len(admin_access_code) != 8:
         errors.add("ADMIN_ACCESS_CODE")
 
     for field_name in (

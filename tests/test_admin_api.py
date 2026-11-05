@@ -41,7 +41,7 @@ class AdminApiTests(unittest.TestCase):
             ),
         }
         settings.JWT_SECRET = "admin-tests-jwt-secret-at-least-32-characters"
-        settings.ADMIN_ACCESS_CODE = "render-admin-code-very-secret"
+        settings.ADMIN_ACCESS_CODE = "Adm7K2qP"
         settings.ADMIN_UNLOCK_RATE_LIMIT = 5
         settings.ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS = 900
         settings.CLIENT_IP_HEADER = "X-Test-Client-IP"
@@ -217,7 +217,7 @@ class AdminApiTests(unittest.TestCase):
         )
         self.db.commit()
 
-    def _unlock_admin(self, code: str = "render-admin-code-very-secret"):
+    def _unlock_admin(self, code: str = "Adm7K2qP"):
         response = self.client.post(
             "/api/v1/admin/unlock",
             headers=self.admin_headers,
@@ -292,7 +292,7 @@ class AdminApiTests(unittest.TestCase):
         wrong = self.client.post(
             "/api/v1/admin/unlock",
             headers=self.admin_headers,
-            json={"code": "wrong-code-that-is-long-enough"},
+            json={"code": "Bad8Code"},
         )
         self.assertEqual(wrong.status_code, 403)
         self.assertEqual(wrong.json(), {"detail": "Code administrateur invalide"})
@@ -322,11 +322,11 @@ class AdminApiTests(unittest.TestCase):
         self.assertEqual(other_account.status_code, 423)
         settings.ADMIN_ALLOWED_USER_IDS = str(self.admin.id)
 
-        settings.ADMIN_ACCESS_CODE = "rotated-render-code-very-secret"
+        settings.ADMIN_ACCESS_CODE = "New8Code"
         rotated = self.client.get("/api/v1/admin/me", headers=self.admin_headers)
         self.assertEqual(rotated.status_code, 423)
 
-        settings.ADMIN_ACCESS_CODE = "render-admin-code-very-secret"
+        settings.ADMIN_ACCESS_CODE = "Adm7K2qP"
         self._unlock_admin()
         locked = self.client.post("/api/v1/admin/lock", headers=self.admin_headers)
         self.assertEqual(locked.status_code, 204)
@@ -345,13 +345,20 @@ class AdminApiTests(unittest.TestCase):
             {"detail": "Configuration du code administrateur indisponible"},
         )
 
-        settings.ADMIN_ACCESS_CODE = "render-admin-code-very-secret"
+        settings.ADMIN_ACCESS_CODE = "NineChars"
+        wrong_length = self.client.get(
+            "/api/v1/admin/access",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(wrong_length.status_code, 503)
+
+        settings.ADMIN_ACCESS_CODE = "Adm7K2qP"
         settings.ADMIN_UNLOCK_RATE_LIMIT = 2
         for _ in range(2):
             rejected = self.client.post(
                 "/api/v1/admin/unlock",
                 headers=self.admin_headers,
-                json={"code": "incorrect-code-for-rate-limit"},
+                json={"code": "Nope7Key"},
             )
             self.assertEqual(rejected.status_code, 403)
         limited = self.client.post(

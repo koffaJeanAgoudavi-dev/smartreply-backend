@@ -30,6 +30,7 @@ class AdminUiTests(unittest.TestCase):
         self.assertIn("Code administrateur", page.text)
         self.assertIn("expire automatiquement après 30 minutes", page.text)
         self.assertIn('type="password"', page.text)
+        self.assertIn('minlength="8" maxlength="8"', page.text)
         self.assertIn("Vue d’ensemble", page.text)
         self.assertIn("Entreprises", page.text)
         self.assertIn("Incidents opérationnels", page.text)

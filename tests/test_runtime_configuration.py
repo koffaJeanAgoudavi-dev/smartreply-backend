@@ -46,7 +46,7 @@ def valid_production_configuration() -> SimpleNamespace:
         TELEGRAM_BOT_TOKEN="",
         TELEGRAM_WEBHOOK_SECRET="",
         ACCESS_TOKEN_EXPIRE_MINUTES=1440,
-        ADMIN_ACCESS_CODE="admin-code-test-long",
+        ADMIN_ACCESS_CODE="Adm7K2qP",
         ADMIN_UNLOCK_RATE_LIMIT=5,
         ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS=900,
         LOGIN_IP_EMAIL_RATE_LIMIT=5,

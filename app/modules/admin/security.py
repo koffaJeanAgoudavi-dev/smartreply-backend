@@ -34,9 +34,9 @@ class AdminSession:
 
 def _configured_access_code() -> str:
     code = settings.ADMIN_ACCESS_CODE.strip()
-    if not 16 <= len(code) <= 256:
+    if len(code) != 8:
         raise AdminSecurityConfigurationError(
-            "ADMIN_ACCESS_CODE doit contenir entre 16 et 256 caractères"
+            "ADMIN_ACCESS_CODE doit contenir exactement 8 caractères"
         )
     return code
 
