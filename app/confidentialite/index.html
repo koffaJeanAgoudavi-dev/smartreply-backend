@@ -219,7 +219,13 @@
           </div>
 
           <div class="legal-subsection">
-            <h3>4.8 Formulaire de contact et prévention des abus</h3>
+            <h3>4.8 Consultation des brouillons dans le dashboard</h3>
+            <p>Après authentification, le dashboard peut afficher le destinataire, l’objet, les dates disponibles, la catégorie, la priorité, le résumé, le statut et le contenu complet d’un brouillon rattaché à votre entreprise. SmartReply rapproche pour cela les informations conservées dans Neon avec les lignes du Google Sheet associé à cette même entreprise.</p>
+            <p>Le dashboard ne renvoie pas au navigateur l’identifiant du brouillon Gmail, le callback token ou l’identifiant du classeur. Copier le contenu ou ouvrir Gmail ne déclenche aucun envoi. L’action « Ignorer » met à jour l’état connu de SmartReply et le Google Sheet, mais ne supprime pas automatiquement le brouillon dans Gmail.</p>
+          </div>
+
+          <div class="legal-subsection">
+            <h3>4.9 Formulaire de contact et prévention des abus</h3>
             <p>Lorsque vous utilisez le formulaire Contact, SmartReply traite votre nom complet, votre adresse e-mail, le motif, l’objet et le message afin de transmettre la demande à DIGICRAFT LABS par le service SMTP de Gmail fourni par Google. L’application n’enregistre pas directement ces champs dans sa base PostgreSQL, mais le message peut rester présent dans les boîtes Gmail et les systèmes de Google utilisés pour sa livraison.</p>
             <p>Pour limiter les abus sur la connexion, l’inscription et le formulaire Contact, SmartReply utilise l’adresse IP de la requête pour produire une empreinte HMAC utilisée dans des compteurs temporaires. L’adresse IP brute n’est pas placée dans les clés de limitation par l’application. Render et d’autres prestataires réseau peuvent néanmoins traiter l’adresse IP et des métadonnées de requête dans leurs journaux techniques.</p>
           </div>

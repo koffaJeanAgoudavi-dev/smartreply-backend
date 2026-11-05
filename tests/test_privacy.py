@@ -95,6 +95,11 @@ class PrivacyStaticTests(unittest.TestCase):
             "refresh tokens Gmail et Google Drive sont chiffrés",
             "limite par défaut du corps d’e-mail transmis est d’environ "
             "6 000 caractères",
+            "Consultation des brouillons dans le dashboard",
+            "le statut et le contenu complet d’un brouillon rattaché à votre "
+            "entreprise",
+            "ne renvoie pas au navigateur l’identifiant du brouillon Gmail",
+            "Copier le contenu ou ouvrir Gmail ne déclenche aucun envoi",
             "service SMTP de Gmail fourni par Google",
             "L’application n’enregistre pas directement ces champs dans sa "
             "base PostgreSQL",

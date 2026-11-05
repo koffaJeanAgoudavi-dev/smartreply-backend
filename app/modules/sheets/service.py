@@ -152,6 +152,30 @@ def upsert_company_email(
     return row_index
 
 
+def list_company_draft_rows(workbook) -> list[dict[str, str]]:
+    """Lit les brouillons du classeur pour un rapprochement serveur cloisonné."""
+    worksheet = workbook.worksheet("Brouillons")
+    rows = worksheet.get("A:D")
+    if not rows:
+        return []
+    if rows[0][:4] != DRAFT_HEADERS:
+        raise RuntimeError("company_sheet_headers_invalid")
+
+    result = []
+    for row in rows[1:]:
+        values = list(row[:4])
+        values.extend([""] * (4 - len(values)))
+        result.append(
+            {
+                "draft_id": str(values[0]),
+                "email_id": str(values[1]),
+                "content": str(values[2]),
+                "status": str(values[3]),
+            }
+        )
+    return result
+
+
 def get_company_draft_id(workbook, *, email_id: str) -> str | None:
     """Retourne le brouillon déjà consigné pour cet Email_ID, le cas échéant."""
     sheet = workbook.worksheet("Brouillons")

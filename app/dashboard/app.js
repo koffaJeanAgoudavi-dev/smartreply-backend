@@ -19,6 +19,7 @@
     dashboardOverview: "/api/v1/dashboard/overview",
     recentEmails: "/api/v1/dashboard/recent-emails",
     dashboardEmails: "/api/v1/dashboard/emails",
+    dashboardDrafts: "/api/v1/dashboard/drafts",
   });
 
   const TOKEN_STORAGE_KEY = "smartreply_access_token";
@@ -26,6 +27,8 @@
   const TELEGRAM_POLL_INTERVAL_MS = 4000;
   const EMAILS_PAGE_SIZE = 25;
   const EMAILS_SEARCH_DEBOUNCE_MS = 350;
+  const DRAFTS_PAGE_SIZE = 25;
+  const DRAFTS_SEARCH_DEBOUNCE_MS = 350;
   const EMAIL_FILTER_VALUES = Object.freeze({
     category: Object.freeze([
       "Devis",
@@ -41,9 +44,12 @@
   });
   let emailsRequestSequence = 0;
   let emailDetailRequestSequence = 0;
+  let draftsRequestSequence = 0;
+  let draftDetailRequestSequence = 0;
   let dashboardRequestSequence = 0;
   let integrationRequestSequence = 0;
   let emailsSearchDebounceId = null;
+  let draftsSearchDebounceId = null;
   const SCREEN_IDS = [
     "loading-screen",
     "auth-screen",
@@ -66,10 +72,17 @@
   ]);
   const RESPONSE_TONES = Object.freeze(["professional", "friendly", "direct", "warm"]);
   const OTHER_SECTOR_VALUE = "__other__";
-  const APP_ROUTES = Object.freeze(["dashboard", "emails", "integrations", "settings"]);
+  const APP_ROUTES = Object.freeze([
+    "dashboard",
+    "emails",
+    "drafts",
+    "integrations",
+    "settings",
+  ]);
   const ROUTE_TITLES = Object.freeze({
     dashboard: "Tableau de bord",
     emails: "Emails",
+    drafts: "Brouillons",
     integrations: "Intégrations",
     settings: "Paramètres",
   });
@@ -106,7 +119,54 @@
     detailPriority: "email-detail-priority",
     detailStatus: "email-detail-status",
   });
+  const DRAFTS_VIEW_IDS = Object.freeze({
+    workspace: "drafts-workspace",
+    search: "drafts-search",
+    status: "drafts-status-filter",
+    loading: "drafts-loading-state",
+    empty: "drafts-empty-state",
+    error: "drafts-error-state",
+    retry: "drafts-retry",
+    refresh: "refresh-drafts",
+    table: "drafts-table-wrap",
+    tableBody: "drafts-table-body",
+    pagination: "drafts-pagination",
+    paginationSummary: "drafts-pagination-summary",
+    pageIndicator: "drafts-page-indicator",
+    previousPage: "drafts-previous-page",
+    nextPage: "drafts-next-page",
+    metricPending: "draft-metric-pending",
+    metricSent: "draft-metric-sent",
+    metricIgnored: "draft-metric-ignored",
+    metricErrors: "draft-metric-errors",
+    gmailDisconnected: "drafts-gmail-disconnected",
+    detailWorkspace: "draft-detail-workspace",
+    detailBack: "draft-detail-back",
+    detailRefresh: "draft-detail-refresh",
+    detailLoading: "draft-detail-loading-state",
+    detailNotFound: "draft-detail-not-found-state",
+    detailError: "draft-detail-error-state",
+    detailContent: "draft-detail-content",
+    detailTitle: "draft-detail-title",
+    detailRecipientName: "draft-detail-recipient-name",
+    detailRecipientEmail: "draft-detail-recipient-email",
+    detailSubject: "draft-detail-subject",
+    detailReceivedAt: "draft-detail-received-at",
+    detailPreparedAt: "draft-detail-prepared-at",
+    detailSummary: "draft-detail-summary",
+    detailCategory: "draft-detail-category",
+    detailPriority: "draft-detail-priority",
+    detailStatus: "draft-detail-status",
+    contentPreview: "draft-content-preview",
+    copyContent: "copy-draft-content",
+    openGmail: "open-draft-in-gmail",
+    ignore: "ignore-draft",
+    ignoreDialog: "draft-ignore-dialog",
+    cancelIgnore: "cancel-ignore-draft",
+    confirmIgnore: "confirm-ignore-draft",
+  });
   let emailsViewElements = null;
+  let draftsViewElements = null;
 
   function createEmailCriteria() {
     return {
@@ -135,6 +195,36 @@
   function createEmailDetailState(emailId = null) {
     return {
       emailId,
+      item: null,
+      loaded: false,
+      loading: false,
+      error: null,
+    };
+  }
+
+  function createDraftCriteria() {
+    return { search: "", status: "" };
+  }
+
+  function createDraftListState(criteria = createDraftCriteria()) {
+    return {
+      items: [],
+      metrics: { pending: 0, sent: 0, ignored: 0, errors: 0 },
+      pagination: {
+        page: 1,
+        page_size: DRAFTS_PAGE_SIZE,
+        total_items: 0,
+        total_pages: 0,
+      },
+      criteria: { ...criteria },
+      loaded: false,
+      loading: false,
+    };
+  }
+
+  function createDraftDetailState(draftRef = null) {
+    return {
+      draftRef,
       item: null,
       loaded: false,
       loading: false,
@@ -179,6 +269,9 @@
     },
     emailList: createEmailListState(),
     emailDetail: createEmailDetailState(),
+    draftList: createDraftListState(),
+    draftDetail: createDraftDetailState(),
+    pendingIgnoreDraftRef: null,
   };
 
   class ApiError extends Error {
@@ -230,6 +323,19 @@
 
   function getEmailsViewElements() {
     return emailsViewElements || cacheEmailsViewElements();
+  }
+
+  function cacheDraftsViewElements() {
+    draftsViewElements = Object.freeze(
+      Object.fromEntries(
+        Object.entries(DRAFTS_VIEW_IDS).map(([key, id]) => [key, $(id)]),
+      ),
+    );
+    return draftsViewElements;
+  }
+
+  function getDraftsViewElements() {
+    return draftsViewElements || cacheDraftsViewElements();
   }
 
   const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -602,8 +708,78 @@
     });
   }
 
+  function resetDraftListState() {
+    if (draftsSearchDebounceId !== null) {
+      window.clearTimeout(draftsSearchDebounceId);
+      draftsSearchDebounceId = null;
+    }
+    draftsRequestSequence += 1;
+    draftDetailRequestSequence += 1;
+    state.draftList = createDraftListState();
+    state.draftDetail = createDraftDetailState();
+    state.pendingIgnoreDraftRef = null;
+    if (!draftsViewElements) return;
+
+    draftsViewElements.search.value = "";
+    draftsViewElements.status.value = "";
+    draftsViewElements.tableBody.replaceChildren();
+    draftsViewElements.workspace.setAttribute("aria-busy", "false");
+    draftsViewElements.loading.hidden = true;
+    draftsViewElements.empty.hidden = false;
+    draftsViewElements.error.hidden = true;
+    draftsViewElements.table.hidden = true;
+    draftsViewElements.pagination.hidden = true;
+    draftsViewElements.paginationSummary.textContent = "0 brouillon";
+    draftsViewElements.pageIndicator.textContent = "Page 1 sur 1";
+    draftsViewElements.previousPage.disabled = true;
+    draftsViewElements.nextPage.disabled = true;
+    draftsViewElements.retry.disabled = false;
+    draftsViewElements.workspace.hidden = false;
+    draftsViewElements.detailWorkspace.hidden = true;
+    draftsViewElements.detailWorkspace.setAttribute("aria-busy", "false");
+    draftsViewElements.detailLoading.hidden = true;
+    draftsViewElements.detailNotFound.hidden = true;
+    draftsViewElements.detailError.hidden = true;
+    draftsViewElements.detailContent.hidden = true;
+    draftsViewElements.detailTitle.textContent = "Brouillon";
+    draftsViewElements.contentPreview.textContent = "—";
+    draftsViewElements.ignore.hidden = false;
+    draftsViewElements.ignore.disabled = false;
+    [
+      draftsViewElements.metricPending,
+      draftsViewElements.metricSent,
+      draftsViewElements.metricIgnored,
+      draftsViewElements.metricErrors,
+    ].forEach((element) => {
+      element.textContent = "—";
+    });
+    [
+      draftsViewElements.detailRecipientName,
+      draftsViewElements.detailRecipientEmail,
+      draftsViewElements.detailSubject,
+      draftsViewElements.detailReceivedAt,
+      draftsViewElements.detailPreparedAt,
+      draftsViewElements.detailSummary,
+      draftsViewElements.detailCategory,
+      draftsViewElements.detailPriority,
+      draftsViewElements.detailStatus,
+    ].forEach((element) => {
+      element.textContent = "—";
+    });
+    [
+      draftsViewElements.detailCategory,
+      draftsViewElements.detailPriority,
+      draftsViewElements.detailStatus,
+    ].forEach((element) => {
+      element.className = "data-badge neutral";
+    });
+    if (draftsViewElements.ignoreDialog.open) {
+      draftsViewElements.ignoreDialog.close();
+    }
+  }
+
   function resetDashboardDomState() {
-    if (!emailsViewElements) return;
+    if (!emailsViewElements || !draftsViewElements) return;
 
     $("greeting-name").textContent = "Utilisateur";
     $("sidebar-user-name").textContent = "Utilisateur";
@@ -725,6 +901,7 @@
     dashboardRequestSequence += 1;
     integrationRequestSequence += 1;
     resetEmailListState();
+    resetDraftListState();
     resetDashboardDomState();
   }
 
@@ -1284,6 +1461,7 @@
       integrations.statusesAvailable ? display.missingRequired : [],
     );
     renderCompanyStatuses();
+    updateDraftGmailNotice();
 
     $("dashboard-connected-count").textContent = display.countLabel;
     $("integrations-progress").textContent = display.countLabel;
@@ -1800,8 +1978,11 @@
 
   function badgeClass(value) {
     const normalized = String(value || "").toLocaleLowerCase("fr");
-    if (["haute", "envoyé"].includes(normalized)) return "danger";
-    if (["moyenne", "brouillon prêt", "analysé"].includes(normalized)) return "warning";
+    if (["haute", "en erreur"].includes(normalized)) return "danger";
+    if (["moyenne", "brouillon prêt", "analysé", "en attente"].includes(normalized)) {
+      return "warning";
+    }
+    if (normalized === "envoyé") return "success";
     return "neutral";
   }
 
@@ -2289,6 +2470,532 @@
     void loadEmailsPage(page + 1);
   }
 
+  function cancelDraftSearchDebounce() {
+    if (draftsSearchDebounceId === null) return;
+    window.clearTimeout(draftsSearchDebounceId);
+    draftsSearchDebounceId = null;
+  }
+
+  function readDraftCriteria() {
+    const elements = getDraftsViewElements();
+    const allowedStatuses = new Set(["En attente", "Envoyé", "Ignoré", "En erreur"]);
+    const status = allowedStatuses.has(elements.status.value)
+      ? elements.status.value
+      : "";
+    return {
+      search: elements.search.value.trim().slice(0, 200),
+      status,
+    };
+  }
+
+  function sameDraftCriteria(left, right) {
+    return left.search === right.search && left.status === right.status;
+  }
+
+  function restoreActiveDraftCriteriaControls() {
+    const elements = getDraftsViewElements();
+    elements.search.value = state.draftList.criteria.search;
+    elements.status.value = state.draftList.criteria.status;
+  }
+
+  function applyDraftCriteriaFromControls() {
+    const criteria = readDraftCriteria();
+    if (sameDraftCriteria(criteria, state.draftList.criteria)) return false;
+    state.draftList.criteria = criteria;
+    void loadDraftsPage(1);
+    return true;
+  }
+
+  function scheduleDraftSearch() {
+    cancelDraftSearchDebounce();
+    const criteria = readDraftCriteria();
+    if (sameDraftCriteria(criteria, state.draftList.criteria)) return;
+    draftsSearchDebounceId = window.setTimeout(() => {
+      draftsSearchDebounceId = null;
+      applyDraftCriteriaFromControls();
+    }, DRAFTS_SEARCH_DEBOUNCE_MS);
+  }
+
+  function applyDraftFilters() {
+    cancelDraftSearchDebounce();
+    applyDraftCriteriaFromControls();
+  }
+
+  function validDraftRef(draftRef) {
+    return /^BR-[1-9][0-9]*$/.test(String(draftRef || ""));
+  }
+
+  function draftDetailRefFromHash() {
+    const route = window.location.hash.replace(/^#/, "");
+    if (!route.startsWith("drafts/")) return null;
+    try {
+      return decodeURIComponent(route.slice("drafts/".length));
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function navigateToDraftDetail(draftRef) {
+    const normalizedRef = String(draftRef || "");
+    if (!validDraftRef(normalizedRef)) return;
+    cancelDraftSearchDebounce();
+    restoreActiveDraftCriteriaControls();
+    const targetHash = `#drafts/${encodeURIComponent(normalizedRef)}`;
+    if (window.location.hash === targetHash) {
+      renderRoute();
+      return;
+    }
+    window.location.hash = targetHash;
+  }
+
+  function returnToDraftList() {
+    if (window.location.hash === "#drafts") {
+      renderRoute();
+      return;
+    }
+    window.location.hash = "#drafts";
+  }
+
+  function setDraftDetailDisplay(displayState) {
+    const elements = getDraftsViewElements();
+    elements.detailWorkspace.setAttribute(
+      "aria-busy",
+      String(displayState === "loading"),
+    );
+    elements.detailLoading.hidden = displayState !== "loading";
+    elements.detailNotFound.hidden = displayState !== "not-found";
+    elements.detailError.hidden = displayState !== "error";
+    elements.detailContent.hidden = displayState !== "ready";
+  }
+
+  function publicDraftDetail(payload) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return {
+      draft_ref: String(source.draft_ref || ""),
+      recipient_name: String(source.recipient_name || ""),
+      recipient_email: String(source.recipient_email || ""),
+      subject: String(source.subject || ""),
+      received_at: source.received_at || null,
+      prepared_at: source.prepared_at || null,
+      summary: String(source.summary || ""),
+      category: String(source.category || ""),
+      priority: String(source.priority || ""),
+      status: String(source.status || ""),
+      content: String(source.content || ""),
+      ai_generated: source.ai_generated === true,
+    };
+  }
+
+  function renderDraftDetail(item) {
+    const elements = getDraftsViewElements();
+    const subject = item.subject || "Sans objet";
+    elements.detailTitle.textContent = subject;
+    elements.detailRecipientName.textContent = item.recipient_name || "—";
+    elements.detailRecipientEmail.textContent = item.recipient_email || "—";
+    elements.detailSubject.textContent = subject;
+    elements.detailReceivedAt.textContent = item.received_at
+      ? formatDashboardDate(item.received_at)
+      : "—";
+    elements.detailPreparedAt.textContent = item.prepared_at
+      ? formatDashboardDate(item.prepared_at)
+      : "—";
+    elements.detailSummary.textContent = item.summary || "—";
+    elements.contentPreview.textContent = item.content || "—";
+    setEmailDetailBadge(elements.detailCategory, item.category);
+    setEmailDetailBadge(elements.detailPriority, item.priority);
+    setEmailDetailBadge(elements.detailStatus, item.status);
+    const canIgnore = item.status === "En attente";
+    elements.ignore.hidden = !canIgnore;
+    elements.ignore.disabled = !canIgnore;
+    elements.copyContent.disabled = !item.content;
+    setDraftDetailDisplay("ready");
+  }
+
+  async function loadDraftDetail(draftRef) {
+    const normalizedRef = String(draftRef || "");
+    if (!validDraftRef(normalizedRef)) {
+      draftDetailRequestSequence += 1;
+      state.draftDetail = {
+        ...createDraftDetailState(normalizedRef),
+        error: "not-found",
+      };
+      setDraftDetailDisplay("not-found");
+      return;
+    }
+
+    const requestId = ++draftDetailRequestSequence;
+    state.draftDetail = {
+      ...createDraftDetailState(normalizedRef),
+      loading: true,
+    };
+    setDraftDetailDisplay("loading");
+    try {
+      const payload = await apiRequest(
+        `${API.dashboardDrafts}/${encodeURIComponent(normalizedRef)}`,
+      );
+      if (requestId !== draftDetailRequestSequence) return;
+      const item = publicDraftDetail(payload);
+      state.draftDetail = {
+        draftRef: normalizedRef,
+        item,
+        loaded: true,
+        loading: false,
+        error: null,
+      };
+      renderDraftDetail(item);
+    } catch (error) {
+      if (requestId !== draftDetailRequestSequence) return;
+      const displayState = error.status === 404 ? "not-found" : "error";
+      state.draftDetail = {
+        ...createDraftDetailState(normalizedRef),
+        error: displayState,
+      };
+      if (error.status !== 401) setDraftDetailDisplay(displayState);
+    }
+  }
+
+  function showDraftListWorkspace() {
+    const elements = getDraftsViewElements();
+    elements.workspace.hidden = false;
+    elements.detailWorkspace.hidden = true;
+    if (state.draftDetail.loading) {
+      draftDetailRequestSequence += 1;
+      state.draftDetail = createDraftDetailState();
+    } else if (state.draftDetail.error) {
+      state.draftDetail = createDraftDetailState();
+    }
+  }
+
+  function showDraftDetailWorkspace(draftRef) {
+    const elements = getDraftsViewElements();
+    elements.workspace.hidden = true;
+    elements.detailWorkspace.hidden = false;
+    if (!validDraftRef(draftRef)) {
+      void loadDraftDetail(draftRef);
+      return;
+    }
+    if (state.draftDetail.draftRef === draftRef) {
+      if (state.draftDetail.loaded && state.draftDetail.item) {
+        renderDraftDetail(state.draftDetail.item);
+        return;
+      }
+      if (state.draftDetail.loading) {
+        setDraftDetailDisplay("loading");
+        return;
+      }
+      if (state.draftDetail.error) {
+        setDraftDetailDisplay(state.draftDetail.error);
+        return;
+      }
+    }
+    void loadDraftDetail(draftRef);
+  }
+
+  function dashboardDraftsPath(page, criteria) {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(DRAFTS_PAGE_SIZE),
+    });
+    if (criteria.search) params.set("search", criteria.search);
+    if (criteria.status) params.set("status", criteria.status);
+    return `${API.dashboardDrafts}?${params.toString()}`;
+  }
+
+  function setDraftListDisplay(displayState) {
+    const elements = getDraftsViewElements();
+    elements.workspace.setAttribute(
+      "aria-busy",
+      String(displayState === "loading"),
+    );
+    elements.loading.hidden = displayState !== "loading";
+    elements.empty.hidden = displayState !== "empty";
+    elements.error.hidden = displayState !== "error";
+    elements.retry.disabled = displayState === "loading";
+    elements.table.hidden = displayState !== "ready";
+    elements.pagination.hidden = displayState !== "ready";
+  }
+
+  function renderDraftMetrics(metrics) {
+    const elements = getDraftsViewElements();
+    elements.metricPending.textContent = formatCount(metrics.pending || 0);
+    elements.metricSent.textContent = formatCount(metrics.sent || 0);
+    elements.metricIgnored.textContent = formatCount(metrics.ignored || 0);
+    elements.metricErrors.textContent = formatCount(metrics.errors || 0);
+  }
+
+  function renderDraftListPagination(pagination, displayedItems) {
+    const elements = getDraftsViewElements();
+    const page = pagination.page;
+    const pageSize = pagination.page_size;
+    const totalItems = pagination.total_items;
+    const totalPages = pagination.total_pages;
+    const firstItem = totalItems === 0 ? 0 : ((page - 1) * pageSize) + 1;
+    const lastItem = totalItems === 0
+      ? 0
+      : Math.min(firstItem + displayedItems - 1, totalItems);
+    const label = totalItems > 1 ? "brouillons" : "brouillon";
+    elements.paginationSummary.textContent = totalItems > pageSize
+      ? `${formatCount(firstItem)}–${formatCount(lastItem)} sur ${formatCount(totalItems)} ${label}`
+      : `${formatCount(totalItems)} ${label}`;
+    elements.pageIndicator.textContent = `Page ${formatCount(page)} sur ${formatCount(Math.max(totalPages, 1))}`;
+    elements.previousPage.disabled = page <= 1;
+    elements.nextPage.disabled = totalPages === 0 || page >= totalPages;
+  }
+
+  function renderDraftList(items, pagination, metrics) {
+    const elements = getDraftsViewElements();
+    elements.tableBody.replaceChildren();
+    renderDraftMetrics(metrics);
+    renderDraftListPagination(pagination, items.length);
+    if (!items.length) {
+      setDraftListDisplay("empty");
+      return;
+    }
+
+    items.forEach((draft) => {
+      const row = document.createElement("tr");
+      const draftRef = String(draft.draft_ref || "");
+      row.dataset.draftRef = draftRef;
+
+      const recipientCell = document.createElement("td");
+      recipientCell.className = "emails-sender-cell";
+      const recipientName = document.createElement("strong");
+      recipientName.textContent = String(draft.recipient_name || "Destinataire");
+      const recipientEmail = document.createElement("small");
+      recipientEmail.textContent = String(draft.recipient_email || "—");
+      recipientCell.append(recipientName, recipientEmail);
+      row.append(recipientCell);
+
+      const subjectCell = document.createElement("td");
+      subjectCell.className = "subject-cell";
+      const subject = String(draft.subject || "Sans objet");
+      if (validDraftRef(draftRef)) {
+        const detailButton = document.createElement("button");
+        detailButton.type = "button";
+        detailButton.className = "email-detail-link";
+        detailButton.textContent = subject;
+        detailButton.setAttribute(
+          "aria-label",
+          `Ouvrir le brouillon : ${subject}`,
+        );
+        detailButton.addEventListener("click", (event) => {
+          event.stopPropagation();
+          navigateToDraftDetail(draftRef);
+        });
+        subjectCell.append(detailButton);
+      } else {
+        subjectCell.textContent = subject;
+      }
+      row.append(subjectCell);
+
+      const dateCell = document.createElement("td");
+      dateCell.textContent = draft.prepared_at
+        ? formatDashboardDate(draft.prepared_at)
+        : "—";
+      row.append(dateCell);
+      appendEmailBadgeCell(row, draft.category);
+      appendEmailBadgeCell(row, draft.priority);
+      appendEmailBadgeCell(row, draft.status);
+      if (validDraftRef(draftRef)) {
+        row.classList.add("emails-row-link");
+        row.addEventListener("click", () => navigateToDraftDetail(draftRef));
+      }
+      elements.tableBody.append(row);
+    });
+    setDraftListDisplay("ready");
+  }
+
+  function normalizedDraftPagination(rawPagination, requestedPage) {
+    const source = rawPagination && typeof rawPagination === "object"
+      ? rawPagination
+      : {};
+    const values = {
+      page: Number(source.page),
+      page_size: Number(source.page_size),
+      total_items: Number(source.total_items),
+      total_pages: Number(source.total_pages),
+    };
+    return {
+      page: Number.isSafeInteger(values.page) && values.page >= 1
+        ? values.page
+        : requestedPage,
+      page_size: Number.isSafeInteger(values.page_size) && values.page_size >= 1
+        ? values.page_size
+        : DRAFTS_PAGE_SIZE,
+      total_items: Number.isSafeInteger(values.total_items) && values.total_items >= 0
+        ? values.total_items
+        : 0,
+      total_pages: Number.isSafeInteger(values.total_pages) && values.total_pages >= 0
+        ? values.total_pages
+        : 0,
+    };
+  }
+
+  async function loadDraftsPage(page = 1, options = {}) {
+    const { allowPageCorrection = true } = options;
+    const requestedPage = Number.isSafeInteger(page) && page >= 1 ? page : 1;
+    const criteria = { ...state.draftList.criteria };
+    const requestId = ++draftsRequestSequence;
+    const elements = getDraftsViewElements();
+    state.draftList.loading = true;
+    state.draftList.loaded = false;
+    elements.tableBody.replaceChildren();
+    setDraftListDisplay("loading");
+    try {
+      const payload = await apiRequest(dashboardDraftsPath(requestedPage, criteria));
+      if (requestId !== draftsRequestSequence) return;
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      const metrics = payload.metrics && typeof payload.metrics === "object"
+        ? payload.metrics
+        : { pending: 0, sent: 0, ignored: 0, errors: 0 };
+      const pagination = normalizedDraftPagination(
+        payload.pagination,
+        requestedPage,
+      );
+      if (
+        allowPageCorrection
+        && pagination.total_items > 0
+        && pagination.total_pages > 0
+        && pagination.page > pagination.total_pages
+      ) {
+        return loadDraftsPage(pagination.total_pages, {
+          allowPageCorrection: false,
+        });
+      }
+      state.draftList = {
+        items,
+        metrics,
+        pagination,
+        criteria,
+        loaded: true,
+        loading: false,
+      };
+      renderDraftList(items, pagination, metrics);
+    } catch (error) {
+      if (requestId !== draftsRequestSequence) return;
+      state.draftList = createDraftListState(criteria);
+      elements.tableBody.replaceChildren();
+      if (error.status !== 401) setDraftListDisplay("error");
+    }
+  }
+
+  function retryDraftsPage() {
+    if (state.draftList.loading) return false;
+    void loadDraftsPage(state.draftList.pagination.page);
+    return true;
+  }
+
+  function loadPreviousDraftsPage() {
+    const { page } = state.draftList.pagination;
+    if (state.draftList.loading || page <= 1) return;
+    void loadDraftsPage(page - 1);
+  }
+
+  function loadNextDraftsPage() {
+    const { page, total_pages: totalPages } = state.draftList.pagination;
+    if (state.draftList.loading || totalPages === 0 || page >= totalPages) return;
+    void loadDraftsPage(page + 1);
+  }
+
+  function refreshDrafts() {
+    const detailRef = draftDetailRefFromHash();
+    state.draftList.loaded = false;
+    if (detailRef !== null) {
+      void loadDraftDetail(detailRef);
+    }
+    void loadDraftsPage(state.draftList.pagination.page);
+  }
+
+  async function copyDraftContent() {
+    const content = state.draftDetail.item?.content || "";
+    if (!content) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(content);
+      } else {
+        const input = document.createElement("textarea");
+        input.value = content;
+        input.setAttribute("readonly", "");
+        input.className = "clipboard-fallback-input";
+        document.body.append(input);
+        input.select();
+        document.execCommand("copy");
+        input.remove();
+      }
+      showToast("Contenu du brouillon copié.");
+    } catch (_) {
+      showToast(
+        "Copie automatique impossible. Sélectionnez le contenu manuellement.",
+        "error",
+      );
+    }
+  }
+
+  function openDraftIgnoreDialog() {
+    const item = state.draftDetail.item;
+    if (!item || item.status !== "En attente" || !validDraftRef(item.draft_ref)) {
+      return;
+    }
+    const elements = getDraftsViewElements();
+    state.pendingIgnoreDraftRef = item.draft_ref;
+    if (typeof elements.ignoreDialog.showModal === "function") {
+      elements.ignoreDialog.showModal();
+    }
+  }
+
+  function closeDraftIgnoreDialog() {
+    const dialog = getDraftsViewElements().ignoreDialog;
+    state.pendingIgnoreDraftRef = null;
+    if (dialog.open) dialog.close();
+  }
+
+  async function confirmIgnoreDraft() {
+    const draftRef = state.pendingIgnoreDraftRef;
+    if (!validDraftRef(draftRef)) {
+      closeDraftIgnoreDialog();
+      return;
+    }
+    const elements = getDraftsViewElements();
+    setBusy(elements.confirmIgnore, true, "Traitement…");
+    try {
+      const response = await apiRequest(
+        `${API.dashboardDrafts}/${encodeURIComponent(draftRef)}/ignore`,
+        { method: "POST" },
+      );
+      closeDraftIgnoreDialog();
+      showToast(
+        response.sheet_sync_pending
+          ? "Brouillon ignoré dans SmartReply. Le Sheet n’a pas pu être actualisé."
+          : "Brouillon ignoré. Aucun message n’a été envoyé.",
+      );
+      state.draftList.loaded = false;
+      await Promise.all([
+        loadDraftDetail(draftRef),
+        loadDraftsPage(state.draftList.pagination.page),
+      ]);
+    } catch (error) {
+      closeDraftIgnoreDialog();
+      if (error.status !== 401) {
+        showToast(
+          error.status === 409
+            ? "Ce brouillon a déjà été traité."
+            : "Impossible d’ignorer ce brouillon pour le moment.",
+          "error",
+        );
+        void loadDraftDetail(draftRef);
+      }
+    } finally {
+      setBusy(elements.confirmIgnore, false);
+    }
+  }
+
+  function updateDraftGmailNotice() {
+    const elements = getDraftsViewElements();
+    elements.gmailDisconnected.hidden = !(
+      state.integrations.statusesAvailable && !state.integrations.gmail
+    );
+  }
+
   function renderOverviewError() {
     $("dashboard-stats").setAttribute("aria-busy", "false");
     ["volume-chart", "category-chart", "priority-chart"].forEach((id) => {
@@ -2563,15 +3270,18 @@
   function currentRoute() {
     const route = window.location.hash.replace(/^#/, "");
     if (route.startsWith("emails/")) return "emails";
+    if (route.startsWith("drafts/")) return "drafts";
     return APP_ROUTES.includes(route) ? route : "dashboard";
   }
 
   function renderRoute() {
     if (!state.appReady) return;
     const route = currentRoute();
-    const detailId = route === "emails" ? emailDetailIdFromHash() : null;
+    const emailDetailId = route === "emails" ? emailDetailIdFromHash() : null;
+    const draftDetailRef = route === "drafts" ? draftDetailRefFromHash() : null;
     $("dashboard-view").hidden = route !== "dashboard";
     $("emails-view").hidden = route !== "emails";
+    $("drafts-view").hidden = route !== "drafts";
     $("integrations-view").hidden = route !== "integrations";
     $("settings-view").hidden = route !== "settings";
     $("topbar-title").textContent = ROUTE_TITLES[route];
@@ -2581,23 +3291,43 @@
       else item.removeAttribute("aria-current");
     });
     closeSidebar();
-    if (route !== "emails" || detailId !== null) {
+
+    if (route !== "emails" || emailDetailId !== null) {
       cancelEmailSearchDebounce();
       restoreActiveEmailCriteriaControls();
     }
-    if (route === "emails" && detailId !== null) {
-      showEmailDetailWorkspace(detailId);
+    if (route === "emails" && emailDetailId !== null) {
+      showEmailDetailWorkspace(emailDetailId);
     } else {
       showEmailListWorkspace();
     }
     if (
       route === "emails"
-      && detailId === null
+      && emailDetailId === null
       && !state.emailList.loaded
       && !state.emailList.loading
     ) {
       void loadEmailsPage(1);
     }
+
+    if (route !== "drafts" || draftDetailRef !== null) {
+      cancelDraftSearchDebounce();
+      restoreActiveDraftCriteriaControls();
+    }
+    if (route === "drafts" && draftDetailRef !== null) {
+      showDraftDetailWorkspace(draftDetailRef);
+    } else {
+      showDraftListWorkspace();
+    }
+    if (
+      route === "drafts"
+      && draftDetailRef === null
+      && !state.draftList.loaded
+      && !state.draftList.loading
+    ) {
+      void loadDraftsPage(1);
+    }
+    if (route === "drafts") updateDraftGmailNotice();
     if (route === "integrations") {
       checkIntegrationStatuses({ silent: true });
     }
@@ -2684,6 +3414,34 @@
     emailsViewElements.previousPage.addEventListener("click", loadPreviousEmailsPage);
     emailsViewElements.nextPage.addEventListener("click", loadNextEmailsPage);
     emailsViewElements.detailBack.addEventListener("click", returnToEmailList);
+    draftsViewElements.search.addEventListener("input", scheduleDraftSearch);
+    draftsViewElements.status.addEventListener("change", applyDraftFilters);
+    draftsViewElements.retry.addEventListener("click", retryDraftsPage);
+    draftsViewElements.refresh.addEventListener("click", refreshDrafts);
+    draftsViewElements.previousPage.addEventListener(
+      "click",
+      loadPreviousDraftsPage,
+    );
+    draftsViewElements.nextPage.addEventListener("click", loadNextDraftsPage);
+    draftsViewElements.detailBack.addEventListener("click", returnToDraftList);
+    draftsViewElements.detailRefresh.addEventListener("click", refreshDrafts);
+    draftsViewElements.copyContent.addEventListener("click", copyDraftContent);
+    draftsViewElements.ignore.addEventListener("click", openDraftIgnoreDialog);
+    draftsViewElements.cancelIgnore.addEventListener(
+      "click",
+      closeDraftIgnoreDialog,
+    );
+    draftsViewElements.confirmIgnore.addEventListener(
+      "click",
+      confirmIgnoreDraft,
+    );
+    draftsViewElements.ignoreDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDraftIgnoreDialog();
+    });
+    draftsViewElements.ignoreDialog.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) closeDraftIgnoreDialog();
+    });
     $("refresh-integrations").addEventListener("click", refreshIntegrations);
     $("generate-telegram-code").addEventListener("click", generateTelegramCode);
     $("copy-telegram-code").addEventListener("click", copyTelegramCode);
@@ -2704,6 +3462,7 @@
 
   async function initialize() {
     cacheEmailsViewElements();
+    cacheDraftsViewElements();
     bindEvents();
     if (!state.token) {
       showScreen("auth-screen");

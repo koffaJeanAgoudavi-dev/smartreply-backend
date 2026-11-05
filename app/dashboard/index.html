@@ -214,16 +214,16 @@
           <svg><use href="#icon-home"></use></svg><span>Tableau de bord</span>
         </a>
         <a class="nav-item" href="#emails" data-route="emails">
-          <svg><use href="#icon-mail"></use></svg><span>Emails</span>
+          <svg><use href="#icon-mail"></use></svg><span>Emails</span><small class="nav-badge-new">Nouveau</small>
         </a>
-        <span class="nav-item disabled" aria-disabled="true">
-          <svg><use href="#icon-file"></use></svg><span>Brouillons</span><small>Bientôt</small>
-        </span>
+        <a class="nav-item" href="#drafts" data-route="drafts">
+          <svg><use href="#icon-file"></use></svg><span>Brouillons</span><small class="nav-badge-new">Nouveau</small>
+        </a>
         <a class="nav-item" href="#integrations" data-route="integrations">
           <svg><use href="#icon-link"></use></svg><span>Intégrations</span>
         </a>
         <a class="nav-item" href="#settings" data-route="settings">
-          <svg><use href="#icon-settings"></use></svg><span>Paramètres</span>
+          <svg><use href="#icon-settings"></use></svg><span>Paramètres</span><small class="nav-badge-new">Nouveau</small>
         </a>
       </nav>
 
@@ -538,6 +538,225 @@
               </dl>
             </article>
           </section>
+        </section>
+
+        <section id="drafts-view" class="page-view" aria-labelledby="drafts-title" hidden>
+          <div class="page-heading drafts-heading">
+            <div>
+              <span class="eyebrow">Contrôle avant envoi</span>
+              <h1 id="drafts-title">Brouillons</h1>
+              <p>Consultez et vérifiez les réponses préparées par SmartReply avant de décider dans Gmail.</p>
+            </div>
+            <button id="refresh-drafts" class="button button-ghost" type="button">
+              <svg><use href="#icon-refresh"></use></svg><span>Actualiser</span>
+            </button>
+          </div>
+
+          <aside class="draft-review-banner" aria-labelledby="draft-review-title">
+            <span class="draft-review-icon" aria-hidden="true"><svg><use href="#icon-file"></use></svg></span>
+            <div>
+              <strong id="draft-review-title">SmartReply prépare, vous gardez le contrôle.</strong>
+              <p>Le contenu est généré avec l’aide de l’IA. Vérifiez toujours le destinataire, les informations et le ton dans Gmail avant toute décision. Aucun message n’est envoyé depuis cet écran.</p>
+            </div>
+          </aside>
+
+          <aside id="drafts-gmail-disconnected" class="draft-gmail-notice" aria-labelledby="drafts-gmail-notice-title" hidden>
+            <span class="draft-review-icon warning" aria-hidden="true"><svg><use href="#icon-link"></use></svg></span>
+            <div>
+              <strong id="drafts-gmail-notice-title">Gmail doit être reconnecté</strong>
+              <p>Vous pouvez consulter les données disponibles, mais ouvrez Intégrations pour rétablir l’accès à Gmail.</p>
+            </div>
+            <a class="button button-secondary button-small" href="#integrations" data-route-link="integrations">Ouvrir Intégrations</a>
+          </aside>
+
+          <section class="draft-metrics-grid" aria-label="Indicateurs des brouillons">
+            <article class="draft-metric-card">
+              <small>En attente</small><strong id="draft-metric-pending">—</strong>
+            </article>
+            <article class="draft-metric-card">
+              <small>Envoyés</small><strong id="draft-metric-sent">—</strong>
+            </article>
+            <article class="draft-metric-card">
+              <small>Ignorés</small><strong id="draft-metric-ignored">—</strong>
+            </article>
+            <article class="draft-metric-card error">
+              <small>En erreur</small><strong id="draft-metric-errors">—</strong>
+            </article>
+          </section>
+
+          <section id="drafts-workspace" class="data-card emails-workspace drafts-workspace" aria-labelledby="drafts-list-title" aria-busy="false">
+            <div class="card-heading emails-card-heading">
+              <div>
+                <h2 id="drafts-list-title">Brouillons préparés</h2>
+                <p>Recherchez dans le destinataire, l’objet, le contenu, la catégorie ou le résumé.</p>
+              </div>
+            </div>
+
+            <div class="emails-toolbar drafts-toolbar" role="search" aria-label="Rechercher et filtrer les brouillons">
+              <label class="emails-control emails-search-control" for="drafts-search">
+                <span>Recherche</span>
+                <span class="emails-search-field">
+                  <svg aria-hidden="true"><use href="#icon-search"></use></svg>
+                  <input id="drafts-search" type="search" maxlength="200" autocomplete="off" placeholder="Destinataire, objet, contenu, catégorie ou résumé">
+                </span>
+              </label>
+              <label class="emails-control" for="drafts-status-filter">
+                <span>Statut</span>
+                <select id="drafts-status-filter">
+                  <option value="">Tous les statuts</option>
+                  <option value="En attente">En attente</option>
+                  <option value="Envoyé">Envoyés</option>
+                  <option value="Ignoré">Ignorés</option>
+                  <option value="En erreur">En erreur</option>
+                </select>
+              </label>
+            </div>
+
+            <div id="drafts-loading-state" class="data-state emails-state" role="status" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Chargement des brouillons…</span>
+            </div>
+            <div id="drafts-error-state" class="data-state emails-state error" role="alert" hidden>
+              <p>Les brouillons sont temporairement indisponibles. Réessayez dans quelques instants.</p>
+              <button id="drafts-retry" class="button button-ghost button-small" type="button">Réessayer</button>
+            </div>
+            <div id="drafts-empty-state" class="emails-empty-state" role="status">
+              <span class="emails-empty-icon" aria-hidden="true"><svg><use href="#icon-file"></use></svg></span>
+              <div>
+                <strong>Aucun brouillon à afficher pour le moment.</strong>
+                <p>Les réponses préparées correspondant à votre recherche apparaîtront ici.</p>
+              </div>
+            </div>
+
+            <div id="drafts-table-wrap" class="table-wrap emails-table-wrap drafts-table-wrap" hidden>
+              <table aria-label="Brouillons préparés par SmartReply">
+                <thead>
+                  <tr>
+                    <th>Destinataire</th>
+                    <th>Objet</th>
+                    <th>Préparé le</th>
+                    <th>Catégorie</th>
+                    <th>Priorité</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody id="drafts-table-body"></tbody>
+              </table>
+            </div>
+
+            <nav id="drafts-pagination" class="emails-pagination" aria-label="Pagination des brouillons" hidden>
+              <p id="drafts-pagination-summary">0 brouillon</p>
+              <div class="emails-pagination-controls">
+                <button id="drafts-previous-page" class="button button-ghost button-small" type="button" disabled>Précédent</button>
+                <span id="drafts-page-indicator" aria-live="polite">Page 1 sur 1</span>
+                <button id="drafts-next-page" class="button button-ghost button-small" type="button" disabled>Suivant</button>
+              </div>
+            </nav>
+          </section>
+
+          <section id="draft-detail-workspace" class="data-card email-detail-workspace draft-detail-workspace" aria-labelledby="draft-detail-title" aria-busy="false" hidden>
+            <div class="email-detail-navigation draft-detail-navigation">
+              <button id="draft-detail-back" class="button button-ghost button-small" type="button">Retour aux brouillons</button>
+              <button id="draft-detail-refresh" class="button button-ghost button-small" type="button">
+                <svg><use href="#icon-refresh"></use></svg><span>Actualiser</span>
+              </button>
+            </div>
+
+            <div id="draft-detail-loading-state" class="data-state emails-state" role="status" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Chargement du brouillon…</span>
+            </div>
+            <div id="draft-detail-not-found-state" class="data-state emails-state" role="status" hidden>
+              Ce brouillon est introuvable ou n’est plus disponible.
+            </div>
+            <div id="draft-detail-error-state" class="data-state emails-state error" role="alert" hidden>
+              Le brouillon est temporairement indisponible. Réessayez dans quelques instants.
+            </div>
+
+            <article id="draft-detail-content" class="email-detail-content draft-detail-content" hidden>
+              <div class="email-detail-heading">
+                <span class="eyebrow">Vérification du brouillon</span>
+                <h2 id="draft-detail-title">Brouillon</h2>
+              </div>
+              <dl class="email-detail-grid">
+                <div class="email-detail-field">
+                  <dt>Destinataire</dt>
+                  <dd id="draft-detail-recipient-name">—</dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Adresse email</dt>
+                  <dd id="draft-detail-recipient-email">—</dd>
+                </div>
+                <div class="email-detail-field email-detail-field-wide">
+                  <dt>Objet</dt>
+                  <dd id="draft-detail-subject">—</dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Email reçu le</dt>
+                  <dd id="draft-detail-received-at">—</dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Brouillon préparé le</dt>
+                  <dd id="draft-detail-prepared-at">—</dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Catégorie</dt>
+                  <dd><span id="draft-detail-category" class="data-badge neutral">—</span></dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Priorité</dt>
+                  <dd><span id="draft-detail-priority" class="data-badge neutral">—</span></dd>
+                </div>
+                <div class="email-detail-field">
+                  <dt>Statut</dt>
+                  <dd><span id="draft-detail-status" class="data-badge neutral">—</span></dd>
+                </div>
+                <div class="email-detail-field email-detail-field-wide email-detail-summary">
+                  <dt>Résumé de l’email</dt>
+                  <dd id="draft-detail-summary">—</dd>
+                </div>
+              </dl>
+
+              <section class="draft-content-section" aria-labelledby="draft-content-title">
+                <div class="draft-content-heading">
+                  <div>
+                    <span class="eyebrow">Contenu généré avec l’aide de l’IA</span>
+                    <h3 id="draft-content-title">Réponse proposée</h3>
+                  </div>
+                  <button id="copy-draft-content" class="button button-ghost button-small" type="button">
+                    <svg><use href="#icon-copy"></use></svg><span>Copier le contenu</span>
+                  </button>
+                </div>
+                <pre id="draft-content-preview" class="draft-content-preview" tabindex="0">—</pre>
+                <p class="draft-ai-warning">Relisez et vérifiez ce contenu dans Gmail. Une réponse générée avec l’aide de l’IA peut contenir des erreurs, des omissions ou un ton inadapté.</p>
+              </section>
+
+              <div class="draft-detail-actions">
+                <a id="open-draft-in-gmail" class="button button-primary" href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener noreferrer">
+                  <span>Ouvrir dans Gmail</span><svg><use href="#icon-arrow"></use></svg>
+                </a>
+                <button id="ignore-draft" class="button button-danger" type="button">Ignorer</button>
+              </div>
+              <p class="draft-action-help">Ouvrir ou copier ce brouillon ne déclenche aucun envoi. Ignorer modifie uniquement son état dans SmartReply et le Sheet ; le brouillon n’est pas supprimé automatiquement dans Gmail.</p>
+            </article>
+          </section>
+
+          <dialog id="draft-ignore-dialog" class="integration-setup-dialog draft-ignore-dialog" role="dialog" aria-modal="true" aria-labelledby="draft-ignore-title" aria-describedby="draft-ignore-description">
+            <div class="integration-setup-panel draft-ignore-panel">
+              <div class="integration-setup-heading">
+                <span class="integration-setup-mark" aria-hidden="true"><svg><use href="#icon-close"></use></svg></span>
+                <div>
+                  <span class="integration-setup-badge">Confirmation</span>
+                  <h2 id="draft-ignore-title">Ignorer ce brouillon ?</h2>
+                </div>
+              </div>
+              <p id="draft-ignore-description" class="integration-setup-description">Il sera marqué comme ignoré dans SmartReply et dans votre Sheet. Il ne sera ni envoyé ni supprimé automatiquement dans Gmail.</p>
+              <div class="integration-setup-actions">
+                <button id="cancel-ignore-draft" class="button button-ghost" type="button">Annuler</button>
+                <button id="confirm-ignore-draft" class="button button-danger" type="button">Confirmer l’ignorance</button>
+              </div>
+            </div>
+          </dialog>
         </section>
 
         <section id="integrations-view" class="page-view" aria-labelledby="integrations-title" hidden>

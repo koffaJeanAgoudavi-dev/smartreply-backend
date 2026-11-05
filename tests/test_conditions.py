@@ -95,6 +95,13 @@ class ConditionsStaticTests(unittest.TestCase):
             "peuvent rester détenus par le compte technique de DIGICRAFT LABS",
             page.text,
         )
+        self.assertIn(
+            "consulter et copier le contenu préparé, ouvrir Gmail et marquer un "
+            "brouillon comme ignoré",
+            page.text,
+        )
+        self.assertIn("ne déclenchent aucun envoi", page.text)
+        self.assertIn("Le dashboard ne propose pas d’envoi direct", page.text)
 
     def test_confirmed_publication_details_replace_the_internal_note(self):
         page = self.client.get("/conditions/")
