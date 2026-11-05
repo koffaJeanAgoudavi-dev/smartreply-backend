@@ -124,6 +124,16 @@ class ConditionsStaticTests(unittest.TestCase):
         self.assertIn(
             'href="mailto:security.smartreplyagent@gmail.com"', page.text
         )
+        self.assertIn("page publique", page.text)
+        self.assertIn(">Contact et assistance</a>", page.text)
+        self.assertIn(
+            "Le formulaire général ne doit pas être utilisé pour transmettre",
+            page.text,
+        )
+        self.assertNotIn(
+            "Un formulaire de contact peut également être disponible",
+            page.text,
+        )
 
     def test_ten_external_pilot_companies_keep_fair_use_free_access(self):
         page = self.client.get("/conditions/")

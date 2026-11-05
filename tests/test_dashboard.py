@@ -207,7 +207,7 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertNotIn("Contact", sidebar_markup)
         self.assertIn('<a href="/contact/">Contact</a>', dashboard_footer)
         self.assertEqual(public_contact.status_code, 200)
-        self.assertIn("Contactez l’équipe SmartReply Agent", public_contact.text)
+        self.assertIn("Contact et assistance SmartReply", public_contact.text)
 
         self.assertEqual(stylesheet.status_code, 200)
         for responsive_style in (

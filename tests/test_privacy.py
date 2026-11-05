@@ -162,6 +162,8 @@ class PrivacyStaticTests(unittest.TestCase):
         self.assertIn(
             'href="mailto:security.smartreplyagent@gmail.com"', page.text
         )
+        self.assertIn("Dans le formulaire, il sélectionne « Autre demande »", page.text)
+        self.assertGreaterEqual(page.text.count(">Contact et assistance</a>"), 2)
 
     def test_assets_navigation_and_contact_scope_are_safe_and_local(self):
         page = self.client.get("/confidentialite/")
@@ -183,7 +185,9 @@ class PrivacyStaticTests(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
-        self.assertNotIn('href="/confidentialite/"', contact.text)
+        self.assertIn('href="/confidentialite/"', contact.text)
+        self.assertIn("Contact et assistance SmartReply", contact.text)
+        self.assertIn("security.smartreplyagent@gmail.com", contact.text)
 
 
 if __name__ == "__main__":
