@@ -393,6 +393,17 @@ svg {
   background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-800));
 }
 
+.button-danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.button-danger:hover:not(:disabled) {
+  border-color: #9f2d25;
+  background: #9f2d25;
+}
+
 .button-secondary {
   border-color: var(--color-border-strong);
   background: var(--color-surface);
@@ -701,7 +712,7 @@ svg {
   stroke-linejoin: round;
 }
 
-.nav-item:not(.disabled):hover {
+.nav-item:hover {
   transform: translateX(2px);
   background: var(--color-primary-50);
   color: var(--color-primary-800);
@@ -711,11 +722,6 @@ svg {
   background: linear-gradient(135deg, var(--color-primary-800), var(--color-primary-600));
   color: #fff;
   box-shadow: 0 8px 20px rgba(8, 120, 93, 0.18);
-}
-
-.nav-item.disabled {
-  cursor: not-allowed;
-  color: var(--color-subtle);
 }
 
 .nav-item small {
@@ -1642,6 +1648,11 @@ td.subject-cell {
   color: var(--color-warning);
 }
 
+.data-badge.success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
 .data-badge.danger {
   background: var(--color-danger-soft);
   color: var(--color-danger);
@@ -1967,6 +1978,212 @@ td.subject-cell {
 .email-detail-summary dd {
   color: var(--color-text);
   white-space: pre-wrap;
+}
+
+/* Page Brouillons */
+.drafts-heading {
+  align-items: flex-start;
+}
+
+.draft-review-banner,
+.draft-gmail-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--color-primary-200);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-50);
+}
+
+.draft-gmail-notice {
+  flex-wrap: wrap;
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.draft-review-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+}
+
+.draft-review-icon.warning {
+  background: #fff8e5;
+  color: var(--color-warning);
+}
+
+.draft-review-icon svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.draft-review-banner > div,
+.draft-gmail-notice > div {
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.draft-review-banner strong,
+.draft-gmail-notice strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.draft-review-banner p,
+.draft-gmail-notice p {
+  margin: 5px 0 0;
+  color: var(--color-text);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.draft-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.draft-metric-card {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.draft-metric-card small,
+.draft-metric-card strong {
+  display: block;
+}
+
+.draft-metric-card small {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.draft-metric-card strong {
+  margin-top: 4px;
+  color: var(--color-ink);
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.draft-metric-card.error strong {
+  color: var(--color-danger);
+}
+
+.drafts-table-wrap table {
+  min-width: 900px;
+}
+
+#drafts-page-indicator {
+  color: var(--color-text);
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.draft-detail-navigation {
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.draft-content-section {
+  padding: 20px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+}
+
+.draft-content-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+
+.draft-content-heading h3 {
+  margin: 5px 0 0;
+  color: var(--color-ink);
+  font-size: 17px;
+}
+
+.draft-content-preview {
+  width: 100%;
+  min-height: 180px;
+  max-height: 520px;
+  margin: 0;
+  padding: 17px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.75;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.draft-content-preview:focus-visible {
+  border-color: var(--color-primary-600);
+  outline: 0;
+  box-shadow: var(--shadow-focus);
+}
+
+.draft-ai-warning,
+.draft-action-help {
+  color: var(--color-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.draft-ai-warning {
+  margin: 11px 0 0;
+}
+
+.draft-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 20px 20px 0;
+}
+
+.draft-action-help {
+  margin: 10px 20px 20px;
+}
+
+.draft-ignore-dialog .integration-setup-mark,
+.draft-ignore-dialog .integration-setup-badge {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.draft-ignore-dialog .integration-setup-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.draft-ignore-dialog .integration-setup-actions .button {
+  flex: 1 1 180px;
 }
 
 .activity-list {
@@ -2715,6 +2932,18 @@ td.subject-cell {
   .emails-pagination-controls .button {
     width: auto;
     min-width: 92px;
+  }
+
+  .draft-metrics-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .draft-gmail-notice {
+    align-items: center;
+  }
+
+  .draft-detail-actions .button {
+    min-width: 170px;
   }
 
   .integration-setup-panel {

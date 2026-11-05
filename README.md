@@ -382,6 +382,31 @@ La Phase B ajoute des données réelles, sans backfill historique fictif :
 - le dashboard gère séparément les états chargement, vide, erreur et données,
   afin qu'une panne du Sheet n'empêche pas l'affichage des agrégats Neon.
 
+L'onglet `#drafts` fournit un espace de contrôle, sans devenir une messagerie :
+
+- `GET /api/v1/dashboard/drafts` rapproche Neon avec les onglets `Emails` et
+  `Brouillons` du Sheet de l'entreprise authentifiée, puis expose une liste
+  paginée, des indicateurs et une recherche par destinataire, objet, contenu,
+  catégorie ou résumé ;
+- `GET /api/v1/dashboard/drafts/{draft_ref}` fournit le contexte et le contenu
+  complet seulement après vérification du JWT, de `company_id` et de la
+  concordance entre Neon et le Sheet. Les identifiants Gmail, callback tokens
+  et identifiants de classeur ne sont jamais renvoyés ;
+- la consultation et la copie locale n'envoient rien. Le bouton **Ouvrir dans
+  Gmail** ouvre le dossier des brouillons Gmail afin que l'utilisateur reste le
+  décideur final ;
+- `POST /api/v1/dashboard/drafts/{draft_ref}/ignore` exige une confirmation dans
+  l'interface et une nouvelle vérification tenant côté serveur. Il marque le
+  brouillon comme ignoré dans SmartReply et le Sheet, sans l'envoyer ni le
+  supprimer automatiquement dans Gmail ;
+- les statuts publics sont `En attente`, `Envoyé`, `Ignoré` et `En erreur`. Ce
+  dernier regroupe notamment les traitements échoués et les brouillons devenus
+  indisponibles, sans exposer de code d’erreur interne. Les statuts reflètent les
+  transitions connues de SmartReply ; les actions réalisées directement dans
+  Gmail ne sont pas interprétées comme un envoi par le dashboard ;
+- l'interface affiche des états chargement, vide et erreur, un bouton
+  d'actualisation et un accès à **Intégrations** lorsque Gmail est déconnecté.
+
 La migration `b7d9e3f1a5c2` ajoute les colonnes nullable `category`, `priority`
 et `received_at` à `processed_emails`, le statut final `excluded`, ainsi que la
 table d'activité. Elle ne modifie aucun onglet Google Sheets et ne reconstitue

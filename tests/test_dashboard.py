@@ -40,7 +40,8 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn('lang="fr"', response.text)
         self.assertIn("Tableau de bord", response.text)
         self.assertIn("Intégrations", response.text)
-        self.assertIn("Bientôt", response.text)
+        self.assertIn('href="#drafts" data-route="drafts"', response.text)
+        self.assertNotIn("Bientôt", response.text)
         self.assertIn('id="register-invitation"', response.text)
         self.assertIn("Code d'invitation", response.text)
         self.assertIn('id="connect-drive-onboarding"', response.text)
@@ -327,6 +328,83 @@ class DashboardStaticTests(unittest.TestCase):
         )
         self.assertNotIn('row.setAttribute("role", "link")', js_response.text)
         self.assertIn('document.createElement("button")', js_response.text)
+
+    def test_drafts_tab_is_a_review_workspace_without_direct_sending(self):
+        response = self.client.get("/dashboard/")
+        stylesheet = self.client.get("/dashboard/styles.css")
+        javascript = self.client.get("/dashboard/app.js")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '<a class="nav-item" href="#drafts" data-route="drafts">',
+            response.text,
+        )
+        drafts_markup = response.text.split(
+            '<section id="drafts-view"',
+            maxsplit=1,
+        )[1].split('<section id="integrations-view"', maxsplit=1)[0]
+        for expected_element in (
+            'aria-labelledby="drafts-title"',
+            'id="drafts-title"',
+            'id="refresh-drafts"',
+            'id="drafts-gmail-disconnected"',
+            'id="draft-metric-pending"',
+            'id="draft-metric-sent"',
+            'id="draft-metric-ignored"',
+            'id="draft-metric-errors"',
+            'id="drafts-search"',
+            'id="drafts-status-filter"',
+            'id="drafts-loading-state"',
+            'id="drafts-empty-state"',
+            'id="drafts-error-state"',
+            'id="drafts-table-body"',
+            'id="drafts-pagination"',
+            'id="draft-detail-workspace"',
+            'id="draft-detail-content"',
+            'id="draft-content-preview"',
+            'id="copy-draft-content"',
+            'id="ignore-draft"',
+            'id="draft-ignore-dialog"',
+        ):
+            self.assertIn(expected_element, drafts_markup)
+        for indicator in ("En attente", "Envoyés", "Ignorés", "En erreur"):
+            self.assertIn(indicator, drafts_markup)
+        for detail_label in (
+            "Destinataire",
+            "Adresse email",
+            "Objet",
+            "Email reçu le",
+            "Brouillon préparé le",
+            "Catégorie",
+            "Priorité",
+            "Statut",
+            "Résumé de l’email",
+        ):
+            self.assertIn(f"<dt>{detail_label}</dt>", drafts_markup)
+        self.assertIn("généré avec l’aide de l’IA", drafts_markup)
+        self.assertIn("Aucun message n’est envoyé depuis cet écran", drafts_markup)
+        self.assertIn("Copier le contenu", drafts_markup)
+        self.assertIn("Ignorer ce brouillon ?", drafts_markup)
+        self.assertIn("Ouvrir Intégrations", drafts_markup)
+        self.assertIn(
+            'href="https://mail.google.com/mail/u/0/#drafts"',
+            drafts_markup,
+        )
+        self.assertIn('target="_blank" rel="noopener noreferrer"', drafts_markup)
+        self.assertNotRegex(
+            drafts_markup,
+            re.compile(r"<button[^>]*>\s*Envoyer", re.IGNORECASE),
+        )
+        self.assertNotIn("Modifier le brouillon", drafts_markup)
+        self.assertNotIn("Régénérer", drafts_markup)
+        self.assertIn(".draft-content-preview", stylesheet.text)
+        self.assertIn(
+            'dashboardDrafts: "/api/v1/dashboard/drafts"',
+            javascript.text,
+        )
+        self.assertIn("navigator.clipboard.writeText(content)", javascript.text)
+        self.assertIn("openDraftIgnoreDialog", javascript.text)
+        self.assertNotIn("sendDraftFromDashboard", javascript.text)
 
     def test_dashboard_keeps_counter_but_hides_duplicate_integration_section(self):
         response = self.client.get("/dashboard/")
@@ -644,6 +722,10 @@ source = source.replace(
   '      state.emailList.loaded = true; globalThis.__emailsLoadCount += 1;',
 );
 source = source.replace(
+  '      void loadDraftsPage(1);',
+  '      state.draftList.loaded = true; globalThis.__draftsLoadCount += 1;',
+);
+source = source.replace(
   marker,
   '  globalThis.__routeTest = { currentRoute, renderRoute, state };\n})();',
 );
@@ -672,6 +754,7 @@ const makeElement = (dataset = {}) => {
 const elements = {
   "dashboard-view": makeElement(),
   "emails-view": makeElement(),
+  "drafts-view": makeElement(),
   "integrations-view": makeElement(),
   "settings-view": makeElement(),
   "topbar-title": makeElement(),
@@ -679,11 +762,16 @@ const elements = {
   "sidebar-overlay": makeElement(),
   "open-sidebar": makeElement(),
 };
-const navItems = ["dashboard", "emails", "integrations", "settings"].map(
-  (route) => makeElement({ route }),
-);
+const navItems = [
+  "dashboard",
+  "emails",
+  "drafts",
+  "integrations",
+  "settings",
+].map((route) => makeElement({ route }));
 const context = {
   __emailsLoadCount: 0,
+  __draftsLoadCount: 0,
   window: {
     localStorage: { getItem: () => null },
     location: { hash: "#dashboard" },
@@ -711,9 +799,13 @@ const snapshot = (hash) => {
   return {
     route: subject.currentRoute(),
     title: elements["topbar-title"].textContent,
-    visible: ["dashboard", "emails", "integrations", "settings"].filter(
-      (route) => !elements[`${route}-view`].hidden,
-    ),
+    visible: [
+      "dashboard",
+      "emails",
+      "drafts",
+      "integrations",
+      "settings",
+    ].filter((route) => !elements[`${route}-view`].hidden),
     active: navItems.filter((item) => item.classList.contains("active"))
       .map((item) => item.dataset.route),
     current: navItems.filter((item) => item.getAttribute("aria-current") === "page")
@@ -723,11 +815,14 @@ const snapshot = (hash) => {
 process.stdout.write(JSON.stringify({
   dashboard: snapshot("#dashboard"),
   emails: snapshot("#emails"),
+  drafts: snapshot("#drafts"),
   integrations: snapshot("#integrations"),
   settings: snapshot("#settings"),
   fallback: snapshot("#unknown"),
   emailsAgain: snapshot("#emails"),
+  draftsAgain: snapshot("#drafts"),
   emailsLoadCount: context.__emailsLoadCount,
+  draftsLoadCount: context.__draftsLoadCount,
 }));
 """
         completed = subprocess.run(
@@ -742,6 +837,7 @@ process.stdout.write(JSON.stringify({
         for route, title in (
             ("dashboard", "Tableau de bord"),
             ("emails", "Emails"),
+            ("drafts", "Brouillons"),
             ("integrations", "Intégrations"),
             ("settings", "Paramètres"),
         ):
@@ -754,7 +850,9 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(result["fallback"]["route"], "dashboard")
         self.assertEqual(result["fallback"]["visible"], ["dashboard"])
         self.assertEqual(result["emailsAgain"]["visible"], ["emails"])
+        self.assertEqual(result["draftsAgain"]["visible"], ["drafts"])
         self.assertEqual(result["emailsLoadCount"], 1)
+        self.assertEqual(result["draftsLoadCount"], 1)
 
     def test_emails_api_loading_rendering_states_and_session_purge(self):
         repository_root = Path(__file__).resolve().parents[1]

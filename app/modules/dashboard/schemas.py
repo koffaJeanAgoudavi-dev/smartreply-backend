@@ -73,3 +73,47 @@ class DashboardEmailPagination(BaseModel):
 class DashboardEmailsResponse(BaseModel):
     items: list[DashboardEmailItem]
     pagination: DashboardEmailPagination
+
+
+class DashboardDraftMetrics(BaseModel):
+    pending: int = Field(ge=0)
+    sent: int = Field(ge=0)
+    ignored: int = Field(ge=0)
+    errors: int = Field(ge=0)
+
+
+class DashboardDraftItem(BaseModel):
+    draft_ref: str = Field(pattern=r"^BR-[1-9][0-9]*$")
+    recipient_name: str = Field(max_length=160)
+    recipient_email: str = Field(max_length=320)
+    subject: str = Field(max_length=500)
+    received_at: datetime | None
+    prepared_at: datetime | None
+    summary: str
+    category: str = Field(max_length=64)
+    priority: str = Field(max_length=32)
+    status: str = Field(max_length=32)
+
+
+class DashboardDraftDetail(DashboardDraftItem):
+    content: str = Field(max_length=50000)
+    ai_generated: bool = True
+
+
+class DashboardDraftPagination(BaseModel):
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
+    total_items: int = Field(ge=0)
+    total_pages: int = Field(ge=0)
+
+
+class DashboardDraftsResponse(BaseModel):
+    items: list[DashboardDraftItem]
+    pagination: DashboardDraftPagination
+    metrics: DashboardDraftMetrics
+
+
+class DashboardDraftIgnoreResponse(BaseModel):
+    draft_ref: str = Field(pattern=r"^BR-[1-9][0-9]*$")
+    status: str = Field(pattern="^Ignoré$")
+    sheet_sync_pending: bool
