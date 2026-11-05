@@ -99,7 +99,7 @@ def update_my_company_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CompanyResponse:
-    """Modifie le secteur admissible et le ton, jamais le nom ni le statut."""
+    """Modifie le secteur et le profil de réponse, jamais l'identité technique."""
     company = service.get_company_by_user_id(db, user_id=current_user.id)
     if company is None:
         raise HTTPException(

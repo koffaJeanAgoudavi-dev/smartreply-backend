@@ -122,6 +122,7 @@
               <li>le nom de l’entreprise ;</li>
               <li>le secteur d’activité ;</li>
               <li>le ton de réponse choisi pour les futurs brouillons ;</li>
+              <li>le profil de réponse facultatif : description de l’activité, produits et services, horaires, signature, règles commerciales et consignes rédactionnelles ;</li>
               <li>l’identifiant du compte utilisateur associé ;</li>
               <li>l’identifiant du Google Sheet associé ;</li>
               <li>les dates et informations techniques nécessaires au traitement.</li>
@@ -234,7 +235,8 @@
         <section id="gemini" class="legal-section" aria-labelledby="gemini-title">
           <h2 id="gemini-title"><span>5</span> Utilisation de Gemini</h2>
           <p>SmartReply utilise l’API Gemini de Google, configurée via Google AI Studio, pour analyser certains e-mails et produire une catégorie, une priorité, un résumé et une proposition de réponse.</p>
-          <p>Les éléments envoyés à Gemini peuvent comprendre l’expéditeur, l’objet et une partie limitée du contenu textuel du message. Les pièces jointes ne sont pas envoyées dans le fonctionnement actuel.</p>
+          <p>Les éléments envoyés à Gemini peuvent comprendre l’expéditeur, l’objet, une partie limitée du contenu textuel du message ainsi que le nom, le secteur, le ton et les champs facultatifs du profil de réponse de l’entreprise concernée. Les pièces jointes ne sont pas envoyées dans le fonctionnement actuel.</p>
+          <p>Le contexte d’une entreprise est utilisé uniquement pour ses propres traitements. Il est transmis comme donnée déclarative afin de contextualiser le brouillon ; les informations absentes ne sont pas censées être inventées. L’utilisateur doit éviter d’y saisir des secrets ou des données sensibles.</p>
 
           <div class="legal-subsection">
             <h3>5.1 Période de quota gratuit</h3>

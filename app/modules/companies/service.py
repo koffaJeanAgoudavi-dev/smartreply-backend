@@ -15,7 +15,11 @@ from app.core.company_allowlist import get_company_validation_status
 from app.core.config import settings
 from app.db.sheets_client import get_sheets_client
 from app.modules.companies.models import Company
-from app.modules.companies.schemas import CompanyCreate, CompanySettingsUpdate
+from app.modules.companies.schemas import (
+    PROFILE_FIELD_MAX_LENGTHS,
+    CompanyCreate,
+    CompanySettingsUpdate,
+)
 from app.modules.drive_oauth import service as drive_oauth_service
 from app.modules.sheets.service import DRAFT_HEADERS, EMAIL_HEADERS
 
@@ -531,7 +535,7 @@ def update_company_settings(
     company: Company,
     data: CompanySettingsUpdate,
 ) -> Company:
-    """Met à jour uniquement le secteur autorisé et le ton de réponse."""
+    """Met à jour le secteur admissible et les préférences de réponse."""
     updates = data.model_dump(exclude_unset=True)
     requested_sector = updates.get("secteur")
     if requested_sector is not None and requested_sector != company.secteur:
@@ -544,6 +548,10 @@ def update_company_settings(
     requested_tone = updates.get("response_tone")
     if requested_tone is not None:
         company.response_tone = requested_tone
+
+    for field_name in PROFILE_FIELD_MAX_LENGTHS:
+        if field_name in updates:
+            setattr(company, field_name, updates[field_name])
 
     try:
         db.commit()

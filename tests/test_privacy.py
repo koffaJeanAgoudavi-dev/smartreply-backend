@@ -90,6 +90,8 @@ class PrivacyStaticTests(unittest.TestCase):
         for disclosure in (
             "la date de création du compte",
             "ton de réponse choisi",
+            "profil de réponse facultatif",
+            "description de l’activité, produits et services, horaires, signature",
             "statut administratif n’est pas stocké dans une colonne dédiée",
             "calculé à partir de l’allowlist interne",
             "refresh tokens Gmail et Google Drive sont chiffrés",
@@ -130,6 +132,15 @@ class PrivacyStaticTests(unittest.TestCase):
         self.assertIn("Elles peuvent évoluer", page.text)
         self.assertIn(
             "configuration payante Gemini après le programme pilote",
+            page.text,
+        )
+        self.assertIn(
+            "nom, le secteur, le ton et les champs facultatifs du profil de réponse",
+            page.text,
+        )
+        self.assertIn(
+            "Le contexte d’une entreprise est utilisé uniquement pour ses propres "
+            "traitements",
             page.text,
         )
         self.assertNotIn("Des évaluateurs humains", page.text)

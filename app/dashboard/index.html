@@ -894,38 +894,75 @@
               </div>
             </section>
 
-            <section class="settings-card" aria-labelledby="settings-tone-title">
+            <section class="settings-card" aria-labelledby="settings-profile-title">
               <div class="settings-card-heading">
-                <span class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-mail"></use></svg></span>
+                <span class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-building"></use></svg></span>
                 <div>
-                  <h2 id="settings-tone-title">Préférences de réponse</h2>
-                  <p>Choisissez le style général des futurs brouillons préparés en français.</p>
+                  <div class="settings-heading-title">
+                    <h2 id="settings-profile-title">Profil de réponse</h2>
+                    <small class="feature-badge-new">Nouveau</small>
+                  </div>
+                  <p>Définissez le contexte et le ton utiles pour obtenir des brouillons moins génériques, sans information sensible.</p>
                 </div>
               </div>
 
-              <fieldset class="tone-options">
-                <legend>Ton des réponses</legend>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="professional" checked>
-                  <span><strong>Professionnel</strong><small>Clair, sérieux et adapté aux échanges professionnels</small></span>
+              <div class="settings-fields settings-profile-fields">
+                <label class="field settings-profile-field-wide" for="settings-business-description">
+                  <span>Activité de l'entreprise</span>
+                  <textarea id="settings-business-description" name="business_description" rows="3" maxlength="1000" placeholder="Ex. Nous accompagnons les petites entreprises dans leur communication numérique."></textarea>
+                  <small>Décrivez brièvement votre activité et votre clientèle.</small>
                 </label>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="friendly">
-                  <span><strong>Convivial</strong><small>Accessible, humain et cordial</small></span>
+                <label class="field settings-profile-field-wide" for="settings-products-services">
+                  <span>Produits et services</span>
+                  <textarea id="settings-products-services" name="products_services" rows="3" maxlength="1500" placeholder="Ex. Création de sites vitrines, maintenance et accompagnement mensuel."></textarea>
+                  <small>Indiquez uniquement les offres que SmartReply peut mentionner.</small>
                 </label>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="direct">
-                  <span><strong>Direct</strong><small>Court, précis et orienté vers l'action</small></span>
+                <label class="field" for="settings-business-hours">
+                  <span>Horaires utiles</span>
+                  <textarea id="settings-business-hours" name="business_hours" rows="3" maxlength="500" placeholder="Ex. Du lundi au vendredi, de 8 h à 17 h (UTC)."></textarea>
                 </label>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="warm">
-                  <span><strong>Chaleureux</strong><small>Attentif, poli et plus personnel</small></span>
+                <label class="field" for="settings-response-signature">
+                  <span>Signature des réponses</span>
+                  <textarea id="settings-response-signature" name="response_signature" rows="3" maxlength="500" placeholder="Ex. L'équipe DIGICRAFT LABS"></textarea>
                 </label>
-              </fieldset>
+                <label class="field settings-profile-field-wide" for="settings-business-rules">
+                  <span>Règles commerciales</span>
+                  <textarea id="settings-business-rules" name="business_rules" rows="3" maxlength="1500" placeholder="Ex. Les devis sont confirmés après échange. Ne jamais promettre de remise ni de délai ferme."></textarea>
+                  <small>Les prix, remises et délais ne seront jamais inventés.</small>
+                </label>
+                <label class="field settings-profile-field-wide" for="settings-response-instructions">
+                  <span>Consignes de réponse</span>
+                  <textarea id="settings-response-instructions" name="response_instructions" rows="3" maxlength="1000" placeholder="Ex. Poser une question si une information manque et privilégier les phrases courtes."></textarea>
+                  <small>Ces consignes restent soumises aux règles de sécurité de SmartReply.</small>
+                </label>
+              </div>
 
-              <div class="settings-save-row">
-                <p>Les modifications s'appliquent uniquement aux prochains brouillons.</p>
-                <button id="save-settings" class="button button-primary" type="submit">Enregistrer les paramètres</button>
+              <div class="settings-tone-section">
+                <p>Choisissez le ton général des futurs brouillons préparés en français.</p>
+                <fieldset class="tone-options" aria-labelledby="settings-tone-title">
+                  <legend id="settings-tone-title">Ton des réponses</legend>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="professional" checked>
+                    <span><strong>Professionnel</strong><small>Clair, sérieux et adapté aux échanges professionnels</small></span>
+                  </label>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="friendly">
+                    <span><strong>Convivial</strong><small>Accessible, humain et cordial</small></span>
+                  </label>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="direct">
+                    <span><strong>Direct</strong><small>Court, précis et orienté vers l'action</small></span>
+                  </label>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="warm">
+                    <span><strong>Chaleureux</strong><small>Attentif, poli et plus personnel</small></span>
+                  </label>
+                </fieldset>
+
+                <div class="settings-save-row">
+                  <p>Le profil et le ton s'appliquent uniquement aux prochains brouillons.</p>
+                  <button id="save-settings" class="button button-primary" type="submit">Enregistrer le profil de réponse</button>
+                </div>
               </div>
             </section>
           </form>

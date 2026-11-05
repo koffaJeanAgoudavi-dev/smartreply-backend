@@ -88,6 +88,14 @@ class ConditionsStaticTests(unittest.TestCase):
             page.text,
         )
         self.assertIn(
+            "champs facultatifs du profil de réponse de l’entreprise concernée",
+            page.text,
+        )
+        self.assertIn(
+            "informations professionnelles utiles, exactes, non sensibles",
+            page.text,
+        )
+        self.assertIn(
             "Pour toute nouvelle entreprise créée avec le parcours actuel",
             page.text,
         )

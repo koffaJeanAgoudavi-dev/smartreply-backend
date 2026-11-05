@@ -163,7 +163,7 @@ class PipelineExecutionTests(unittest.TestCase):
         }
 
     @staticmethod
-    async def successful_analysis(*_args):
+    async def successful_analysis(*_args, **_kwargs):
         return {
             "urgence": "moyenne",
             "categorie": "support",
@@ -174,12 +174,21 @@ class PipelineExecutionTests(unittest.TestCase):
     def test_isolation_uses_only_each_company_token_and_sheet_and_continues(self):
         plan_a = self.create_company("A", activated_at=self.activation)
         plan_b = self.create_company("B", activated_at=self.activation)
+        with self.session_factory() as db:
+            company_a = db.get(Company, plan_a.company_id)
+            company_b = db.get(Company, plan_b.company_id)
+            company_a.products_services = "Service privé A"
+            company_a.response_signature = "Équipe A"
+            company_b.products_services = "Service privé B"
+            company_b.response_signature = "Équipe B"
+            db.commit()
         prepared = self.prepared([plan_a, plan_b])
         calls: dict[str, list] = {
             "refresh": [],
             "list": [],
             "detail": [],
             "sheet": [],
+            "analysis": [],
             "draft": [],
             "sheet_write": [],
         }
@@ -195,6 +204,10 @@ class PipelineExecutionTests(unittest.TestCase):
         async def get_email(access_token, gmail_message_id):
             calls["detail"].append((access_token, gmail_message_id))
             return self.email(access_token[-1])
+
+        async def analyze(sender, _subject, _body, _tone, **company_context):
+            calls["analysis"].append((sender, company_context))
+            return await self.successful_analysis()
 
         def workbook(sheet_id):
             calls["sheet"].append(sheet_id)
@@ -221,9 +234,7 @@ class PipelineExecutionTests(unittest.TestCase):
             patch.object(
                 service, "should_process", return_value={"decision": "traiter"}
             ),
-            patch.object(
-                service, "analyze_email", side_effect=self.successful_analysis
-            ),
+            patch.object(service, "analyze_email", side_effect=analyze),
             patch.object(service, "get_company_workbook", side_effect=workbook),
             patch.object(service, "upsert_company_email", side_effect=write_email),
             patch.object(service, "get_company_draft_id", return_value=None),
@@ -248,6 +259,37 @@ class PipelineExecutionTests(unittest.TestCase):
         )
         self.assertEqual(calls["sheet"], ["sheet-A", "sheet-B"])
         self.assertEqual(calls["sheet_write"], ["workbook-A", "workbook-B"])
+        self.assertEqual(
+            calls["analysis"],
+            [
+                (
+                    "Sender A <sender-A@test.invalid>",
+                    {
+                        "company_name": "Company A",
+                        "company_sector": "Test",
+                        "business_description": "",
+                        "products_services": "Service privé A",
+                        "business_hours": "",
+                        "response_signature": "Équipe A",
+                        "business_rules": "",
+                        "response_instructions": "",
+                    },
+                ),
+                (
+                    "Sender B <sender-B@test.invalid>",
+                    {
+                        "company_name": "Company B",
+                        "company_sector": "Test",
+                        "business_description": "",
+                        "products_services": "Service privé B",
+                        "business_hours": "",
+                        "response_signature": "Équipe B",
+                        "business_rules": "",
+                        "response_instructions": "",
+                    },
+                ),
+            ],
+        )
         self.assertEqual(
             calls["draft"],
             [("access-A", "thread-A"), ("access-B", "thread-B")],
@@ -1020,7 +1062,7 @@ class PipelineExecutionTests(unittest.TestCase):
             company.response_tone = "warm"
             db.commit()
         prepared = self.prepared([plan])
-        analyzed_bodies = []
+        analyzed_inputs = []
         filter_email = Mock(return_value={"decision": "traiter"})
 
         async def get_email(_token, gmail_message_id):
@@ -1031,8 +1073,8 @@ class PipelineExecutionTests(unittest.TestCase):
                 received_at=self.activation + timedelta(milliseconds=1),
             )
 
-        async def analyze(_sender, _subject, body, response_tone):
-            analyzed_bodies.append((body, response_tone))
+        async def analyze(_sender, _subject, body, response_tone, **company_context):
+            analyzed_inputs.append((body, response_tone, company_context))
             return await self.successful_analysis()
 
         with (
@@ -1072,9 +1114,11 @@ class PipelineExecutionTests(unittest.TestCase):
         self.assertEqual(summary.skipped, 0)
         self.assertEqual(summary.processed, 1)
         self.assertEqual(filter_email.call_count, 1)
-        self.assertEqual(len(analyzed_bodies), 1)
-        self.assertEqual(len(analyzed_bodies[0][0]), 12)
-        self.assertEqual(analyzed_bodies[0][1], "warm")
+        self.assertEqual(len(analyzed_inputs), 1)
+        self.assertEqual(len(analyzed_inputs[0][0]), 12)
+        self.assertEqual(analyzed_inputs[0][1], "warm")
+        self.assertEqual(analyzed_inputs[0][2]["company_name"], "Company Cutoff")
+        self.assertEqual(analyzed_inputs[0][2]["company_sector"], "Test")
         with self.session_factory() as db:
             records = db.scalars(
                 select(ProcessedEmail).order_by(ProcessedEmail.id)
@@ -1490,7 +1534,7 @@ class PipelineExecutionTests(unittest.TestCase):
                 return (("quota-message", "must-not-be-read"), None)
             return (("company-b-message",), None)
 
-        async def analyze(sender, *_args):
+        async def analyze(sender, *_args, **_kwargs):
             if "QuotaA" in sender:
                 raise RuntimeError("Gemini HTTP 429: private provider response")
             return await self.successful_analysis()

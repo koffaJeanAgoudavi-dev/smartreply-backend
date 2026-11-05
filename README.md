@@ -407,9 +407,10 @@ L'onglet `#drafts` fournit un espace de contrôle, sans devenir une messagerie :
 - l'interface affiche des états chargement, vide et erreur, un bouton
   d'actualisation et un accès à **Intégrations** lorsque Gmail est déconnecté.
 
-La navigation affiche un badge **Nouveau** sur **Emails**, **Brouillons** et
-**Paramètres**. Ces badges sont permanents : ils n'ont ni expiration ni action
-de masquage et restent visibles jusqu'à leur retrait explicite du code.
+La navigation affiche un badge vert **Nouveau** sur **Emails**, **Brouillons**
+et **Paramètres**. Le nouveau **Profil de réponse** porte lui aussi ce badge à
+côté de son titre. Ces badges sont permanents : ils n'ont ni expiration ni
+action de masquage et restent visibles jusqu'à leur retrait explicite du code.
 
 La migration `b7d9e3f1a5c2` ajoute les colonnes nullable `category`, `priority`
 et `received_at` à `processed_emails`, le statut final `excluded`, ainsi que la
@@ -450,9 +451,11 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - [ ] Vérifier qu'un compte sans historique reste à zéro, sans statistiques,
       emails ou activités factices.
 
-### Paramètres d'entreprise et ton des brouillons
+### Paramètres d'entreprise et profil de réponse
 
-L'onglet `#settings` regroupe uniquement les réglages effectivement gérables :
+L'onglet `#settings` regroupe uniquement les réglages effectivement gérables.
+Une carte unique **Profil de réponse**, signalée par un seul badge vert
+**Nouveau**, réunit le contexte métier et le choix du ton :
 
 - le nom de l'entreprise et l'adresse du compte sont affichés en lecture seule ;
 - le secteur utilise la même liste dans l'onboarding et dans Paramètres, avec un
@@ -460,13 +463,22 @@ L'onglet `#settings` regroupe uniquement les réglages effectivement gérables :
 - le secteur reste modifiable tant que le statut administratif est `pending`.
   Une entreprise déjà `validated` doit contacter le support ; cette protection
   est appliquée dans l'API, pas seulement dans le navigateur ;
+- le **Profil de réponse** permet de renseigner la description de l'activité,
+  les produits et services, les horaires, la signature, les règles commerciales
+  et des consignes rédactionnelles. Chaque champ est facultatif, nettoyé et
+  borné entre 500 et 1 500 caractères ; une valeur vide l'efface ;
 - `response_tone` accepte exclusivement `professional`, `friendly`, `direct` ou
   `warm`, avec `professional` comme valeur par défaut. Le pipeline charge la
   préférence une fois par passage entreprise et Gemini reçoit uniquement une
-  instruction prédéfinie, jamais un prompt libre du client ;
-- les préférences s'appliquent aux futurs brouillons, toujours produits en
-  français. Les règles système restent prioritaires sur le ton et sur le contenu
-  non fiable de l'email reçu ;
+  instruction de ton prédéfinie, jamais le ton sous forme de prompt libre ;
+- le pipeline transmet à Gemini uniquement le nom, le secteur et le profil de
+  l'entreprise en cours. Ce contexte et l'email sont sérialisés comme données
+  JSON non fiables, séparés du message système et bornés une seconde fois à la
+  frontière Gemini. Les tests vérifient l'absence de mélange inter-entreprises
+  et la résistance aux instructions injectées dans le profil ;
+- le profil et le ton s'appliquent aux futurs brouillons, toujours produits en
+  français. Une information absente n'est pas inventée et les règles système
+  restent prioritaires sur le contexte entreprise et l'email reçu ;
 - la déconnexion Paramètres supprime seulement le JWT SmartReply local. Elle ne
   révoque ni Gmail, ni Drive, ni Sheets, ni Telegram ;
 - le support renvoie vers l'unique page publique `/contact/`. Les CGU et la
@@ -477,7 +489,9 @@ Les statuts Gmail, Drive, Sheets et Telegram ne sont pas dupliqués : ils resten
 sur **Intégrations**. Le statut administratif reste lui aussi limité à la carte
 entreprise de la sidebar et à la topbar. Le schéma de mise à jour dédié refuse
 les champs protégés (`nom_entreprise`, `sheet_id`, `user_id`, statut) et la
-migration `e8b4c2d1a7f6` ajoute la colonne et sa contrainte SQL.
+migration `e8b4c2d1a7f6` ajoute le ton et sa contrainte SQL. La migration
+`c5e7a9d1f3b6` ajoute les six champs texte du profil avec une valeur vide
+rétrocompatible pour chaque entreprise existante.
 
 ### Conditions générales et politique de confidentialité
 
@@ -723,8 +737,8 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `GET /api/v1/telegram/status` | Telegram optionnel | Retourne `available`, la liaison et sa date, sans exposer le chat |
 | `POST /api/v1/telegram/webhook` | Telegram | Reçoit commandes, codes et callbacks avec secret |
 | `POST /api/v1/companies` | Companies | Crée l'entreprise et son Sheet directement dans le Drive connecté du client |
-| `GET /api/v1/companies/me` | Companies | Retourne l'entreprise de l'utilisateur JWT et son ton de réponse |
-| `PATCH /api/v1/companies/me/settings` | Companies | Modifie uniquement le secteur autorisé et le ton prédéfini |
+| `GET /api/v1/companies/me` | Companies | Retourne l'entreprise JWT, son ton et son profil de réponse |
+| `PATCH /api/v1/companies/me/settings` | Companies | Modifie le secteur autorisé, le ton prédéfini et le profil de réponse borné |
 | `GET /api/v1/companies/me/validation-status` | Companies | Dérive `pending`/`validated` de l'allowlist sans exposer ses IDs |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
 | `POST /api/v1/pipeline/run` | Pipeline | Plan sûr `202`, puis traitement multi-utilisateur allowlisté en arrière-plan |
@@ -751,8 +765,8 @@ encore être exécutée dans un projet Google de staging avec un compte test :
   - [x] PR 1 : sélection, plafonds, équité, verrou et simulation en lecture seule
   - [x] PR 2 : traitement réel isolé par entreprise, dédoublonnage et coupure
   - [x] PR 3 : notifications et actions Telegram isolées par entreprise
-- [ ] Post-MVP : contexte entreprise dans le prompt IA, dashboard avancé,
-      fallback multi-modèles
+- [x] Contexte et profil de réponse entreprise isolés dans les requêtes IA
+- [ ] Post-MVP : dashboard avancé et fallback multi-modèles
 
 ## 🔒 Sécurité
 
