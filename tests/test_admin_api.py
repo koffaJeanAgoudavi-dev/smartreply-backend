@@ -509,13 +509,20 @@ class AdminApiTests(unittest.TestCase):
             headers=owner_two_headers,
         )
         self.assertEqual(owner_notices.status_code, 200)
-        self.assertEqual(owner_notices.json()["unread_count"], 1)
+        self.assertEqual(set(owner_notices.json()), {"latest_unread"})
+        self.assertEqual(
+            set(owner_notices.json()["latest_unread"]),
+            {"notice_ref", "title", "body", "created_at"},
+        )
         self.assertEqual(
             owner_notices.json()["latest_unread"]["notice_ref"],
             notice_ref,
         )
-        self.assertEqual(owner_notices.json()["items"][0]["body"], message_body)
-        self.assertEqual(other_notices.json()["items"], [])
+        self.assertEqual(
+            owner_notices.json()["latest_unread"]["body"],
+            message_body,
+        )
+        self.assertEqual(other_notices.json(), {"latest_unread": None})
         self.assertEqual(cross_tenant_read.status_code, 404)
 
         read = self.client.post(
@@ -528,8 +535,7 @@ class AdminApiTests(unittest.TestCase):
             "/api/v1/dashboard/notices",
             headers=self.member_headers,
         )
-        self.assertEqual(after_read.json()["unread_count"], 0)
-        self.assertIsNone(after_read.json()["latest_unread"])
+        self.assertEqual(after_read.json(), {"latest_unread": None})
 
         suspended_until = datetime.now(timezone.utc) + timedelta(hours=4)
         suspended = self.client.put(

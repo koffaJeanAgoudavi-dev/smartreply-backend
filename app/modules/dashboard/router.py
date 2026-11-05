@@ -25,8 +25,8 @@ from app.modules.dashboard.schemas import (
     DashboardDraftsResponse,
     DashboardEmailItem,
     DashboardEmailsResponse,
+    DashboardNoticeBannerResponse,
     DashboardNoticeReadResponse,
-    DashboardNoticesResponse,
     DashboardOverviewResponse,
     RecentEmailsResponse,
 )
@@ -68,21 +68,17 @@ def company_operational_status(
     )
 
 
-@router.get("/notices", response_model=DashboardNoticesResponse)
-def dashboard_notices(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=50),
+@router.get("/notices", response_model=DashboardNoticeBannerResponse)
+def dashboard_notice_banner(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> DashboardNoticesResponse:
+) -> DashboardNoticeBannerResponse:
     company = _current_company(db, current_user.id)
-    result = notices.list_company_notices(
+    result = notices.get_latest_unread_company_notice(
         db,
         company_id=company.id,
-        page=page,
-        page_size=page_size,
     )
-    return DashboardNoticesResponse.model_validate(result)
+    return DashboardNoticeBannerResponse.model_validate(result)
 
 
 @router.post(
