@@ -902,7 +902,7 @@
                     <h2 id="settings-profile-title">Profil de réponse</h2>
                     <small class="feature-badge-new">Nouveau</small>
                   </div>
-                  <p>Ajoutez le contexte utile pour obtenir des brouillons moins génériques, sans information sensible.</p>
+                  <p>Définissez le contexte et le ton utiles pour obtenir des brouillons moins génériques, sans information sensible.</p>
                 </div>
               </div>
 
@@ -936,40 +936,33 @@
                   <small>Ces consignes restent soumises aux règles de sécurité de SmartReply.</small>
                 </label>
               </div>
-            </section>
 
-            <section class="settings-card" aria-labelledby="settings-tone-title">
-              <div class="settings-card-heading">
-                <span class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-mail"></use></svg></span>
-                <div>
-                  <h2 id="settings-tone-title">Préférences de réponse</h2>
-                  <p>Le profil de votre entreprise et ce ton s'appliquent uniquement aux futurs brouillons préparés en français.</p>
+              <div class="settings-tone-section">
+                <p>Choisissez le ton général des futurs brouillons préparés en français.</p>
+                <fieldset class="tone-options" aria-labelledby="settings-tone-title">
+                  <legend id="settings-tone-title">Ton des réponses</legend>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="professional" checked>
+                    <span><strong>Professionnel</strong><small>Clair, sérieux et adapté aux échanges professionnels</small></span>
+                  </label>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="friendly">
+                    <span><strong>Convivial</strong><small>Accessible, humain et cordial</small></span>
+                  </label>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="direct">
+                    <span><strong>Direct</strong><small>Court, précis et orienté vers l'action</small></span>
+                  </label>
+                  <label class="tone-option">
+                    <input type="radio" name="response_tone" value="warm">
+                    <span><strong>Chaleureux</strong><small>Attentif, poli et plus personnel</small></span>
+                  </label>
+                </fieldset>
+
+                <div class="settings-save-row">
+                  <p>Le profil et le ton s'appliquent uniquement aux prochains brouillons.</p>
+                  <button id="save-settings" class="button button-primary" type="submit">Enregistrer le profil de réponse</button>
                 </div>
-              </div>
-
-              <fieldset class="tone-options">
-                <legend>Ton des réponses</legend>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="professional" checked>
-                  <span><strong>Professionnel</strong><small>Clair, sérieux et adapté aux échanges professionnels</small></span>
-                </label>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="friendly">
-                  <span><strong>Convivial</strong><small>Accessible, humain et cordial</small></span>
-                </label>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="direct">
-                  <span><strong>Direct</strong><small>Court, précis et orienté vers l'action</small></span>
-                </label>
-                <label class="tone-option">
-                  <input type="radio" name="response_tone" value="warm">
-                  <span><strong>Chaleureux</strong><small>Attentif, poli et plus personnel</small></span>
-                </label>
-              </fieldset>
-
-              <div class="settings-save-row">
-                <p>Les modifications s'appliquent uniquement aux prochains brouillons.</p>
-                <button id="save-settings" class="button button-primary" type="submit">Enregistrer les paramètres</button>
               </div>
             </section>
           </form>

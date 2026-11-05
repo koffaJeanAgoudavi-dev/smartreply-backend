@@ -2756,6 +2756,19 @@ td.subject-cell {
   line-height: 1.45;
 }
 
+.settings-tone-section {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--color-border);
+}
+
+.settings-tone-section > p {
+  margin: 0 0 16px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .settings-readonly-field {
   display: grid;
   align-content: start;

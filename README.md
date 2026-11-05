@@ -451,9 +451,11 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
 - [ ] Vérifier qu'un compte sans historique reste à zéro, sans statistiques,
       emails ou activités factices.
 
-### Paramètres d'entreprise et contextualisation des brouillons
+### Paramètres d'entreprise et profil de réponse
 
-L'onglet `#settings` regroupe uniquement les réglages effectivement gérables :
+L'onglet `#settings` regroupe uniquement les réglages effectivement gérables.
+Une carte unique **Profil de réponse**, signalée par un seul badge vert
+**Nouveau**, réunit le contexte métier et le choix du ton :
 
 - le nom de l'entreprise et l'adresse du compte sont affichés en lecture seule ;
 - le secteur utilise la même liste dans l'onboarding et dans Paramètres, avec un

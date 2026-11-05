@@ -548,6 +548,20 @@ class DashboardStaticTests(unittest.TestCase):
             "Politique de confidentialité",
         ):
             self.assertIn(expected, settings_markup)
+        profile_card = settings_markup.split(
+            '<section class="settings-card" aria-labelledby="settings-profile-title">',
+            maxsplit=1,
+        )[1].split("</section>", maxsplit=1)[0]
+        self.assertIn('id="settings-business-description"', profile_card)
+        self.assertIn('id="settings-tone-title"', profile_card)
+        self.assertIn('name="response_tone" value="professional"', profile_card)
+        self.assertEqual(profile_card.count('class="feature-badge-new"'), 1)
+        self.assertNotIn(
+            'class="settings-card" aria-labelledby="settings-tone-title"',
+            settings_markup,
+        )
+        self.assertIn("Enregistrer le profil de réponse", profile_card)
+
         for excluded in (
             "settings-validation-status",
             "settings-gmail-status",
@@ -572,6 +586,7 @@ class DashboardStaticTests(unittest.TestCase):
         self.assertIn("body[fieldName]", js_response.text)
         self.assertIn(".settings-card", css_response.text)
         self.assertIn(".tone-option", css_response.text)
+        self.assertIn(".settings-tone-section", css_response.text)
         self.assertIn(".feature-badge-new", css_response.text)
         feature_badge_styles = css_response.text.split(
             ".feature-badge-new",
