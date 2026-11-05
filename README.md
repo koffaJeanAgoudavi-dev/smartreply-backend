@@ -407,6 +407,10 @@ L'onglet `#drafts` fournit un espace de contrôle, sans devenir une messagerie :
 - l'interface affiche des états chargement, vide et erreur, un bouton
   d'actualisation et un accès à **Intégrations** lorsque Gmail est déconnecté.
 
+La navigation affiche un badge **Nouveau** sur **Emails**, **Brouillons** et
+**Paramètres**. Ces badges sont permanents : ils n'ont ni expiration ni action
+de masquage et restent visibles jusqu'à leur retrait explicite du code.
+
 La migration `b7d9e3f1a5c2` ajoute les colonnes nullable `category`, `priority`
 et `received_at` à `processed_emails`, le statut final `excluded`, ainsi que la
 table d'activité. Elle ne modifie aucun onglet Google Sheets et ne reconstitue

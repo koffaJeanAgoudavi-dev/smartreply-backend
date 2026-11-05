@@ -735,6 +735,20 @@ svg {
   text-transform: uppercase;
 }
 
+.nav-item .nav-badge-new {
+  border: 1px solid rgba(176, 116, 0, 0.16);
+  background: #fff3c4;
+  color: #8a5b00;
+  box-shadow: 0 2px 8px rgba(138, 91, 0, 0.08);
+}
+
+.nav-item.active .nav-badge-new {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  box-shadow: none;
+}
+
 .sidebar-divider {
   height: 1px;
   margin: 22px 5px 18px;

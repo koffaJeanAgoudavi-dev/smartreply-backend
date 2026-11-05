@@ -68,6 +68,41 @@ class DashboardStaticTests(unittest.TestCase):
             ),
         )
 
+    def test_new_badges_remain_visible_on_emails_drafts_and_settings(self):
+        response = self.client.get("/dashboard/")
+        stylesheet = self.client.get("/dashboard/styles.css")
+        sidebar = response.text.split(
+            '<nav class="primary-nav">',
+            maxsplit=1,
+        )[1].split("</nav>", maxsplit=1)[0]
+
+        self.assertEqual(sidebar.count('class="nav-badge-new"'), 3)
+        for route, label in (
+            ("emails", "Emails"),
+            ("drafts", "Brouillons"),
+            ("settings", "Paramètres"),
+        ):
+            with self.subTest(route=route):
+                link = sidebar.split(
+                    f'href="#{route}" data-route="{route}">',
+                    maxsplit=1,
+                )[1].split("</a>", maxsplit=1)[0]
+                self.assertIn(f"<span>{label}</span>", link)
+                self.assertIn(
+                    '<small class="nav-badge-new">Nouveau</small>',
+                    link,
+                )
+
+        for route in ("dashboard", "integrations"):
+            link = sidebar.split(
+                f'href="#{route}" data-route="{route}">',
+                maxsplit=1,
+            )[1].split("</a>", maxsplit=1)[0]
+            self.assertNotIn("nav-badge-new", link)
+        self.assertIn(".nav-item .nav-badge-new", stylesheet.text)
+        self.assertIn(".nav-item.active .nav-badge-new", stylesheet.text)
+        self.assertNotIn("dismiss-new-badge", response.text)
+
     def test_dashboard_serves_official_brand_assets_and_metadata(self):
         response = self.client.get("/dashboard/")
         standard_path = "/dashboard/assets/brand/smartreply-mark-standard.png"
