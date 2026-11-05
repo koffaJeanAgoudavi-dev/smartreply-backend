@@ -14,6 +14,7 @@ from app.core.config import (
 from app.core.docs import register_non_production_docs
 from app.core.security_headers import SecurityHeadersMiddleware, apply_security_headers
 from app.db.database import engine
+from app.modules.admin.router import router as admin_router
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
 from app.modules.contact.router import router as contact_router
@@ -62,6 +63,7 @@ def create_app(environment: str | None = None) -> FastAPI:
     )
 
     # Modules actifs
+    application.include_router(admin_router)
     application.include_router(telegram_router)
     application.include_router(pipeline_router)
     application.include_router(auth_router)
@@ -146,6 +148,17 @@ def create_app(environment: str | None = None) -> FastAPI:
         "/confidentialite",
         StaticFiles(directory=privacy_directory, html=True),
         name="confidentialite",
+    )
+
+    @application.get("/admin", include_in_schema=False)
+    def admin_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/admin/", status_code=307)
+
+    admin_directory = Path(__file__).resolve().parent / "admin"
+    application.mount(
+        "/admin",
+        StaticFiles(directory=admin_directory, html=True),
+        name="admin",
     )
 
     @application.get("/dashboard", include_in_schema=False)

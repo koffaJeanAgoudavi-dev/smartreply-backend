@@ -1,0 +1,402 @@
+"""Tests d'autorisation et de cloisonnement de l'API administrateur."""
+
+import unittest
+from datetime import datetime, timedelta, timezone
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.core.admin_allowlist import parse_admin_user_ids
+from app.core.config import settings
+from app.db.database import Base, get_db
+from app.main import app
+from app.modules.auth.models import User
+from app.modules.auth.security import create_access_token
+from app.modules.companies.models import Company
+from app.modules.dashboard.models import CompanyActivityEvent  # noqa: F401
+from app.modules.drive_oauth.models import DriveConnection
+from app.modules.gmail_oauth.models import GmailConnection
+from app.modules.processed_emails.models import ProcessedEmail
+from app.modules.telegram.models import TelegramConnection, TelegramLinkCode  # noqa: F401
+
+
+class AdminApiTests(unittest.TestCase):
+    def setUp(self):
+        self.original_settings = {
+            "ADMIN_ALLOWED_USER_IDS": settings.ADMIN_ALLOWED_USER_IDS,
+            "JWT_SECRET": settings.JWT_SECRET,
+            "PIPELINE_ALLOWED_COMPANY_IDS": settings.PIPELINE_ALLOWED_COMPANY_IDS,
+            "PIPELINE_PROCESSING_STALE_SECONDS": (
+                settings.PIPELINE_PROCESSING_STALE_SECONDS
+            ),
+        }
+        settings.JWT_SECRET = "admin-tests-jwt-secret-at-least-32-characters"
+        settings.PIPELINE_PROCESSING_STALE_SECONDS = 900
+
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
+        self.db = self.Session()
+        self._seed_data()
+
+        def override_get_db():
+            session = self.Session()
+            try:
+                yield session
+            finally:
+                session.close()
+
+        app.dependency_overrides[get_db] = override_get_db
+        self.client = TestClient(app)
+        admin_token = create_access_token(self.admin.id, self.admin.email)
+        member_token = create_access_token(self.owner_one.id, self.owner_one.email)
+        self.admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        self.member_headers = {"Authorization": f"Bearer {member_token}"}
+
+    def tearDown(self):
+        self.client.close()
+        app.dependency_overrides.clear()
+        self.db.close()
+        self.engine.dispose()
+        for name, value in self.original_settings.items():
+            setattr(settings, name, value)
+
+    def _seed_data(self):
+        now = datetime.now(timezone.utc)
+        self.admin = User(
+            email="admin@example.com",
+            hashed_password="hashed-admin-password",
+        )
+        self.owner_one = User(
+            email="owner.one@example.com",
+            hashed_password="hashed-owner-one",
+        )
+        self.owner_two = User(
+            email="owner.two@example.com",
+            hashed_password="hashed-owner-two",
+        )
+        self.db.add_all((self.admin, self.owner_one, self.owner_two))
+        self.db.flush()
+
+        self.company_one = Company(
+            user_id=self.owner_one.id,
+            nom_entreprise="Alpha Conseil",
+            secteur="Conseil",
+            sheet_id="secret-sheet-alpha",
+            sheet_owner_mode="client",
+            response_tone="professional",
+            business_description="Contenu métier privé Alpha",
+            products_services="Services privés Alpha",
+            pipeline_activated_at=now - timedelta(days=5),
+            pipeline_last_processed_at=now - timedelta(minutes=5),
+        )
+        self.company_two = Company(
+            user_id=self.owner_two.id,
+            nom_entreprise="Beta Studio",
+            secteur="Agence",
+            sheet_id="secret-sheet-beta",
+            sheet_owner_mode="client",
+            response_tone="warm",
+            pipeline_activated_at=now - timedelta(days=2),
+            pipeline_last_processed_at=now - timedelta(hours=2),
+        )
+        self.db.add_all((self.company_one, self.company_two))
+        self.db.flush()
+
+        settings.ADMIN_ALLOWED_USER_IDS = str(self.admin.id)
+        settings.PIPELINE_ALLOWED_COMPANY_IDS = str(self.company_one.id)
+
+        self.db.add_all(
+            (
+                GmailConnection(
+                    user_id=self.owner_one.id,
+                    encrypted_refresh_token="encrypted-gmail-alpha",
+                    status="connected",
+                ),
+                GmailConnection(
+                    user_id=self.owner_two.id,
+                    encrypted_refresh_token="encrypted-gmail-beta",
+                    status="revoked",
+                    updated_at=now - timedelta(hours=1),
+                ),
+                DriveConnection(
+                    user_id=self.owner_one.id,
+                    encrypted_refresh_token="encrypted-drive-alpha",
+                    status="connected",
+                ),
+                DriveConnection(
+                    user_id=self.owner_two.id,
+                    encrypted_refresh_token="encrypted-drive-beta",
+                    status="revoked",
+                    updated_at=now - timedelta(hours=1),
+                ),
+                TelegramConnection(
+                    user_id=self.owner_one.id,
+                    telegram_chat_id=99887766,
+                    telegram_user_id=11223344,
+                    connected_at=now - timedelta(days=3),
+                ),
+            )
+        )
+        self.db.add_all(
+            (
+                ProcessedEmail(
+                    company_id=self.company_one.id,
+                    gmail_message_id="private-message-alpha-one",
+                    gmail_draft_id="private-draft-alpha-one",
+                    status="done",
+                    draft_status="pending",
+                    attempts=1,
+                    category="devis",
+                    priority="haute",
+                    updated_at=now - timedelta(minutes=10),
+                ),
+                ProcessedEmail(
+                    company_id=self.company_one.id,
+                    gmail_message_id="private-message-alpha-two",
+                    status="skipped",
+                    draft_status="discarded",
+                    sheet_status_synced_at=now - timedelta(minutes=8),
+                    attempts=1,
+                    category="newsletter",
+                    priority="basse",
+                    updated_at=now - timedelta(minutes=8),
+                ),
+                ProcessedEmail(
+                    company_id=self.company_one.id,
+                    gmail_message_id="private-message-alpha-three",
+                    status="failed",
+                    attempts=3,
+                    last_error_code="gmail_quota_429",
+                    updated_at=now - timedelta(minutes=6),
+                ),
+                ProcessedEmail(
+                    company_id=self.company_two.id,
+                    gmail_message_id="private-message-beta-one",
+                    status="processing",
+                    attempts=2,
+                    updated_at=now - timedelta(hours=1),
+                ),
+                ProcessedEmail(
+                    company_id=self.company_two.id,
+                    gmail_message_id="private-message-beta-two",
+                    status="done",
+                    draft_status="sent",
+                    attempts=1,
+                    notification_attempts=3,
+                    notification_blocked_at=now - timedelta(minutes=30),
+                    sheet_status_synced_at=None,
+                    updated_at=now - timedelta(minutes=30),
+                ),
+            )
+        )
+        self.db.commit()
+
+    def test_admin_allowlist_parser_is_strict_and_deduplicates_ids(self):
+        self.assertEqual(parse_admin_user_ids(""), frozenset())
+        self.assertEqual(
+            parse_admin_user_ids(" 2, 1, 2 "),
+            frozenset({1, 2}),
+        )
+        for invalid in ("0", "-1", "1.5", "1,", "1,member"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "ADMIN_ALLOWED_USER_IDS invalide",
+                ):
+                    parse_admin_user_ids(invalid)
+
+    def test_admin_access_is_fail_closed(self):
+        missing = self.client.get("/api/v1/admin/me")
+        member = self.client.get("/api/v1/admin/me", headers=self.member_headers)
+        allowed = self.client.get("/api/v1/admin/me", headers=self.admin_headers)
+
+        self.assertEqual(missing.status_code, 401)
+        self.assertEqual(member.status_code, 403)
+        self.assertEqual(member.json(), {"detail": "Accès administrateur refusé"})
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(
+            allowed.json(),
+            {"user_id": self.admin.id, "email": self.admin.email},
+        )
+
+        settings.ADMIN_ALLOWED_USER_IDS = ""
+        empty_allowlist = self.client.get(
+            "/api/v1/admin/me",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(empty_allowlist.status_code, 403)
+
+        settings.ADMIN_ALLOWED_USER_IDS = "invalid"
+        invalid_configuration = self.client.get(
+            "/api/v1/admin/me",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(invalid_configuration.status_code, 503)
+        self.assertEqual(
+            invalid_configuration.json(),
+            {"detail": "Configuration administrateur indisponible"},
+        )
+
+    def test_overview_uses_neon_metadata_without_external_content(self):
+        response = self.client.get(
+            "/api/v1/admin/overview",
+            headers=self.admin_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            payload["metrics"],
+            {
+                "users": 3,
+                "companies": 2,
+                "validated_companies": 1,
+                "pending_companies": 1,
+                "ready_companies": 1,
+                "incomplete_companies": 1,
+                "gmail_issues": 1,
+                "drive_issues": 1,
+                "telegram_connected": 1,
+                "processed_emails": 3,
+                "failed_emails": 1,
+                "pending_drafts": 1,
+                "active_incidents": 6,
+            },
+        )
+        self.assertIsNotNone(payload["last_processing_at"])
+        serialized = response.text
+        for forbidden_value in (
+            "secret-sheet-alpha",
+            "encrypted-gmail-alpha",
+            "private-message-alpha-one",
+            "99887766",
+            "Contenu métier privé Alpha",
+        ):
+            self.assertNotIn(forbidden_value, serialized)
+
+    def test_company_list_is_paginated_filterable_and_secret_free(self):
+        all_companies = self.client.get(
+            "/api/v1/admin/companies?page=1&page_size=1",
+            headers=self.admin_headers,
+        )
+        validated = self.client.get(
+            "/api/v1/admin/companies?validation_status=validated",
+            headers=self.admin_headers,
+        )
+        telegram_missing = self.client.get(
+            "/api/v1/admin/companies?telegram_connected=false",
+            headers=self.admin_headers,
+        )
+        search = self.client.get(
+            "/api/v1/admin/companies?search=alpha",
+            headers=self.admin_headers,
+        )
+
+        self.assertEqual(all_companies.status_code, 200)
+        self.assertEqual(all_companies.json()["pagination"]["total_items"], 2)
+        self.assertEqual(all_companies.json()["pagination"]["total_pages"], 2)
+        self.assertEqual(len(all_companies.json()["items"]), 1)
+        self.assertEqual(
+            [item["name"] for item in validated.json()["items"]],
+            ["Alpha Conseil"],
+        )
+        self.assertEqual(
+            [item["name"] for item in telegram_missing.json()["items"]],
+            ["Beta Studio"],
+        )
+        self.assertEqual(
+            [item["name"] for item in search.json()["items"]],
+            ["Alpha Conseil"],
+        )
+        for response in (all_companies, validated, telegram_missing, search):
+            for forbidden_value in (
+                "secret-sheet",
+                "encrypted-",
+                "private-message",
+                "telegram_chat_id",
+                "business_description",
+            ):
+                self.assertNotIn(forbidden_value, response.text)
+
+    def test_company_detail_exposes_completeness_not_profile_content(self):
+        response = self.client.get(
+            f"/api/v1/admin/companies/{self.company_one.id}",
+            headers=self.admin_headers,
+        )
+        missing = self.client.get(
+            "/api/v1/admin/companies/9999",
+            headers=self.admin_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["company_id"], self.company_one.id)
+        self.assertEqual(payload["validation_status"], "validated")
+        self.assertEqual(payload["configuration_status"], "ready")
+        self.assertEqual(payload["profile"]["configured_fields"], 2)
+        self.assertEqual(payload["profile"]["total_fields"], 6)
+        self.assertEqual(payload["profile"]["response_tone"], "professional")
+        self.assertNotIn("Contenu métier privé Alpha", response.text)
+        self.assertNotIn("Services privés Alpha", response.text)
+        self.assertNotIn("secret-sheet-alpha", response.text)
+        self.assertNotIn("encrypted-gmail-alpha", response.text)
+        self.assertEqual(missing.status_code, 404)
+
+    def test_incidents_use_only_safe_internal_references(self):
+        response = self.client.get(
+            "/api/v1/admin/incidents?page=1&page_size=25",
+            headers=self.admin_headers,
+        )
+        critical = self.client.get(
+            "/api/v1/admin/incidents?severity=critical",
+            headers=self.admin_headers,
+        )
+        beta_only = self.client.get(
+            f"/api/v1/admin/incidents?company_id={self.company_two.id}",
+            headers=self.admin_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["pagination"]["total_items"], 6)
+        incident_types = {item["incident_type"] for item in payload["items"]}
+        self.assertEqual(
+            incident_types,
+            {
+                "gmail_revoked",
+                "drive_revoked",
+                "processing_failed",
+                "processing_stale",
+                "notification_blocked",
+                "sheet_sync_pending",
+            },
+        )
+        self.assertIn("gmail_quota_429", response.text)
+        self.assertTrue(
+            all(item["severity"] == "critical" for item in critical.json()["items"])
+        )
+        self.assertTrue(
+            all(
+                item["company_id"] == self.company_two.id
+                for item in beta_only.json()["items"]
+            )
+        )
+        for forbidden_value in (
+            "private-message",
+            "private-draft",
+            "secret-sheet",
+            "encrypted-",
+            "99887766",
+        ):
+            self.assertNotIn(forbidden_value, response.text)
+
+
+if __name__ == "__main__":
+    unittest.main()

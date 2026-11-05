@@ -59,6 +59,7 @@ def valid_production_configuration() -> SimpleNamespace:
         GEMINI_MAX_EMAIL_BODY_CHARS=6000,
         PIPELINE_PROCESSING_STALE_SECONDS=900,
         PIPELINE_ALLOWED_COMPANY_IDS="1,2",
+        ADMIN_ALLOWED_USER_IDS="1",
     )
 
 
@@ -80,6 +81,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 "TELEGRAM_WEBHOOK_SECRET": "",
                 "PIPELINE_RUN_TIME_BUDGET_SECONDS": 0,
                 "PIPELINE_ALLOWED_COMPANY_IDS": "1,invalid",
+                "ADMIN_ALLOWED_USER_IDS": "1,invalid",
             }
         )
         config = SimpleNamespace(**values)
@@ -96,6 +98,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             "TELEGRAM_WEBHOOK_SECRET",
             "PIPELINE_RUN_TIME_BUDGET_SECONDS",
             "PIPELINE_ALLOWED_COMPANY_IDS",
+            "ADMIN_ALLOWED_USER_IDS",
         ):
             self.assertIn(field_name, message)
         for secret_value in ("password", "secret=value", "do-not-log", "bot-token"):

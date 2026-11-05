@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")
     )  # 24 h
+    # Console interne : liste CSV d'identifiants users.id. Vide = aucun admin.
+    ADMIN_ALLOWED_USER_IDS: str = os.getenv("ADMIN_ALLOWED_USER_IDS", "")
 
     # Protection anti-abus partagée. CLIENT_IP_HEADER doit uniquement nommer
     # un en-tête remplacé par la plateforme (Render public : CF-Connecting-IP).
@@ -214,14 +216,19 @@ def production_configuration_errors(
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             errors.add(field_name)
 
-    raw_company_ids = config.PIPELINE_ALLOWED_COMPANY_IDS.strip()
-    if raw_company_ids:
-        candidates = (candidate.strip() for candidate in raw_company_ids.split(","))
+    for field_name in (
+        "ADMIN_ALLOWED_USER_IDS",
+        "PIPELINE_ALLOWED_COMPANY_IDS",
+    ):
+        raw_ids = str(getattr(config, field_name, "")).strip()
+        if not raw_ids:
+            continue
+        candidates = (candidate.strip() for candidate in raw_ids.split(","))
         if any(
             not candidate.isdecimal() or int(candidate) <= 0
             for candidate in candidates
         ):
-            errors.add("PIPELINE_ALLOWED_COMPANY_IDS")
+            errors.add(field_name)
 
     return tuple(sorted(errors))
 
