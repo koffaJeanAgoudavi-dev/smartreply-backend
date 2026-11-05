@@ -1153,8 +1153,7 @@ svg {
   flex: 1;
 }
 
-.operational-banner-title,
-.heading-with-badge {
+.operational-banner-title {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1179,92 +1178,6 @@ svg {
   font-size: 10px;
 }
 
-.information-history {
-  padding: 20px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
-}
-
-.information-unread-count {
-  align-self: flex-start;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: var(--color-primary-100);
-  color: var(--color-primary-800);
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.information-history-list {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.information-history-item {
-  padding: 15px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-soft);
-}
-
-.information-history-item.unread {
-  border-color: rgba(11, 143, 108, 0.25);
-  background: var(--color-primary-50);
-}
-
-.information-history-item header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.information-history-item h3 {
-  margin: 0;
-  font-size: 13px;
-}
-
-.information-history-item time {
-  flex: 0 0 auto;
-  color: var(--color-muted);
-  font-size: 9px;
-}
-
-.information-history-item p {
-  margin: 8px 0 0;
-  color: var(--color-text);
-  font-size: 11px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.information-read-label {
-  display: inline-flex;
-  margin-top: 9px;
-  color: var(--color-primary-700);
-  font-size: 9px;
-  font-weight: 800;
-}
-
-.information-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.information-pagination span {
-  color: var(--color-muted);
-  font-size: 10px;
-}
-
 @media (max-width: 539px) {
   .notice-banner {
     flex-wrap: wrap;
@@ -1272,10 +1185,6 @@ svg {
 
   .notice-banner .button {
     width: 100%;
-  }
-
-  .information-history-item header {
-    display: grid;
   }
 }
 

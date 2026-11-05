@@ -522,8 +522,9 @@ La V2 ajoute uniquement deux actions dans la fiche entreprise, signalées par le
 badge vert permanent **Nouveau** :
 
 - un **message d'information interne** avec titre et texte bornés. Il n'envoie
-  aucun e-mail : l'utilisateur le voit dans une bannière non lue et dans
-  l'historique de son dashboard, puis peut le marquer comme lu ;
+  aucun e-mail : l'utilisateur voit uniquement le dernier message non lu dans
+  une bannière et peut le marquer comme lu. Aucun historique utilisateur n'est
+  affiché ni renvoyé par l'API ;
 - une **suspension temporaire** avec motif obligatoire et date de fin
   facultative. Elle bloque seulement la sélection de l'entreprise par le
   pipeline. Le dashboard reste accessible et affiche le statut, le motif et la
@@ -846,7 +847,7 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `GET /api/v1/companies/me/validation-status` | Companies | Dérive `pending`/`validated` de l'allowlist sans exposer ses IDs |
 | `POST /api/v1/companies/me/pipeline-access` | Companies | Répare et vérifie l'accès gspread du pipeline |
 | `GET /api/v1/dashboard/operational-status` | Dashboard | Retourne le statut actif/suspendu, le motif et la fin éventuelle du tenant JWT |
-| `GET /api/v1/dashboard/notices` | Dashboard | Liste et pagine les informations internes de l'entreprise JWT |
+| `GET /api/v1/dashboard/notices` | Dashboard | Retourne uniquement le dernier message non lu destiné à la bannière du tenant JWT |
 | `POST /api/v1/dashboard/notices/{notice_ref}/read` | Dashboard | Marque comme lue une information appartenant au tenant JWT |
 | `POST /api/v1/pipeline/run` | Pipeline | Plan sûr `202`, puis traitement multi-utilisateur allowlisté en arrière-plan |
 
