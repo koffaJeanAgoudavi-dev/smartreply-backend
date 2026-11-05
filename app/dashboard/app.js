@@ -17,6 +17,8 @@
     telegramCode: "/api/v1/telegram/link-code",
     telegramStatus: "/api/v1/telegram/status",
     dashboardOverview: "/api/v1/dashboard/overview",
+    operationalStatus: "/api/v1/dashboard/operational-status",
+    dashboardNotices: "/api/v1/dashboard/notices",
     recentEmails: "/api/v1/dashboard/recent-emails",
     dashboardEmails: "/api/v1/dashboard/emails",
     dashboardDrafts: "/api/v1/dashboard/drafts",
@@ -29,6 +31,7 @@
   const EMAILS_SEARCH_DEBOUNCE_MS = 350;
   const DRAFTS_PAGE_SIZE = 25;
   const DRAFTS_SEARCH_DEBOUNCE_MS = 350;
+  const NOTICES_PAGE_SIZE = 10;
   const EMAIL_FILTER_VALUES = Object.freeze({
     category: Object.freeze([
       "Devis",
@@ -47,6 +50,7 @@
   let draftsRequestSequence = 0;
   let draftDetailRequestSequence = 0;
   let dashboardRequestSequence = 0;
+  let communicationRequestSequence = 0;
   let integrationRequestSequence = 0;
   let emailsSearchDebounceId = null;
   let draftsSearchDebounceId = null;
@@ -273,6 +277,9 @@
     dashboard: {
       overview: null,
       emails: null,
+      operationalStatus: null,
+      notices: null,
+      noticesPage: 1,
       loaded: false,
     },
     emailList: createEmailListState(),
@@ -846,6 +853,15 @@
     $("recent-activity-state").textContent = "Chargement de l'activité…";
     $("analytics-history-note").hidden = true;
     $("dashboard-empty-state").hidden = true;
+    $("information-history-list").replaceChildren();
+    $("information-history-list").hidden = true;
+    $("information-history-pagination").hidden = true;
+    $("information-unread-count").hidden = true;
+    $("company-suspension-banner").hidden = true;
+    $("unread-notice-banner").hidden = true;
+    $("information-history-state").hidden = false;
+    $("information-history-state").classList.remove("error");
+    $("information-history-state").textContent = "Chargement des informations…";
     showAlert($("dashboard-data-error"), "");
 
     $("dashboard-connected-count").textContent = "0/3";
@@ -904,9 +920,13 @@
     state.dashboard = {
       overview: null,
       emails: null,
+      operationalStatus: null,
+      notices: null,
+      noticesPage: 1,
       loaded: false,
     };
     dashboardRequestSequence += 1;
+    communicationRequestSequence += 1;
     integrationRequestSequence += 1;
     resetEmailListState();
     resetDraftListState();
@@ -1187,11 +1207,13 @@
   async function loadDashboardResourcesIndependently(
     integrationLoader = () => checkIntegrationStatuses({ silent: true }),
     analyticsLoader = loadDashboardData,
+    communicationLoader = loadDashboardCommunication,
   ) {
     const integrationPromise = integrationLoader().catch(() => null);
     const analyticsPromise = analyticsLoader().catch(() => undefined);
+    const communicationPromise = communicationLoader().catch(() => undefined);
     await integrationPromise;
-    await analyticsPromise;
+    await Promise.all([analyticsPromise, communicationPromise]);
   }
 
   function renderIdentity() {
@@ -1679,6 +1701,11 @@
     emailSpinner.className = "spinner";
     $("recent-emails-state").append(emailSpinner, document.createTextNode("Chargement des emails…"));
     $("dashboard-empty-state").hidden = true;
+    $("information-history-list").hidden = true;
+    $("information-history-pagination").hidden = true;
+    $("information-history-state").hidden = false;
+    $("information-history-state").classList.remove("error");
+    $("information-history-state").textContent = "Chargement des informations…";
     showAlert($("dashboard-data-error"), "");
   }
 
@@ -3011,6 +3038,139 @@
     );
   }
 
+  function renderOperationalStatus(operationalStatus) {
+    state.dashboard.operationalStatus = operationalStatus;
+    const suspended = operationalStatus.operational_status === "suspended";
+    $("company-suspension-banner").hidden = !suspended;
+    if (!suspended) return;
+    $("company-suspension-reason").textContent = operationalStatus.suspension_reason;
+    $("company-suspension-until").textContent = operationalStatus.suspended_until
+      ? `Réactivation automatique prévue le ${formatDashboardDate(operationalStatus.suspended_until)}.`
+      : "La réactivation sera effectuée manuellement par l’équipe SmartReply.";
+  }
+
+  function renderNoticeBanner(noticesPayload) {
+    const unreadNotice = noticesPayload.latest_unread;
+    $("unread-notice-banner").hidden = !unreadNotice;
+    if (!unreadNotice) return;
+    $("unread-notice-title").textContent = unreadNotice.title;
+    $("unread-notice-body").textContent = unreadNotice.body;
+    $("unread-notice-date").textContent = formatDashboardDate(unreadNotice.created_at);
+    $("mark-notice-read").dataset.noticeRef = unreadNotice.notice_ref;
+  }
+
+  function renderNotices(noticesPayload) {
+    state.dashboard.notices = noticesPayload;
+    const items = noticesPayload.items || [];
+    const unreadCount = Number(noticesPayload.unread_count || 0);
+    const historyState = $("information-history-state");
+    const historyList = $("information-history-list");
+    historyList.replaceChildren();
+
+    if (!items.length) {
+      historyList.hidden = true;
+      historyState.hidden = false;
+      historyState.classList.remove("error");
+      historyState.textContent = "Aucune information SmartReply pour le moment.";
+    } else {
+      historyState.hidden = true;
+      historyList.hidden = false;
+      items.forEach((notice) => {
+        const item = document.createElement("li");
+        item.className = `information-history-item${notice.read_at ? "" : " unread"}`;
+        const header = document.createElement("header");
+        const title = document.createElement("h3");
+        title.textContent = notice.title;
+        const time = document.createElement("time");
+        time.dateTime = notice.created_at;
+        time.textContent = formatDashboardDate(notice.created_at);
+        header.append(title, time);
+        const body = document.createElement("p");
+        body.textContent = notice.body;
+        item.append(header, body);
+        if (!notice.read_at) {
+          const readButton = document.createElement("button");
+          readButton.className = "button button-ghost information-read-label";
+          readButton.type = "button";
+          readButton.dataset.noticeRef = notice.notice_ref;
+          readButton.textContent = "Marquer comme lu";
+          item.append(readButton);
+        }
+        historyList.append(item);
+      });
+    }
+
+    $("information-unread-count").hidden = unreadCount === 0;
+    $("information-unread-count").textContent = `${formatCount(unreadCount)} non lu${unreadCount > 1 ? "s" : ""}`;
+    const pagination = noticesPayload.pagination;
+    const hasPages = pagination.total_pages > 1;
+    $("information-history-pagination").hidden = !hasPages;
+    $("information-history-page").textContent = pagination.total_pages
+      ? `Page ${pagination.page} sur ${pagination.total_pages}`
+      : "Page 1";
+    $("information-history-previous").disabled = pagination.page <= 1;
+    $("information-history-next").disabled = pagination.page >= pagination.total_pages;
+    renderNoticeBanner(noticesPayload);
+  }
+
+  function renderNoticesError() {
+    $("information-history-list").hidden = true;
+    $("information-history-pagination").hidden = true;
+    $("information-history-state").hidden = false;
+    $("information-history-state").classList.add("error");
+    $("information-history-state").textContent = "Les informations SmartReply sont temporairement indisponibles.";
+  }
+
+  async function loadNoticesPage(page) {
+    const noticesPayload = await apiRequest(
+      `${API.dashboardNotices}?page=${page}&page_size=${NOTICES_PAGE_SIZE}`,
+    );
+    state.dashboard.noticesPage = page;
+    renderNotices(noticesPayload);
+  }
+
+  async function loadDashboardCommunication() {
+    const requestId = ++communicationRequestSequence;
+    state.dashboard.noticesPage = 1;
+    const [operationalResult, noticesResult] = await Promise.allSettled([
+      apiRequest(API.operationalStatus),
+      apiRequest(`${API.dashboardNotices}?page=1&page_size=${NOTICES_PAGE_SIZE}`),
+    ]);
+    if (requestId !== communicationRequestSequence || !state.token) return;
+    if (operationalResult.status === "fulfilled") {
+      renderOperationalStatus(operationalResult.value);
+    } else if (operationalResult.reason.status !== 401) {
+      state.dashboard.operationalStatus = null;
+    }
+    if (noticesResult.status === "fulfilled") {
+      renderNotices(noticesResult.value);
+    } else if (noticesResult.reason.status !== 401) {
+      state.dashboard.notices = null;
+      renderNoticesError();
+    }
+  }
+
+  async function markNoticeRead(noticeRef) {
+    if (!noticeRef) return;
+    const buttons = [...document.querySelectorAll("[data-notice-ref]")].filter(
+      (button) => button.dataset.noticeRef === noticeRef,
+    );
+    buttons.forEach((button) => setBusy(button, true, "Lecture…"));
+    try {
+      await apiRequest(`${API.dashboardNotices}/${encodeURIComponent(noticeRef)}/read`, {
+        method: "POST",
+      });
+      state.dashboard.noticesPage = 1;
+      await loadNoticesPage(1);
+    } catch (error) {
+      if (error.status !== 401) {
+        showAlert($("dashboard-data-error"), "Impossible de marquer cette information comme lue.");
+      }
+    } finally {
+      buttons.forEach((button) => setBusy(button, false));
+    }
+  }
+
   function renderOverviewError() {
     $("dashboard-stats").setAttribute("aria-busy", "false");
     ["volume-chart", "category-chart", "priority-chart"].forEach((id) => {
@@ -3421,6 +3581,21 @@
     $("repair-sheet-access").addEventListener("click", repairSheetAccess);
     $("disconnect-drive").addEventListener("click", disconnectDrive);
     $("refresh-dashboard").addEventListener("click", refreshDashboard);
+    $("mark-notice-read").addEventListener("click", (event) => {
+      void markNoticeRead(event.currentTarget.dataset.noticeRef);
+    });
+    $("information-history-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-notice-ref]");
+      if (button) void markNoticeRead(button.dataset.noticeRef);
+    });
+    $("information-history-previous").addEventListener("click", () => {
+      void loadNoticesPage(Math.max(1, state.dashboard.noticesPage - 1)).catch(
+        renderNoticesError,
+      );
+    });
+    $("information-history-next").addEventListener("click", () => {
+      void loadNoticesPage(state.dashboard.noticesPage + 1).catch(renderNoticesError);
+    });
     emailsViewElements.search.addEventListener("input", scheduleEmailSearch);
     emailsViewElements.category.addEventListener("change", applyEmailFilters);
     emailsViewElements.priority.addEventListener("change", applyEmailFilters);

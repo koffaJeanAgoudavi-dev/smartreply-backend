@@ -34,7 +34,11 @@ class AdminUiTests(unittest.TestCase):
         self.assertIn("Vue d’ensemble", page.text)
         self.assertIn("Entreprises", page.text)
         self.assertIn("Incidents opérationnels", page.text)
-        self.assertIn("Lecture seule", page.text)
+        self.assertIn("Actions V2 bornées", page.text)
+        self.assertIn("Message d’information", page.text)
+        self.assertIn("Suspension temporaire", page.text)
+        self.assertIn("Journal d’audit récent", page.text)
+        self.assertIn('id="admin-suspension-dialog"', page.text)
         self.assertIn('content="noindex,nofollow"', page.text)
         self.assertGreaterEqual(page.text.count('class="new-badge"'), 2)
 
@@ -65,6 +69,9 @@ class AdminUiTests(unittest.TestCase):
         ):
             self.assertIn(endpoint, javascript.text)
         self.assertIn("navigator.clipboard.writeText", javascript.text)
+        self.assertIn("/messages", javascript.text)
+        self.assertIn("/suspension", javascript.text)
+        self.assertIn("showModal", javascript.text)
         self.assertIn('credentials: "same-origin"', javascript.text)
         self.assertIn("textContent", javascript.text)
         self.assertNotIn("localStorage.setItem", javascript.text)

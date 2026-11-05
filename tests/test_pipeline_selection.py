@@ -50,6 +50,8 @@ class PipelineSelectionTests(unittest.TestCase):
         gmail_status: str = "connected",
         activated_at: datetime | None = None,
         last_processed_at: datetime | None = None,
+        suspended_at: datetime | None = None,
+        suspended_until: datetime | None = None,
     ) -> tuple[int, int | None]:
         self.sequence += 1
         with self.session_factory() as db:
@@ -68,6 +70,11 @@ class PipelineSelectionTests(unittest.TestCase):
                     sheet_id=f"sheet-{self.sequence}",
                     pipeline_activated_at=activated_at,
                     pipeline_last_processed_at=last_processed_at,
+                    suspended_at=suspended_at,
+                    suspended_until=suspended_until,
+                    suspension_reason=(
+                        "Maintenance temporaire" if suspended_at is not None else None
+                    ),
                 )
                 db.add(company)
             if integration_count >= 2:
@@ -132,6 +139,36 @@ class PipelineSelectionTests(unittest.TestCase):
         self.assertEqual(
             [plan.company_id for plan in plans],
             [connected_company_id],
+        )
+
+    def test_active_suspensions_stop_pipeline_and_expired_ones_resume(self):
+        now = datetime.now(timezone.utc)
+        _, active_company_id = self.create_candidate(3)
+        self.create_candidate(
+            3,
+            suspended_at=now - timedelta(hours=1),
+            suspended_until=None,
+        )
+        self.create_candidate(
+            3,
+            suspended_at=now - timedelta(hours=1),
+            suspended_until=now + timedelta(hours=2),
+        )
+        _, expired_company_id = self.create_candidate(
+            3,
+            suspended_at=now - timedelta(hours=2),
+            suspended_until=now - timedelta(minutes=1),
+        )
+
+        with self.session_factory() as db:
+            plans = service.select_eligible_company_plans(
+                db,
+                max_emails_per_company=10,
+            )
+
+        self.assertEqual(
+            [plan.company_id for plan in plans],
+            [active_company_id, expired_company_id],
         )
 
     def test_cutoff_accepts_only_messages_strictly_after_activation(self):

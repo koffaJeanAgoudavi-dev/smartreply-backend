@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.company_allowlist import parse_allowed_company_ids
@@ -135,6 +135,15 @@ def select_eligible_company_plans(
             or_(
                 Company.sheet_owner_mode == "platform",
                 DriveConnection.status == "connected",
+            ),
+            # Une suspension active bloque le pipeline sans modifier l'allowlist
+            # de validation. Une date de fin passée réactive automatiquement.
+            or_(
+                Company.suspended_at.is_(None),
+                and_(
+                    Company.suspended_until.is_not(None),
+                    Company.suspended_until <= func.now(),
+                ),
             ),
         )
         .order_by(

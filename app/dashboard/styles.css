@@ -746,6 +746,22 @@ svg {
   text-transform: uppercase;
 }
 
+.nav-badge-new {
+  display: inline-flex;
+  min-height: 20px;
+  align-items: center;
+  padding: 4px 6px;
+  border: 1px solid rgba(9, 132, 95, 0.2);
+  border-radius: 99px;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .nav-item .nav-badge-new {
   border: 1px solid rgba(9, 132, 95, 0.2);
   background: var(--color-success-soft);
@@ -1078,6 +1094,189 @@ svg {
   margin: 5px 0 0;
   color: var(--color-muted);
   font-size: 12px;
+}
+
+.operational-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.operational-banner[hidden] {
+  display: none;
+}
+
+.suspension-banner {
+  border-color: rgba(180, 59, 77, 0.22);
+  background: var(--color-danger-soft);
+}
+
+.notice-banner {
+  border-color: rgba(11, 143, 108, 0.23);
+  background: var(--color-primary-50);
+}
+
+.operational-banner-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--color-surface);
+  color: var(--color-primary-700);
+}
+
+.suspension-banner .operational-banner-icon {
+  color: var(--color-danger);
+}
+
+.operational-banner-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.operational-banner > div,
+.notice-banner-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.operational-banner-title,
+.heading-with-badge {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.operational-banner-title strong {
+  font-size: 14px;
+}
+
+.operational-banner p {
+  margin: 6px 0 0;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+}
+
+.operational-banner div > small:not(.nav-badge-new) {
+  display: block;
+  margin-top: 7px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.information-history {
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.information-unread-count {
+  align-self: flex-start;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--color-primary-100);
+  color: var(--color-primary-800);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.information-history-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.information-history-item {
+  padding: 15px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+
+.information-history-item.unread {
+  border-color: rgba(11, 143, 108, 0.25);
+  background: var(--color-primary-50);
+}
+
+.information-history-item header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.information-history-item h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.information-history-item time {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 9px;
+}
+
+.information-history-item p {
+  margin: 8px 0 0;
+  color: var(--color-text);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.information-read-label {
+  display: inline-flex;
+  margin-top: 9px;
+  color: var(--color-primary-700);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.information-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.information-pagination span {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+@media (max-width: 539px) {
+  .notice-banner {
+    flex-wrap: wrap;
+  }
+
+  .notice-banner .button {
+    width: 100%;
+  }
+
+  .information-history-item header {
+    display: grid;
+  }
 }
 
 .text-link {

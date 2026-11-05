@@ -291,6 +291,17 @@
 
           <div id="dashboard-data-error" class="form-alert error" role="alert" hidden></div>
 
+          <aside id="company-suspension-banner" class="operational-banner suspension-banner" role="status" hidden>
+            <span class="operational-banner-icon"><svg><use href="#icon-clock"></use></svg></span>
+            <div><div class="operational-banner-title"><strong>Entreprise suspendue</strong><small class="nav-badge-new">Nouveau</small></div><p id="company-suspension-reason">—</p><small id="company-suspension-until">—</small></div>
+          </aside>
+
+          <aside id="unread-notice-banner" class="operational-banner notice-banner" role="status" hidden>
+            <span class="operational-banner-icon"><svg><use href="#icon-mail"></use></svg></span>
+            <div class="notice-banner-copy"><div class="operational-banner-title"><strong id="unread-notice-title">Information SmartReply</strong><small class="nav-badge-new">Nouveau</small></div><p id="unread-notice-body">—</p><small id="unread-notice-date">—</small></div>
+            <button id="mark-notice-read" class="button button-secondary" type="button">Marquer comme lu</button>
+          </aside>
+
           <section id="dashboard-stats" class="section-block" aria-labelledby="dashboard-stats-title" aria-busy="true">
             <div class="section-heading-row">
               <div>
@@ -315,6 +326,23 @@
                 <span class="metric-icon warning"><svg><use href="#icon-clock"></use></svg></span>
                 <div><small>Brouillons en attente</small><strong id="metric-pending">—</strong><p>En attente d'une action</p></div>
               </article>
+            </div>
+          </section>
+
+          <section class="section-block information-history" aria-labelledby="information-history-title">
+            <div class="section-heading-row">
+              <div>
+                <div class="heading-with-badge"><h2 id="information-history-title">Informations SmartReply</h2><small class="nav-badge-new">Nouveau</small></div>
+                <p>Messages d’information transmis par l’équipe SmartReply.</p>
+              </div>
+              <span id="information-unread-count" class="information-unread-count" hidden>0 non lu</span>
+            </div>
+            <div id="information-history-state" class="data-state" role="status"><span class="spinner"></span>Chargement des informations…</div>
+            <ol id="information-history-list" class="information-history-list" hidden></ol>
+            <div id="information-history-pagination" class="information-pagination" hidden>
+              <button id="information-history-previous" class="button button-secondary" type="button">Précédent</button>
+              <span id="information-history-page">Page 1</span>
+              <button id="information-history-next" class="button button-secondary" type="button">Suivant</button>
             </div>
           </section>
 

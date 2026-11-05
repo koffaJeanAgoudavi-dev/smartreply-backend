@@ -93,7 +93,7 @@
       </nav>
 
       <div class="sidebar-safety">
-        <strong>Lecture seule</strong>
+        <strong>Actions V2 bornées</strong>
         <p>Cette V1 ne modifie ni les entreprises, ni l’allowlist du pipeline.</p>
       </div>
 
@@ -187,7 +187,7 @@
             <section id="companies-table-card" class="table-card" aria-label="Liste des entreprises" hidden>
               <div class="table-scroll">
                 <table>
-                  <thead><tr><th>Entreprise</th><th>Validation</th><th>Configuration</th><th>Intégrations</th><th>Dernier traitement</th><th><span class="visually-hidden">Détail</span></th></tr></thead>
+                  <thead><tr><th>Entreprise</th><th>Validation</th><th>Exploitation</th><th>Configuration</th><th>Intégrations</th><th>Dernier traitement</th><th><span class="visually-hidden">Détail</span></th></tr></thead>
                   <tbody id="companies-table-body"></tbody>
                 </table>
               </div>
@@ -210,7 +210,39 @@
                 <section><h3>Pipeline</h3><dl><div><dt>Activation</dt><dd id="detail-pipeline-activated">—</dd></div><div><dt>Dernier traitement</dt><dd id="detail-last-processed">—</dd></div><div><dt>Emails traités</dt><dd id="detail-processed">—</dd></div><div><dt>Erreurs actuelles</dt><dd id="detail-failed">—</dd></div></dl></section>
                 <section><h3>Profil de réponse</h3><dl><div><dt>Champs renseignés</dt><dd id="detail-profile-completeness">—</dd></div><div><dt>Ton sélectionné</dt><dd id="detail-response-tone">—</dd></div><div><dt>Brouillons en attente</dt><dd id="detail-pending-drafts">—</dd></div><div><dt>Mise à jour</dt><dd id="detail-updated-at">—</dd></div></dl></section>
               </div>
-              <aside class="privacy-note"><strong>Vue administrative limitée</strong><p>Le contenu des emails, des brouillons et du profil de réponse n’est jamais exposé ici.</p></aside>
+
+              <section class="admin-v2-actions" aria-labelledby="admin-v2-actions-title">
+                <div class="admin-v2-heading">
+                  <div><span class="eyebrow">Actions administratives bornées</span><h3 id="admin-v2-actions-title">Communication et suspension</h3></div>
+                  <small class="new-badge">Nouveau</small>
+                </div>
+                <div class="admin-action-grid">
+                  <form id="admin-message-form" class="admin-action-card">
+                    <div><h4>Message d’information</h4><p>Affiché dans le dashboard de l’utilisateur, sans envoi d’e-mail.</p></div>
+                    <label class="field" for="admin-message-title"><span>Titre</span><input id="admin-message-title" type="text" minlength="1" maxlength="120" required></label>
+                    <label class="field" for="admin-message-body"><span>Message</span><textarea id="admin-message-body" rows="5" minlength="1" maxlength="2000" required></textarea></label>
+                    <p id="admin-message-feedback" class="action-feedback" role="status" hidden></p>
+                    <button id="admin-message-submit" class="button button-primary" type="submit">Envoyer l’information</button>
+                  </form>
+
+                  <form id="admin-suspension-form" class="admin-action-card admin-suspension-card">
+                    <div><h4>Suspension temporaire</h4><p>Arrête uniquement les futurs traitements. Le dashboard utilisateur reste accessible.</p></div>
+                    <div id="admin-suspension-current" class="current-suspension" hidden><strong>Entreprise suspendue</strong><p id="admin-suspension-current-reason">—</p><small id="admin-suspension-current-until">—</small></div>
+                    <label class="field" for="admin-suspension-reason"><span>Motif visible par l’utilisateur</span><textarea id="admin-suspension-reason" rows="4" minlength="1" maxlength="500" required></textarea></label>
+                    <label class="field" for="admin-suspension-until"><span>Réactivation automatique facultative</span><input id="admin-suspension-until" type="datetime-local"></label>
+                    <p id="admin-suspension-feedback" class="action-feedback" role="status" hidden></p>
+                    <div class="admin-action-buttons"><button id="admin-suspension-submit" class="button button-danger" type="submit">Suspendre l’entreprise</button><button id="admin-resume-company" class="button button-secondary" type="button" hidden>Réactiver maintenant</button></div>
+                  </form>
+                </div>
+
+                <section class="admin-audit-card" aria-labelledby="admin-audit-title">
+                  <div><h4 id="admin-audit-title">Journal d’audit récent</h4><p>Actions enregistrées sans contenu de message.</p></div>
+                  <ol id="admin-audit-list" class="admin-audit-list"></ol>
+                  <p id="admin-audit-empty" class="audit-empty">Aucune action administrative enregistrée.</p>
+                </section>
+              </section>
+
+              <aside class="privacy-note"><strong>Vue administrative limitée</strong><p>Le contenu des emails, des brouillons et du profil de réponse n’est jamais exposé ici. Les messages d’information sont stockés uniquement pour leur affichage interne.</p></aside>
             </article>
           </section>
         </section>
@@ -241,6 +273,16 @@
       </main>
     </div>
   </div>
+
+  <dialog id="admin-suspension-dialog" class="admin-confirm-dialog" aria-labelledby="admin-suspension-dialog-title">
+    <form method="dialog" class="admin-confirm-card">
+      <span class="gate-icon" aria-hidden="true">!</span>
+      <p class="eyebrow">Confirmation requise</p>
+      <h2 id="admin-suspension-dialog-title">Confirmer la suspension</h2>
+      <p id="admin-suspension-dialog-text">Les futurs traitements seront arrêtés pour cette entreprise.</p>
+      <div class="admin-confirm-actions"><button id="admin-suspension-cancel" class="button button-secondary" value="cancel" type="submit">Annuler</button><button id="admin-suspension-confirm" class="button button-danger" value="confirm" type="button">Confirmer</button></div>
+    </form>
+  </dialog>
 
   <input id="clipboard-fallback-input" class="clipboard-fallback-input" type="text" tabindex="-1" aria-hidden="true">
 </body>

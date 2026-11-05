@@ -1,6 +1,7 @@
 """Schémas publics du dashboard, sans identifiant ni donnée sensible."""
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +37,40 @@ class DashboardOverviewResponse(BaseModel):
     priorities: list[BreakdownItem]
     recent_activity: list[ActivityItem]
     history_started: bool
+
+
+class CompanyOperationalStatusResponse(BaseModel):
+    operational_status: Literal["active", "suspended"]
+    suspension_reason: str | None = Field(default=None, max_length=500)
+    suspended_at: datetime | None
+    suspended_until: datetime | None
+
+
+class DashboardNoticeItem(BaseModel):
+    notice_ref: str = Field(pattern=r"^INFO-[1-9][0-9]*$")
+    title: str = Field(max_length=120)
+    body: str = Field(max_length=2000)
+    created_at: datetime
+    read_at: datetime | None
+
+
+class DashboardNoticePagination(BaseModel):
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=50)
+    total_items: int = Field(ge=0)
+    total_pages: int = Field(ge=0)
+
+
+class DashboardNoticesResponse(BaseModel):
+    items: list[DashboardNoticeItem]
+    latest_unread: DashboardNoticeItem | None
+    unread_count: int = Field(ge=0)
+    pagination: DashboardNoticePagination
+
+
+class DashboardNoticeReadResponse(BaseModel):
+    notice_ref: str = Field(pattern=r"^INFO-[1-9][0-9]*$")
+    read_at: datetime
 
 
 class RecentEmailItem(BaseModel):
