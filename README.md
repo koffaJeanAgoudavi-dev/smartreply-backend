@@ -55,6 +55,7 @@ son propre Google Sheet.
 app/
 ├── main.py                  # Point d'entrée FastAPI + routes et pages publiques
 ├── home/                    # Page d'accueil publique responsive, servie sur `/`
+├── admin/                   # Centre de pilotage interne en lecture seule
 ├── dashboard/               # Dashboard Phase B : HTML/CSS/JS statiques, sans build
 ├── contact/                 # Centre public Contact et assistance
 ├── conditions/              # Conditions générales publiques
@@ -65,6 +66,7 @@ app/
 │   ├── database.py          # Connexion SQLAlchemy vers Neon
 │   └── sheets_client.py     # Client gspread des Sheets d'entreprise
 └── modules/
+    ├── admin/               # API opérationnelle agrégée, JWT + allowlist admin
     ├── auth/                # Comptes utilisateurs + JWT
     ├── gmail_oauth/         # Connexion Gmail chiffrée par utilisateur
     ├── companies/           # Entreprise unique + copie Google Sheet dédiée
@@ -176,7 +178,10 @@ TELEGRAM_WEBHOOK_SECRET=<secret webhook aléatoire>
 
 `REDIS_URL` est **optionnelle**. `PIPELINE_ALLOWED_COMPANY_IDS` est nécessaire
 uniquement pour activer le traitement réel ; vide, le pipeline reste en
-simulation. `GOOGLE_DRIVE_REFRESH_TOKEN` reste optionnel pour inspecter ou
+simulation. `ADMIN_ALLOWED_USER_IDS` est une allowlist séparée d'identifiants
+`users.id` : vide, aucun compte n'accède à l'administration. Elle n'accorde
+aucun accès au pipeline et l'administration ne modifie aucune allowlist.
+`GOOGLE_DRIVE_REFRESH_TOKEN` reste optionnel pour inspecter ou
 réparer les permissions des anciens Sheets détenus par le compte plateforme ;
 les nouvelles créations ne l’utilisent pas. `ACCESS_TOKEN_EXPIRE_MINUTES`, les
 limites anti-abus et les budgets du pipeline ont des valeurs par défaut. Une
@@ -216,6 +221,7 @@ Gmail + Google Sheets continue sans requête Telegram ni tentative consommée.
 | `CONTACT_RECIPIENT_EMAIL` | Destinataire des demandes (défaut : `hello.smartreplyagent@gmail.com`) |
 | `DATABASE_URL` | URL PostgreSQL Neon |
 | `INVITATION_CODES` | Codes autorisant l'inscription, séparés par des virgules ; vide ou absent = inscriptions fermées |
+| `ADMIN_ALLOWED_USER_IDS` | IDs internes `users.id` autorisés sur `/admin/`, séparés par des virgules ; vide ou absent = aucun administrateur |
 | `JWT_SECRET` / `ACCESS_TOKEN_EXPIRE_MINUTES` | Signature et durée des JWT utilisateurs |
 | `ENVIRONMENT` | Utiliser exactement `production` sur Render ; cette valeur seule désactive `/docs`, `/redoc` et `/openapi.json` |
 | `REDIS_URL` | Optionnelle : Redis partagé pour les limites login/register/contact ; absence, configuration invalide ou panne = repli automatique sur les compteurs mémoire du processus |
@@ -472,6 +478,35 @@ statut Gmail ; aucun token Google n'est envoyé au navigateur.
       renvoie vers la connexion.
 - [ ] Vérifier qu'un compte sans historique reste à zéro, sans statistiques,
       emails ou activités factices.
+
+### Centre de pilotage administrateur V1
+
+FastAPI sert `/admin/` sur la même origine, sans lien dans l'accueil public ni
+la navigation utilisateur. L'interface réutilise le JWT SmartReply existant,
+mais chaque route `/api/v1/admin/*` exige aussi que le `users.id` soit présent
+dans `ADMIN_ALLOWED_USER_IDS`. Une allowlist vide ferme donc tout accès et une
+valeur mal formée provoque un refus côté serveur.
+
+Cette console opérationnelle reste strictement en lecture seule :
+
+- la vue d'ensemble agrège utilisateurs, entreprises, validations,
+  configurations, intégrations, traitements, échecs, brouillons en attente et
+  dernier traitement connu ;
+- la liste des entreprises est filtrable et paginée ; la fiche affiche
+  l'identité, le propriétaire, la complétude du profil, les statuts et les
+  volumes, puis permet uniquement de copier l'identifiant interne pour la
+  validation manuelle dans Render ;
+- la page Incidents regroupe les révocations, échecs, réservations bloquées,
+  notifications bloquées et synchronisations en attente sous des références
+  internes sûres ;
+- les agrégats lisent Neon et n'interrogent pas Gmail, Drive, Sheets ou Telegram
+  à chaque chargement ;
+- aucune route admin ne renvoie token, secret, identifiant externe, contenu
+  d'email, contenu de brouillon ou texte du profil de réponse.
+
+`PIPELINE_ALLOWED_COMPANY_IDS` reste l'unique source de validation manuelle :
+la V1 admin ne l'édite pas et ne propose ni validation automatique, ni relance,
+ni suspension, ni envoi d'email.
 
 ### Paramètres d'entreprise et profil de réponse
 
@@ -750,6 +785,12 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 | `GET /health` | — | Confirme uniquement que le processus HTTP répond |
 | `GET /ready` | — | Vérifie la configuration locale et exécute `SELECT 1` sur PostgreSQL |
 | `GET /dashboard` | Dashboard | Ouvre l'interface Phase A (redirection vers `/dashboard/`) |
+| `GET /admin` | Administration | Ouvre la console privée en lecture seule (redirection vers `/admin/`) |
+| `GET /api/v1/admin/me` | Administration | Vérifie JWT et allowlist admin dédiée, puis retourne l'identité interne sûre |
+| `GET /api/v1/admin/overview` | Administration | Agrège les indicateurs opérationnels depuis Neon |
+| `GET /api/v1/admin/companies` | Administration | Liste filtrée et paginée des entreprises, sans secret ni contenu métier |
+| `GET /api/v1/admin/companies/{company_id}` | Administration | Retourne la fiche opérationnelle sûre d'une entreprise |
+| `GET /api/v1/admin/incidents` | Administration | Liste les incidents via références internes et codes courts sûrs |
 | `POST /api/v1/auth/register` | Auth | Crée un utilisateur avec un code d'invitation et renvoie son JWT |
 | `POST /api/v1/auth/login` | Auth | Authentifie un utilisateur |
 | `GET /api/v1/gmail/connect` | Gmail OAuth | Démarre la connexion Gmail utilisateur |
@@ -790,6 +831,7 @@ encore être exécutée dans un projet Google de staging avec un compte test :
   - [x] PR 2 : traitement réel isolé par entreprise, dédoublonnage et coupure
   - [x] PR 3 : notifications et actions Telegram isolées par entreprise
 - [x] Contexte et profil de réponse entreprise isolés dans les requêtes IA
+- [x] Centre de pilotage administrateur V1 en lecture seule
 - [ ] Post-MVP : dashboard avancé et fallback multi-modèles
 
 ## 🔒 Sécurité
@@ -805,6 +847,9 @@ encore être exécutée dans un projet Google de staging avec un compte test :
   header `X-Telegram-Bot-Api-Secret-Token` ou incorrect
 - Endpoint pipeline refusé si `CRON_SECRET` est vide, absent du header
   `X-CRON-SECRET` ou incorrect
+- Administration refusée sans JWT valide et sans appartenance à
+  `ADMIN_ALLOWED_USER_IDS` ; sa configuration vide ferme tout accès et ses
+  réponses excluent secrets, identifiants externes et contenus métier
 - Aucune clé en dur dans le code : 100 % variables d'environnement
 - ⚠️ Avant mise en production : régénérer les tokens de test,
   restreindre les scopes OAuth au strict nécessaire

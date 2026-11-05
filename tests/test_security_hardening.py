@@ -510,6 +510,11 @@ class AuthRateLimitTests(unittest.TestCase):
 
 class SecurityHeadersAndDocsTests(unittest.TestCase):
     expected_api_routes = {
+        ("GET", "/api/v1/admin/me"),
+        ("GET", "/api/v1/admin/overview"),
+        ("GET", "/api/v1/admin/companies"),
+        ("GET", "/api/v1/admin/companies/{company_id}"),
+        ("GET", "/api/v1/admin/incidents"),
         ("POST", "/api/v1/auth/login"),
         ("POST", "/api/v1/auth/register"),
         ("POST", "/api/v1/companies"),
@@ -539,12 +544,14 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
     }
     expected_public_routes = {
         ("GET", "/"),
+        ("GET", "/admin"),
         ("GET", "/conditions"),
         ("GET", "/confidentialite"),
         ("GET", "/contact"),
         ("GET", "/dashboard"),
         ("GET", "/health"),
         ("GET", "/ready"),
+        ("MOUNT", "/admin"),
         ("MOUNT", "/conditions"),
         ("MOUNT", "/confidentialite"),
         ("MOUNT", "/contact"),
@@ -611,6 +618,9 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             home = client.get("/")
             home_stylesheet = client.get("/home/styles.css")
             home_product_image = client.get("/home/assets/dashboard-overview.webp")
+            admin = client.get("/admin/")
+            admin_javascript = client.get("/admin/app.js")
+            admin_stylesheet = client.get("/admin/styles.css")
             contact = client.get("/contact/")
             contact_javascript = client.get("/contact/app.js")
             contact_stylesheet = client.get("/contact/styles.css")
@@ -631,6 +641,9 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             home,
             home_stylesheet,
             home_product_image,
+            admin,
+            admin_javascript,
+            admin_stylesheet,
             contact,
             contact_javascript,
             contact_stylesheet,
@@ -647,7 +660,9 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
                 "cdn.jsdelivr.net", response.headers["Content-Security-Policy"]
             )
         self.assertNotIn("style=", dashboard.text)
+        self.assertNotIn("style=", admin.text)
         self.assertNotIn(".style.", javascript.text)
+        self.assertNotIn(".style.", admin_javascript.text)
         self.assertIn("navigator.clipboard.writeText", javascript.text)
         self.assertIn("clipboard-fallback-input", javascript.text)
 

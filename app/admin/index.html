@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#075f4c">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Administration — SmartReply Agent</title>
+  <link rel="icon" href="/dashboard/assets/brand/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/dashboard/assets/brand/favicon-32x32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/dashboard/assets/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/admin/styles.css">
+  <script src="/admin/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#admin-main">Aller au contenu</a>
+
+  <section id="admin-loading" class="gate-screen" aria-live="polite">
+    <a class="brand" href="/" aria-label="SmartReply Agent — Accueil public">
+      <span class="brand-mark"><img src="/dashboard/assets/brand/smartreply-mark-standard.png" width="30" height="30" alt=""></span>
+      <span><strong>SmartReply</strong><small>Administration</small></span>
+    </a>
+    <span class="spinner" aria-hidden="true"></span>
+    <p>Vérification de l’accès administrateur…</p>
+  </section>
+
+  <section id="admin-access-message" class="gate-screen" hidden>
+    <a class="brand" href="/" aria-label="SmartReply Agent — Accueil public">
+      <span class="brand-mark"><img src="/dashboard/assets/brand/smartreply-mark-standard.png" width="30" height="30" alt=""></span>
+      <span><strong>SmartReply</strong><small>Administration</small></span>
+    </a>
+    <div class="gate-card">
+      <span id="gate-icon" class="gate-icon" aria-hidden="true">!</span>
+      <p class="eyebrow">Espace interne</p>
+      <h1 id="gate-title">Connexion requise</h1>
+      <p id="gate-description">Connectez-vous d’abord à votre compte SmartReply autorisé.</p>
+      <div class="gate-actions">
+        <a class="button button-primary" href="/dashboard/">Ouvrir la connexion SmartReply</a>
+        <a class="button button-secondary" href="/">Retour à l’accueil</a>
+      </div>
+    </div>
+  </section>
+
+  <div id="admin-app" class="admin-app" hidden>
+    <button id="admin-overlay" class="admin-overlay" type="button" aria-label="Fermer la navigation" tabindex="-1"></button>
+
+    <aside id="admin-sidebar" class="admin-sidebar" aria-label="Navigation administrateur">
+      <div class="sidebar-heading">
+        <a class="brand" href="/" aria-label="SmartReply Agent — Accueil public">
+          <span class="brand-mark"><img src="/dashboard/assets/brand/smartreply-mark-standard.png" width="30" height="30" alt=""></span>
+          <span><strong>SmartReply</strong><small>Agent</small></span>
+        </a>
+        <div class="admin-product-label"><span>Centre de pilotage</span><small class="new-badge">Nouveau</small></div>
+      </div>
+
+      <nav class="admin-navigation">
+        <button class="admin-nav-item active" type="button" data-view="overview" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">⌂</span>
+          <span>Vue d’ensemble</span>
+        </button>
+        <button class="admin-nav-item" type="button" data-view="companies">
+          <span class="nav-icon" aria-hidden="true">◇</span>
+          <span>Entreprises</span>
+        </button>
+        <button class="admin-nav-item" type="button" data-view="incidents">
+          <span class="nav-icon" aria-hidden="true">!</span>
+          <span>Incidents</span>
+          <small id="sidebar-incident-count" class="nav-count">—</small>
+        </button>
+      </nav>
+
+      <div class="sidebar-safety">
+        <strong>Lecture seule</strong>
+        <p>Cette V1 ne modifie ni les entreprises, ni l’allowlist du pipeline.</p>
+      </div>
+
+      <div class="sidebar-account">
+        <span class="account-avatar" aria-hidden="true">A</span>
+        <div><strong>Administrateur</strong><small id="sidebar-admin-email">—</small></div>
+      </div>
+    </aside>
+
+    <div class="admin-workspace">
+      <header class="admin-topbar">
+        <div class="topbar-title">
+          <button id="admin-menu-button" class="icon-button mobile-menu" type="button" aria-label="Ouvrir la navigation" aria-controls="admin-sidebar" aria-expanded="false">☰</button>
+          <div><small>Espace interne DIGICRAFT LABS</small><strong id="current-view-title">Vue d’ensemble</strong></div>
+        </div>
+        <div class="topbar-actions">
+          <a class="button button-secondary button-small" href="/dashboard/">Espace utilisateur</a>
+          <button id="admin-logout" class="button button-ghost button-small" type="button">Déconnexion</button>
+        </div>
+      </header>
+
+      <main id="admin-main" class="admin-main">
+        <section id="overview-view" class="admin-view" aria-labelledby="overview-title">
+          <div class="view-heading">
+            <div>
+              <div class="heading-labels"><span class="eyebrow">Pilotage du programme</span><small class="new-badge">Nouveau</small></div>
+              <h1 id="overview-title">Vue d’ensemble</h1>
+              <p>Suivez les entreprises, leur configuration et les signaux opérationnels, sans accéder au contenu des emails.</p>
+            </div>
+            <button id="refresh-overview" class="button button-secondary" type="button">Actualiser</button>
+          </div>
+
+          <div id="overview-error" class="state-card state-error" role="alert" hidden>
+            <strong>Impossible de charger la vue d’ensemble.</strong>
+            <p>Réessayez dans quelques instants.</p>
+          </div>
+
+          <div class="metric-grid" aria-label="Indicateurs principaux">
+            <article class="metric-card metric-primary"><small>Entreprises</small><strong id="metric-companies">—</strong><p><span id="metric-users">—</span> comptes inscrits</p></article>
+            <article class="metric-card"><small>Validées</small><strong id="metric-validated">—</strong><p><span id="metric-pending">—</span> en attente</p></article>
+            <article class="metric-card"><small>Prêtes techniquement</small><strong id="metric-ready">—</strong><p><span id="metric-incomplete">—</span> à compléter</p></article>
+            <article class="metric-card metric-alert"><small>Incidents actifs</small><strong id="metric-incidents">—</strong><p>Signaux à examiner</p></article>
+          </div>
+
+          <div class="overview-panels">
+            <section class="admin-card" aria-labelledby="activity-title">
+              <div class="card-heading"><div><span class="eyebrow">Activité</span><h2 id="activity-title">Traitement global</h2></div><span id="last-processing-badge" class="status-badge neutral">Dernier traitement —</span></div>
+              <div class="compact-metrics">
+                <article><small>Emails traités</small><strong id="metric-processed">—</strong></article>
+                <article><small>Emails en échec</small><strong id="metric-failed">—</strong></article>
+                <article><small>Brouillons en attente</small><strong id="metric-drafts">—</strong></article>
+                <article><small>Telegram connecté</small><strong id="metric-telegram">—</strong></article>
+              </div>
+            </section>
+
+            <section class="admin-card" aria-labelledby="attention-title">
+              <div class="card-heading"><div><span class="eyebrow">À surveiller</span><h2 id="attention-title">État des intégrations</h2></div><a href="#incidents" data-view-link="incidents">Voir les incidents</a></div>
+              <div class="attention-list">
+                <article><span class="attention-icon warning" aria-hidden="true">G</span><div><strong>Gmail</strong><small>Connexions absentes ou révoquées</small></div><b id="metric-gmail-issues">—</b></article>
+                <article><span class="attention-icon neutral" aria-hidden="true">D</span><div><strong>Google Drive</strong><small>Autorisations client à examiner</small></div><b id="metric-drive-issues">—</b></article>
+              </div>
+            </section>
+          </div>
+
+          <p id="overview-generated-at" class="generated-at">Données administratives calculées à la demande.</p>
+        </section>
+
+        <section id="companies-view" class="admin-view" aria-labelledby="companies-title" hidden>
+          <div id="companies-list-workspace">
+            <div class="view-heading">
+              <div>
+                <span class="eyebrow">Programme pilote</span>
+                <h1 id="companies-title">Entreprises</h1>
+                <p>Consultez l’onboarding, les intégrations et le dernier traitement connu.</p>
+              </div>
+              <button id="refresh-companies" class="button button-secondary" type="button">Actualiser</button>
+            </div>
+
+            <form id="company-filters" class="filter-card" role="search">
+              <label class="field filter-search" for="company-search"><span>Recherche</span><input id="company-search" name="search" type="search" maxlength="255" placeholder="Entreprise, secteur ou propriétaire"></label>
+              <label class="field" for="company-validation-filter"><span>Validation</span><select id="company-validation-filter" name="validation"><option value="">Tous les statuts</option><option value="pending">En attente</option><option value="validated">Validée</option></select></label>
+              <label class="field" for="company-configuration-filter"><span>Configuration</span><select id="company-configuration-filter" name="configuration"><option value="">Toutes</option><option value="ready">Prête</option><option value="incomplete">À compléter</option></select></label>
+              <label class="field" for="company-telegram-filter"><span>Telegram</span><select id="company-telegram-filter" name="telegram"><option value="">Tous</option><option value="true">Connecté</option><option value="false">Non connecté</option></select></label>
+              <button class="button button-primary" type="submit">Appliquer</button>
+            </form>
+
+            <div id="companies-loading" class="state-card" aria-live="polite"><span class="spinner" aria-hidden="true"></span><p>Chargement des entreprises…</p></div>
+            <div id="companies-error" class="state-card state-error" role="alert" hidden><strong>Impossible de charger les entreprises.</strong><button id="companies-retry" class="button button-secondary button-small" type="button">Réessayer</button></div>
+            <div id="companies-empty" class="state-card" hidden><strong>Aucune entreprise trouvée.</strong><p>Modifiez les filtres ou attendez une nouvelle inscription.</p></div>
+
+            <section id="companies-table-card" class="table-card" aria-label="Liste des entreprises" hidden>
+              <div class="table-scroll">
+                <table>
+                  <thead><tr><th>Entreprise</th><th>Validation</th><th>Configuration</th><th>Intégrations</th><th>Dernier traitement</th><th><span class="visually-hidden">Détail</span></th></tr></thead>
+                  <tbody id="companies-table-body"></tbody>
+                </table>
+              </div>
+              <div class="pagination">
+                <p id="companies-pagination-summary">—</p>
+                <div><button id="companies-previous" class="button button-ghost button-small" type="button">Précédent</button><span id="companies-page-indicator">Page —</span><button id="companies-next" class="button button-ghost button-small" type="button">Suivant</button></div>
+              </div>
+            </section>
+          </div>
+
+          <section id="company-detail-workspace" hidden>
+            <div class="detail-toolbar"><button id="company-detail-back" class="button button-ghost" type="button">← Retour aux entreprises</button><button id="copy-company-id" class="button button-secondary" type="button">Copier l’identifiant</button></div>
+            <div id="company-detail-loading" class="state-card"><span class="spinner" aria-hidden="true"></span><p>Chargement de la fiche…</p></div>
+            <div id="company-detail-error" class="state-card state-error" role="alert" hidden><strong>Fiche indisponible.</strong><button id="company-detail-retry" class="button button-secondary button-small" type="button">Réessayer</button></div>
+            <article id="company-detail-content" class="detail-card" hidden>
+              <header class="detail-header"><div><span class="eyebrow">Fiche entreprise</span><h2 id="detail-company-name">—</h2><p id="detail-company-sector">—</p></div><div id="detail-statuses" class="detail-statuses"></div></header>
+              <div class="detail-grid">
+                <section><h3>Identité</h3><dl><div><dt>Identifiant interne</dt><dd id="detail-company-id">—</dd></div><div><dt>Propriétaire</dt><dd id="detail-owner-email">—</dd></div><div><dt>Créée le</dt><dd id="detail-created-at">—</dd></div><div><dt>Propriété du Sheet</dt><dd id="detail-sheet-owner">—</dd></div></dl></section>
+                <section><h3>Intégrations</h3><dl><div><dt>Gmail</dt><dd id="detail-gmail-status">—</dd></div><div><dt>Google Drive</dt><dd id="detail-drive-status">—</dd></div><div><dt>Google Sheet</dt><dd id="detail-sheet-status">—</dd></div><div><dt>Telegram</dt><dd id="detail-telegram-status">—</dd></div></dl></section>
+                <section><h3>Pipeline</h3><dl><div><dt>Activation</dt><dd id="detail-pipeline-activated">—</dd></div><div><dt>Dernier traitement</dt><dd id="detail-last-processed">—</dd></div><div><dt>Emails traités</dt><dd id="detail-processed">—</dd></div><div><dt>Erreurs actuelles</dt><dd id="detail-failed">—</dd></div></dl></section>
+                <section><h3>Profil de réponse</h3><dl><div><dt>Champs renseignés</dt><dd id="detail-profile-completeness">—</dd></div><div><dt>Ton sélectionné</dt><dd id="detail-response-tone">—</dd></div><div><dt>Brouillons en attente</dt><dd id="detail-pending-drafts">—</dd></div><div><dt>Mise à jour</dt><dd id="detail-updated-at">—</dd></div></dl></section>
+              </div>
+              <aside class="privacy-note"><strong>Vue administrative limitée</strong><p>Le contenu des emails, des brouillons et du profil de réponse n’est jamais exposé ici.</p></aside>
+            </article>
+          </section>
+        </section>
+
+        <section id="incidents-view" class="admin-view" aria-labelledby="incidents-title" hidden>
+          <div class="view-heading">
+            <div><span class="eyebrow">Diagnostic sûr</span><h1 id="incidents-title">Incidents opérationnels</h1><p>Codes techniques courts et références internes uniquement, sans contenu d’email.</p></div>
+            <button id="refresh-incidents" class="button button-secondary" type="button">Actualiser</button>
+          </div>
+
+          <form id="incident-filters" class="filter-card incident-filters">
+            <label class="field" for="incident-severity-filter"><span>Niveau</span><select id="incident-severity-filter" name="severity"><option value="">Tous les niveaux</option><option value="critical">Critique</option><option value="warning">Attention</option></select></label>
+            <label class="field" for="incident-company-filter"><span>Entreprise ID</span><input id="incident-company-filter" name="company_id" type="number" min="1" inputmode="numeric" placeholder="Ex. 12"></label>
+            <button class="button button-primary" type="submit">Appliquer</button>
+          </form>
+
+          <div id="incidents-loading" class="state-card" aria-live="polite"><span class="spinner" aria-hidden="true"></span><p>Chargement des incidents…</p></div>
+          <div id="incidents-error" class="state-card state-error" role="alert" hidden><strong>Impossible de charger les incidents.</strong><button id="incidents-retry" class="button button-secondary button-small" type="button">Réessayer</button></div>
+          <div id="incidents-empty" class="state-card state-success" hidden><strong>Aucun incident avec ces filtres.</strong><p>Les signaux opérationnels connus sont au vert.</p></div>
+
+          <section id="incidents-table-card" class="table-card" aria-label="Liste des incidents" hidden>
+            <div class="table-scroll">
+              <table><thead><tr><th>Niveau</th><th>Incident</th><th>Entreprise</th><th>Code</th><th>Tentatives</th><th>Date</th></tr></thead><tbody id="incidents-table-body"></tbody></table>
+            </div>
+            <div class="pagination"><p id="incidents-pagination-summary">—</p><div><button id="incidents-previous" class="button button-ghost button-small" type="button">Précédent</button><span id="incidents-page-indicator">Page —</span><button id="incidents-next" class="button button-ghost button-small" type="button">Suivant</button></div></div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <input id="clipboard-fallback-input" class="clipboard-fallback-input" type="text" tabindex="-1" aria-hidden="true">
+</body>
+</html>
