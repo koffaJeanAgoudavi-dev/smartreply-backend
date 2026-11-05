@@ -53,8 +53,12 @@ son propre Google Sheet.
 
 ```
 app/
-├── main.py                  # Point d'entrée FastAPI + routeurs + montage /dashboard
+├── main.py                  # Point d'entrée FastAPI + routes et pages publiques
+├── home/                    # Page d'accueil publique responsive, servie sur `/`
 ├── dashboard/               # Dashboard Phase B : HTML/CSS/JS statiques, sans build
+├── contact/                 # Centre public Contact et assistance
+├── conditions/              # Conditions générales publiques
+├── confidentialite/        # Politique de confidentialité publique
 ├── core/
 │   └── config.py            # Configuration (variables d'environnement)
 ├── db/
@@ -138,6 +142,15 @@ absente, si `BASE_URL` n’est pas une origine HTTPS, si le JSON du compte de
 service est incomplet, si les budgets sont non positifs ou si Telegram n’est
 configuré qu’à moitié. Les messages d’erreur indiquent uniquement les noms des
 variables concernées.
+
+La route publique `/` sert la page d'accueil de SmartReply Agent. Elle présente
+le problème traité, le fonctionnement Gmail → analyse → brouillon, les bénéfices,
+le profil de réponse, les limites du contrôle humain et le programme pilote. Ses
+deux parcours principaux restent explicites : les membres accèdent à
+`/dashboard/`, tandis que les prospects demandent un accès au pilote depuis
+`/contact/`. La page n'annonce ni envoi automatique depuis le dashboard, ni
+inscription publique, ni tarification non décidée. Ses ressources sont locales,
+responsive et compatibles avec la CSP stricte du service.
 
 La page publique `/contact/` sert de point d’entrée **Contact et assistance** :
 elle oriente les demandes produit, pilote, support, partenariat, droits et
@@ -272,9 +285,10 @@ est `Strict-Transport-Security: max-age=31536000`, sans `preload` et sans
 documentation. Le dépôt ne peut pas lire la valeur effective du dashboard
 Render : vérifier avant déploiement qu'elle vaut exactement `production`.
 
-Le dashboard reste sous une CSP stricte sans script/style inline ; ses ressources
-applicatives sont locales. Les CDN épinglés de Swagger/ReDoc sont autorisés
-uniquement par la CSP des pages de documentation hors production.
+La page d'accueil, les pages publiques et le dashboard restent sous une CSP
+stricte sans script/style inline ; leurs ressources applicatives sont locales.
+Les CDN épinglés de Swagger/ReDoc sont autorisés uniquement par la CSP des pages
+de documentation hors production.
 
 Après le déploiement :
 
@@ -730,6 +744,7 @@ encore être exécutée dans un projet Google de staging avec un compte test :
 
 | Endpoint | Module | Description |
 |---|---|---|
+| `GET /` | Accueil public | Présente SmartReply et oriente vers le dashboard ou la demande d'accès au pilote |
 | `GET /health` | — | Confirme uniquement que le processus HTTP répond |
 | `GET /ready` | — | Vérifie la configuration locale et exécute `SELECT 1` sur PostgreSQL |
 | `GET /dashboard` | Dashboard | Ouvre l'interface Phase A (redirection vers `/dashboard/`) |

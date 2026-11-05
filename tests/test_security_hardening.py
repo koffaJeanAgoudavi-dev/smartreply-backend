@@ -549,6 +549,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         ("MOUNT", "/confidentialite"),
         ("MOUNT", "/contact"),
         ("MOUNT", "/dashboard"),
+        ("MOUNT", "/home"),
     }
     expected_docs_routes = {
         ("GET", "/docs"),
@@ -607,6 +608,8 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             api_error = client.get("/api/v1/not-a-route")
             oauth_callback = client.get("/api/v1/gmail/callback")
             telegram_webhook = client.post("/api/v1/telegram/webhook")
+            home = client.get("/")
+            home_stylesheet = client.get("/home/styles.css")
             contact = client.get("/contact/")
             contact_javascript = client.get("/contact/app.js")
             contact_stylesheet = client.get("/contact/styles.css")
@@ -624,6 +627,8 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         for response in (api_error, oauth_callback, telegram_webhook):
             self.assert_security_headers(response, api=True)
         for response in (
+            home,
+            home_stylesheet,
             contact,
             contact_javascript,
             contact_stylesheet,
@@ -775,13 +780,16 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         self.assert_security_headers(docs)
         self.assertIn("cdn.jsdelivr.net", docs.headers["Content-Security-Policy"])
 
-    def test_root_is_minimal_and_health_is_unchanged(self):
+    def test_root_is_public_homepage_and_health_is_unchanged(self):
         application = create_app("development")
         with TestClient(application) as client:
             root = client.get("/")
             health = client.get("/health")
 
-        self.assertEqual(root.json(), {"status": "online"})
+        self.assertEqual(root.status_code, 200)
+        self.assertIn("text/html", root.headers["content-type"])
+        self.assertIn("SmartReply Agent", root.text)
+        self.assertIn("Moins de temps dans votre boîte mail", root.text)
         self.assertEqual(health.json(), {"status": "ok"})
         self.assertEqual(health.headers["Cache-Control"], "no-store")
 
