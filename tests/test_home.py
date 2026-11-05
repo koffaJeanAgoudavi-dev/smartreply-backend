@@ -57,6 +57,10 @@ class HomePageTests(unittest.TestCase):
             page.text,
         )
         self.assertIn("DIGICRAFT LABS", page.text)
+        self.assertIn("Produit actuel", page.text)
+        self.assertIn("Vos brouillons réunis", page.text)
+        self.assertIn("Aperçus réels du profil de réponse SmartReply", page.text)
+        self.assertNotIn("Aperçu illustratif", page.text)
         self.assertEqual(page.text.count('class="new-badge'), 2)
 
     def test_homepage_has_both_pilot_and_existing_user_paths(self):
@@ -103,14 +107,31 @@ class HomePageTests(unittest.TestCase):
         mark = self.client.get(
             "/dashboard/assets/brand/smartreply-mark-standard.png"
         )
+        product_images = (
+            "/home/assets/dashboard-overview.webp",
+            "/home/assets/drafts-list.webp",
+            "/home/assets/draft-detail.webp",
+            "/home/assets/response-profile.webp",
+            "/home/assets/response-tone.webp",
+        )
 
         self.assertEqual(stylesheet.status_code, 200)
         self.assertIn("text/css", stylesheet.headers["content-type"])
         self.assertEqual(mark.status_code, 200)
+        for image_path in product_images:
+            with self.subTest(image=image_path):
+                image = self.client.get(image_path)
+                self.assertEqual(image.status_code, 200)
+                self.assertIn("image/webp", image.headers["content-type"])
+                self.assertEqual(image.content[:4], b"RIFF")
+                self.assertEqual(image.content[8:12], b"WEBP")
+                self.assertIn(f'src="{image_path}"', page.text)
         self.assertIn("@media (max-width: 880px)", stylesheet.text)
         self.assertIn("@media (max-width: 640px)", stylesheet.text)
         self.assertIn("@media (prefers-reduced-motion: reduce)", stylesheet.text)
         self.assertIn(".hero-layout", stylesheet.text)
+        self.assertIn(".drafts-showcase", stylesheet.text)
+        self.assertIn(".profile-screenshot-stage", stylesheet.text)
         self.assertIn(".control-section", stylesheet.text)
         self.assertIn(".pilot-card", stylesheet.text)
         self.assertNotIn("style=", page.text)

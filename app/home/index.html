@@ -65,56 +65,17 @@
           </div>
         </div>
 
-        <div class="product-visual" aria-label="Aperçu illustratif d’une analyse SmartReply">
+        <div class="product-visual" aria-label="Aperçu réel du tableau de bord SmartReply">
           <div class="visual-window">
-            <div class="visual-topbar">
-              <div class="visual-brand">
-                <span class="visual-logo"><img src="/dashboard/assets/brand/smartreply-mark-standard.png" width="21" height="21" alt=""></span>
-                <span><strong>SmartReply</strong><small>Aperçu illustratif</small></span>
-              </div>
-              <span class="visual-status"><i aria-hidden="true"></i> Prêt</span>
+            <div class="visual-frame-bar">
+              <span class="frame-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <strong>Tableau de bord SmartReply</strong>
+              <span class="real-product-badge">Produit actuel</span>
             </div>
-
-            <div class="visual-content">
-              <div class="incoming-card">
-                <div class="incoming-heading">
-                  <div>
-                    <small>NOUVEL EMAIL PERTINENT</small>
-                    <strong>Demande de devis pour une prestation</strong>
-                  </div>
-                  <span class="priority-chip">Priorité haute</span>
-                </div>
-                <div class="sender-placeholder" aria-hidden="true">
-                  <span></span><i></i><i></i>
-                </div>
-                <p>Le prospect souhaite connaître les disponibilités, le délai estimé et les modalités de la prestation.</p>
-                <div class="analysis-tags">
-                  <span>Demande commerciale</span>
-                  <span>Résumé préparé</span>
-                </div>
-              </div>
-
-              <div class="draft-card">
-                <div class="draft-heading">
-                  <span class="draft-icon" aria-hidden="true">✦</span>
-                  <div><small>RÉPONSE PRÉPARÉE</small><strong>Un brouillon à votre image</strong></div>
-                  <span class="ready-chip">Prêt à vérifier</span>
-                </div>
-                <div class="draft-lines" aria-hidden="true">
-                  <span class="line-full"></span>
-                  <span class="line-long"></span>
-                  <span class="line-medium"></span>
-                  <span class="line-short"></span>
-                </div>
-                <div class="draft-footer">
-                  <span>Ton professionnel</span>
-                  <strong>Décision finale dans Gmail <span aria-hidden="true">→</span></strong>
-                </div>
-              </div>
-            </div>
+            <img class="hero-dashboard-image" src="/home/assets/dashboard-overview.webp" width="1066" height="570" alt="Tableau de bord SmartReply présentant le volume analysé, les catégories et les priorités des emails.">
           </div>
-          <div class="floating-note floating-note-priority"><span aria-hidden="true">↗</span><strong>Priorité repérée</strong></div>
-          <div class="floating-note floating-note-control"><span aria-hidden="true">✓</span><strong>Vous gardez la main</strong></div>
+          <div class="floating-note floating-note-priority"><span aria-hidden="true">↗</span><strong>Priorités visibles</strong></div>
+          <div class="floating-note floating-note-control"><span aria-hidden="true">✓</span><strong>Données réelles, sans estimation</strong></div>
         </div>
       </div>
     </section>
@@ -185,6 +146,29 @@
             <small>Aucun envoi automatique</small>
           </li>
         </ol>
+
+        <div class="drafts-showcase">
+          <div class="drafts-showcase-copy">
+            <span class="eyebrow">Un espace de contrôle</span>
+            <h3>Vos brouillons réunis, sans transformer SmartReply en messagerie.</h3>
+            <p>Recherchez les réponses préparées, consultez leur contexte et vérifiez le résumé, la catégorie et la priorité avant de poursuivre dans Gmail.</p>
+            <ul class="mini-check-list">
+              <li><span aria-hidden="true">✓</span> Liste et recherche des brouillons</li>
+              <li><span aria-hidden="true">✓</span> Contexte de l’email d’origine</li>
+              <li><span aria-hidden="true">✓</span> Aucun envoi déclenché par la consultation</li>
+            </ul>
+          </div>
+          <div class="drafts-screenshot-stage" aria-label="Aperçus réels de la page Brouillons">
+            <figure class="screenshot-frame drafts-list-shot">
+              <div class="screenshot-label"><span>Brouillons</span><small>Vue d’ensemble</small></div>
+              <img src="/home/assets/drafts-list.webp" width="1066" height="596" loading="lazy" decoding="async" alt="Page Brouillons de SmartReply avec indicateurs, recherche et filtres.">
+            </figure>
+            <figure class="screenshot-frame draft-detail-shot">
+              <div class="screenshot-label"><span>Vérification</span><small>Contexte du brouillon</small></div>
+              <img src="/home/assets/draft-detail.webp" width="1066" height="415" loading="lazy" decoding="async" alt="Détail d’un brouillon SmartReply avec catégorie, priorité, statut et résumé de l’email.">
+            </figure>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -225,33 +209,15 @@
 
     <section class="section profile-section" aria-labelledby="profile-title">
       <div class="page-shell profile-layout">
-        <div class="profile-panel" aria-label="Exemple de profil de réponse">
-          <div class="profile-panel-header">
-            <div><small>PROFIL DE RÉPONSE</small><strong>Le contexte de votre entreprise</strong></div>
-            <span>Enregistré</span>
-          </div>
-          <div class="profile-fields">
-            <article class="profile-field profile-field-wide">
-              <span class="profile-field-icon" aria-hidden="true">01</span>
-              <div><small>ACTIVITÉ</small><strong>Votre métier et votre proposition de valeur</strong><i></i></div>
-            </article>
-            <article class="profile-field">
-              <span class="profile-field-icon" aria-hidden="true">02</span>
-              <div><small>SERVICES</small><strong>Vos offres principales</strong><i></i></div>
-            </article>
-            <article class="profile-field">
-              <span class="profile-field-icon" aria-hidden="true">03</span>
-              <div><small>RÈGLES</small><strong>Vos modalités commerciales</strong><i></i></div>
-            </article>
-            <article class="profile-field profile-field-wide">
-              <span class="profile-field-icon" aria-hidden="true">04</span>
-              <div><small>SIGNATURE ET CONSIGNES</small><strong>Vos repères rédactionnels</strong><i></i></div>
-            </article>
-          </div>
-          <div class="tone-row">
-            <small>TON DES RÉPONSES</small>
-            <div><span class="tone-active">Professionnel</span><span>Chaleureux</span><span>Direct</span></div>
-          </div>
+        <div class="profile-screenshot-stage" aria-label="Aperçus réels du profil de réponse SmartReply">
+          <figure class="screenshot-frame profile-main-shot">
+            <div class="screenshot-label"><span>Profil de réponse</span><small>Contexte métier</small></div>
+            <img src="/home/assets/response-profile.webp" width="1066" height="664" loading="lazy" decoding="async" alt="Paramètres du profil de réponse SmartReply avec l’activité, les services, les horaires, la signature et les règles commerciales.">
+          </figure>
+          <figure class="screenshot-frame profile-tone-shot">
+            <div class="screenshot-label"><span>Ton des réponses</span><small>Quatre choix prédéfinis</small></div>
+            <img src="/home/assets/response-tone.webp" width="1066" height="664" loading="lazy" decoding="async" alt="Choix du ton professionnel, convivial, direct ou chaleureux dans SmartReply.">
+          </figure>
         </div>
 
         <div class="section-heading profile-copy">

@@ -149,8 +149,10 @@ le profil de réponse, les limites du contrôle humain et le programme pilote. S
 deux parcours principaux restent explicites : les membres accèdent à
 `/dashboard/`, tandis que les prospects demandent un accès au pilote depuis
 `/contact/`. La page n'annonce ni envoi automatique depuis le dashboard, ni
-inscription publique, ni tarification non décidée. Ses ressources sont locales,
-responsive et compatibles avec la CSP stricte du service.
+inscription publique, ni tarification non décidée. Des captures réelles et
+recadrées du dashboard, des brouillons et du profil de réponse sont servies en
+WebP local optimisé ; l'ensemble reste responsive et compatible avec la CSP
+stricte du service.
 
 La page publique `/contact/` sert de point d’entrée **Contact et assistance** :
 elle oriente les demandes produit, pilote, support, partenariat, droits et

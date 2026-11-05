@@ -610,6 +610,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
             telegram_webhook = client.post("/api/v1/telegram/webhook")
             home = client.get("/")
             home_stylesheet = client.get("/home/styles.css")
+            home_product_image = client.get("/home/assets/dashboard-overview.webp")
             contact = client.get("/contact/")
             contact_javascript = client.get("/contact/app.js")
             contact_stylesheet = client.get("/contact/styles.css")
@@ -629,6 +630,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         for response in (
             home,
             home_stylesheet,
+            home_product_image,
             contact,
             contact_javascript,
             contact_stylesheet,
