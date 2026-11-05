@@ -45,21 +45,35 @@ class ContactPageTests(unittest.TestCase):
         self.assertIn("text/html", page.headers["content-type"])
         self.assertIn('lang="fr"', page.text)
         for content in (
-            "Contactez l’équipe SmartReply Agent",
-            "Comment pouvons-nous vous aider ?",
-            "Informations sur le produit",
+            "Contact et assistance SmartReply",
+            "DIGICRAFT LABS",
+            "Choisissez le bon canal",
+            "Produit, pilote et offres",
+            "Assistance technique",
+            "Données et suppression",
+            "Incident de sécurité",
+            "security.smartreplyagent@gmail.com",
+            "Une réponse est visée sous 24 heures",
+            "au plus tard sous sept jours",
+            "Envoyez-nous un message",
+            "Information sur le produit",
             "Utilisation et assistance",
             "Offre et facturation",
             "Partenariat",
-            "Envoyez-nous un message",
-            "Les informations transmises seront utilisées",
-            "Vous préférez nous écrire directement ?",
+            "Vous préférez écrire directement ?",
             "hello.smartreplyagent@gmail.com",
             "Merci pour votre message !",
         ):
             self.assertIn(content, page.text)
         for field in ("full_name", "email", "subject", "reason", "message"):
             self.assertIn(f'name="{field}"', page.text)
+        self.assertEqual(page.text.count('class="feature-badge-new"'), 1)
+        self.assertIn('href="/dashboard/"', page.text)
+        self.assertIn('href="/conditions/"', page.text)
+        self.assertIn('href="/confidentialite/"', page.text)
+        self.assertIn('aria-current="page" href="/contact/"', page.text)
+        self.assertIn("ne sont pas enregistrées directement", page.text)
+        self.assertIn("protection anti-abus temporaire", page.text)
         self.assertIn('id="contact-success"', page.text)
         self.assertIn('id="contact-success" class="contact-success"', page.text)
         success_markup = page.text.split('id="contact-success"', maxsplit=1)[1]
@@ -75,7 +89,11 @@ class ContactPageTests(unittest.TestCase):
 
         self.assertEqual(css.status_code, 200)
         self.assertIn("text/css", css.headers["content-type"])
-        self.assertIn("@media (min-width: 720px)", css.text)
+        self.assertIn("@media (min-width: 620px)", css.text)
+        self.assertIn("@media (min-width: 760px)", css.text)
+        self.assertIn(".contact-channels", css.text)
+        self.assertIn(".contact-process-steps", css.text)
+        self.assertIn(".contact-footer", css.text)
         self.assertIn("grid-template-columns", css.text)
         self.assertEqual(javascript.status_code, 200)
         self.assertIn("javascript", javascript.headers["content-type"])

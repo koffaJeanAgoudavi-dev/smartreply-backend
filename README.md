@@ -139,12 +139,18 @@ service est incomplet, si les budgets sont non positifs ou si Telegram n’est
 configuré qu’à moitié. Les messages d’erreur indiquent uniquement les noms des
 variables concernées.
 
-La page publique `/contact/` envoie les demandes par SMTP authentifié vers
-`hello.smartreplyagent@gmail.com`. Pour Gmail, activer la validation en deux
-étapes sur le compte expéditeur puis créer un mot de passe d'application ; ne
-jamais utiliser ni versionner le mot de passe principal du compte. L'hôte
-`smtp.gmail.com`, le port SSL `465` et l'adresse destinataire ont des valeurs
-par défaut configurables.
+La page publique `/contact/` sert de point d’entrée **Contact et assistance** :
+elle oriente les demandes produit, pilote, support, partenariat, droits et
+suppression, tout en réservant les incidents de sécurité à
+`security.smartreplyagent@gmail.com`. Le formulaire général conserve ses cinq
+champs et son API existante, puis transmet les demandes par SMTP authentifié
+vers `hello.smartreplyagent@gmail.com`. Il rappelle les délais indicatifs, les
+précautions relatives aux secrets et renvoie vers les pages légales.
+
+Pour Gmail, activer la validation en deux étapes sur le compte expéditeur puis
+créer un mot de passe d'application ; ne jamais utiliser ni versionner le mot de
+passe principal du compte. L'hôte `smtp.gmail.com`, le port SSL `465` et
+l'adresse destinataire ont des valeurs par défaut configurables.
 
 Telegram est optionnel. Pour l'activer, définir ensemble :
 
@@ -510,10 +516,11 @@ ne publie aucune restriction régionale que l'application ne peut pas appliquer.
 Les informations Gemini restent prudentes : quota gratuit pendant le pilote,
 puis passage prévu à une configuration payante après le pilote.
 
-Ce lot ajoute des liens informatifs à l'inscription, mais aucune case obligatoire
-et aucun suivi d'acceptation en base. À la demande de l'éditeur, les checklists
-internes et l'adresse de sécurité encore inactive restent visibles comme rappels
-avant finalisation. Le formulaire Contact et son API ne sont pas modifiés.
+Les liens informatifs à l'inscription n'ajoutent aucune case obligatoire ni
+suivi d'acceptation en base. Les checklists internes restent dans un document
+privé séparé. La page Contact reprend les canaux et délais publiés dans les
+pages légales ; ses champs, son API, sa livraison SMTP et l'authentification ne
+sont pas modifiés.
 
 ### Pipeline multi-entreprises — Gmail et Sheets requis, Telegram facultatif
 
