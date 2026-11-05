@@ -27,7 +27,7 @@ class ConditionsStaticTests(unittest.TestCase):
         self.assertIn("text/html", page.headers["content-type"])
         self.assertIn('lang="fr"', page.text)
         self.assertIn("Conditions générales d’utilisation", page.text)
-        self.assertIn('<time datetime="2026-11-04">4 novembre 2026</time>', page.text)
+        self.assertIn('<time datetime="2026-11-05">5 novembre 2026</time>', page.text)
         self.assertIn("Version : programme pilote", page.text)
 
     def test_published_document_contains_the_twenty_approved_sections(self):

@@ -497,7 +497,7 @@ rétrocompatible pour chaque entreprise existante.
 
 Les pages statiques `/conditions/` et `/confidentialite/` sont publiques et ne
 dépendent pas d'un JWT. Les routes sans slash final redirigent vers ces URL
-canoniques. Les versions pilote datées du 4 novembre 2026 sont reliées depuis le
+canoniques. Les versions pilote datées du 5 novembre 2026 sont reliées depuis le
 formulaire d'inscription, la section **Données et assistance** de Paramètres et
 le footer du dashboard. Leur parcours pilote reflète l'onboarding réel : le nom
 et le secteur sont renseignés avant l'autorisation Drive, puis l'entreprise et
