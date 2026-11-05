@@ -456,17 +456,66 @@ class CompaniesApiTests(unittest.TestCase):
         response = self.client.patch(
             "/api/v1/companies/me/settings",
             headers=self.authorization,
-            json={"secteur": "  Artisanat  ", "response_tone": "friendly"},
+            json={
+                "secteur": "  Artisanat  ",
+                "response_tone": "friendly",
+                "business_description": "  Atelier de créations locales  ",
+                "products_services": "Objets personnalisés et ateliers",
+                "business_hours": "Du lundi au vendredi, 8 h à 17 h",
+                "response_signature": "L'équipe Acme",
+                "business_rules": "Devis avant toute commande",
+                "response_instructions": "Poser une question si nécessaire",
+            },
         )
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["secteur"], "Artisanat")
         self.assertEqual(response.json()["response_tone"], "friendly")
         self.assertEqual(response.json()["nom_entreprise"], "Acme")
+        self.assertEqual(
+            response.json()["business_description"],
+            "Atelier de créations locales",
+        )
+        self.assertEqual(
+            response.json()["products_services"],
+            "Objets personnalisés et ateliers",
+        )
+        self.assertEqual(response.json()["response_signature"], "L'équipe Acme")
         with self.session_factory() as db:
             company = db.get(Company, company_id)
             self.assertEqual(company.secteur, "Artisanat")
             self.assertEqual(company.response_tone, "friendly")
+            self.assertEqual(
+                company.business_description,
+                "Atelier de créations locales",
+            )
+            self.assertEqual(company.business_rules, "Devis avant toute commande")
+            self.assertEqual(
+                company.response_instructions,
+                "Poser une question si nécessaire",
+            )
+
+    def test_company_profile_field_can_be_cleared_with_an_empty_string(self):
+        with self.session_factory() as db:
+            db.add(
+                Company(
+                    user_id=self.user_id,
+                    nom_entreprise="Acme",
+                    secteur="Conseil",
+                    business_description="Ancienne description",
+                    sheet_id="clear-profile-settings-sheet",
+                )
+            )
+            db.commit()
+
+        response = self.client.patch(
+            "/api/v1/companies/me/settings",
+            headers=self.authorization,
+            json={"business_description": "   "},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["business_description"], "")
 
     def test_validated_company_updates_tone_but_not_sector(self):
         with self.session_factory() as db:
@@ -490,7 +539,10 @@ class CompaniesApiTests(unittest.TestCase):
         tone_response = self.client.patch(
             "/api/v1/companies/me/settings",
             headers=self.authorization,
-            json={"response_tone": "direct"},
+            json={
+                "response_tone": "direct",
+                "business_description": "Conseil aux petites entreprises",
+            },
         )
 
         self.assertEqual(sector_response.status_code, 409, sector_response.text)
@@ -498,6 +550,10 @@ class CompaniesApiTests(unittest.TestCase):
         self.assertEqual(tone_response.status_code, 200, tone_response.text)
         self.assertEqual(tone_response.json()["secteur"], "Conseil")
         self.assertEqual(tone_response.json()["response_tone"], "direct")
+        self.assertEqual(
+            tone_response.json()["business_description"],
+            "Conseil aux petites entreprises",
+        )
 
     def test_company_settings_reject_protected_and_invalid_fields(self):
         with self.session_factory() as db:
@@ -518,6 +574,10 @@ class CompaniesApiTests(unittest.TestCase):
             {"response_tone": "formal"},
             {"secteur": "   "},
             {"secteur": None},
+            {"business_description": None},
+            {"business_description": "x" * 1001},
+            {"products_services": "x" * 1501},
+            {"response_instructions": "x" * 1001},
         ):
             with self.subTest(payload=payload):
                 response = self.client.patch(

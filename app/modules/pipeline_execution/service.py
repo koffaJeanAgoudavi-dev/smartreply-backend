@@ -81,6 +81,14 @@ class CompanyExecutionContext:
     telegram_connected_at: datetime | None = field(repr=False)
     pipeline_activated_at: datetime
     response_tone: str
+    company_name: str = field(repr=False)
+    company_sector: str = field(repr=False)
+    business_description: str = field(repr=False)
+    products_services: str = field(repr=False)
+    business_hours: str = field(repr=False)
+    response_signature: str = field(repr=False)
+    business_rules: str = field(repr=False)
+    response_instructions: str = field(repr=False)
     email_limit: int
 
 
@@ -179,6 +187,14 @@ def _activate_and_load_context(
             ),
             pipeline_activated_at=_as_utc(activated_at),
             response_tone=company.response_tone,
+            company_name=company.nom_entreprise,
+            company_sector=company.secteur,
+            business_description=company.business_description,
+            products_services=company.products_services,
+            business_hours=company.business_hours,
+            response_signature=company.response_signature,
+            business_rules=company.business_rules,
+            response_instructions=company.response_instructions,
             email_limit=plan.email_limit,
         )
 
@@ -466,6 +482,14 @@ async def _process_reserved_email(
             email["objet"],
             email["corps"][:body_limit],
             context.response_tone,
+            company_name=context.company_name,
+            company_sector=context.company_sector,
+            business_description=context.business_description,
+            products_services=context.products_services,
+            business_hours=context.business_hours,
+            response_signature=context.response_signature,
+            business_rules=context.business_rules,
+            response_instructions=context.response_instructions,
         )
         required_keys = {"urgence", "categorie", "resume", "brouillon"}
         if not isinstance(analysis, dict) or not required_keys.issubset(analysis):

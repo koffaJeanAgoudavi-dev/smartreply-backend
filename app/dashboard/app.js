@@ -71,6 +71,14 @@
     "Immobilier",
   ]);
   const RESPONSE_TONES = Object.freeze(["professional", "friendly", "direct", "warm"]);
+  const COMPANY_PROFILE_FIELDS = Object.freeze({
+    business_description: "settings-business-description",
+    products_services: "settings-products-services",
+    business_hours: "settings-business-hours",
+    response_signature: "settings-response-signature",
+    business_rules: "settings-business-rules",
+    response_instructions: "settings-response-instructions",
+  });
   const OTHER_SECTOR_VALUE = "__other__";
   const APP_ROUTES = Object.freeze([
     "dashboard",
@@ -1223,6 +1231,10 @@
       `input[name="response_tone"][value="${responseTone}"]`,
     );
     if (toneInput) toneInput.checked = true;
+    Object.entries(COMPANY_PROFILE_FIELDS).forEach(([fieldName, elementId]) => {
+      const value = state.company[fieldName];
+      $(elementId).value = typeof value === "string" ? value : "";
+    });
     updateSectorEditingState();
   }
 
@@ -1260,6 +1272,9 @@
     }
 
     const body = { response_tone: responseTone };
+    Object.entries(COMPANY_PROFILE_FIELDS).forEach(([fieldName, elementId]) => {
+      body[fieldName] = $(elementId).value.trim();
+    });
     if (state.companyValidation.status === "pending" && !state.companyValidation.error) {
       const sector = selectedSectorValue($("settings-sector"), $("settings-sector-other"));
       if (!sector) {

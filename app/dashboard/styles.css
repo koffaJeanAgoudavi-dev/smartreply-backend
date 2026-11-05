@@ -312,7 +312,8 @@ svg {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   min-height: 48px;
   padding: 0 14px;
@@ -328,18 +329,28 @@ svg {
   appearance: auto;
 }
 
-.field input::placeholder {
+.field textarea {
+  min-height: 96px;
+  padding: 12px 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
   color: var(--color-subtle);
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   border-color: var(--color-primary-600);
   box-shadow: var(--shadow-focus);
 }
 
 .field input:disabled,
-.field select:disabled {
+.field select:disabled,
+.field textarea:disabled {
   cursor: not-allowed;
   background: var(--color-background);
   color: var(--color-muted);
@@ -736,16 +747,16 @@ svg {
 }
 
 .nav-item .nav-badge-new {
-  border: 1px solid rgba(176, 116, 0, 0.16);
-  background: #fff3c4;
-  color: #8a5b00;
-  box-shadow: 0 2px 8px rgba(138, 91, 0, 0.08);
+  border: 1px solid rgba(9, 132, 95, 0.2);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  box-shadow: 0 2px 8px rgba(9, 132, 95, 0.09);
 }
 
 .nav-item.active .nav-badge-new {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  border-color: rgba(255, 255, 255, 0.38);
+  background: #d9f8eb;
+  color: var(--color-primary-900);
   box-shadow: none;
 }
 
@@ -2681,6 +2692,29 @@ td.subject-cell {
   letter-spacing: -0.02em;
 }
 
+.settings-heading-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.feature-badge-new {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 3px 7px;
+  border: 1px solid rgba(9, 132, 95, 0.2);
+  border-radius: 999px;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .settings-card-heading p {
   margin: 5px 0 0;
   color: var(--color-muted);
@@ -2713,6 +2747,13 @@ td.subject-cell {
 .settings-fields {
   display: grid;
   gap: 18px;
+}
+
+.settings-profile-fields .field > small {
+  margin-top: -2px;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .settings-readonly-field {
@@ -3071,6 +3112,10 @@ td.subject-cell {
   .settings-fields,
   .settings-account-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-profile-field-wide {
+    grid-column: 1 / -1;
   }
 
   .settings-logout-action {

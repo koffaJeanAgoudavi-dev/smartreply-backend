@@ -101,6 +101,13 @@ class DashboardStaticTests(unittest.TestCase):
             self.assertNotIn("nav-badge-new", link)
         self.assertIn(".nav-item .nav-badge-new", stylesheet.text)
         self.assertIn(".nav-item.active .nav-badge-new", stylesheet.text)
+        badge_styles = stylesheet.text.split(
+            ".nav-item .nav-badge-new",
+            maxsplit=1,
+        )[1].split(".sidebar-divider", maxsplit=1)[0]
+        self.assertIn("var(--color-success-soft)", badge_styles)
+        self.assertIn("var(--color-success)", badge_styles)
+        self.assertNotIn("#fff3c4", badge_styles)
         self.assertNotIn("dismiss-new-badge", response.text)
 
     def test_dashboard_serves_official_brand_assets_and_metadata(self):
@@ -518,6 +525,14 @@ class DashboardStaticTests(unittest.TestCase):
             'id="settings-company-name"',
             'id="settings-sector"',
             'id="settings-sector-other"',
+            'id="settings-profile-title"',
+            'class="feature-badge-new">Nouveau</small>',
+            'id="settings-business-description"',
+            'id="settings-products-services"',
+            'id="settings-business-hours"',
+            'id="settings-response-signature"',
+            'id="settings-business-rules"',
+            'id="settings-response-instructions"',
             'id="settings-tone-title"',
             'name="response_tone" value="professional"',
             'name="response_tone" value="friendly"',
@@ -538,7 +553,6 @@ class DashboardStaticTests(unittest.TestCase):
             "settings-gmail-status",
             "settings-sheet-status",
             "settings-telegram-status",
-            "response_instruction",
             'value="formal"',
             "Modifier mon mot de passe",
             "Demander la suppression de mes données",
@@ -554,8 +568,17 @@ class DashboardStaticTests(unittest.TestCase):
         )
         self.assertIn('method: "PATCH"', js_response.text)
         self.assertIn("updateSectorEditingState", js_response.text)
+        self.assertIn("COMPANY_PROFILE_FIELDS", js_response.text)
+        self.assertIn("body[fieldName]", js_response.text)
         self.assertIn(".settings-card", css_response.text)
         self.assertIn(".tone-option", css_response.text)
+        self.assertIn(".feature-badge-new", css_response.text)
+        feature_badge_styles = css_response.text.split(
+            ".feature-badge-new",
+            maxsplit=1,
+        )[1].split(".settings-card-heading p", maxsplit=1)[0]
+        self.assertIn("var(--color-success-soft)", feature_badge_styles)
+        self.assertIn("var(--color-success)", feature_badge_styles)
 
         onboarding_markup = response.text.split(
             '<main id="company-screen"', maxsplit=1
