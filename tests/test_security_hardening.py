@@ -106,6 +106,10 @@ class AuthRateLimitTests(unittest.TestCase):
             "CONTACT_RATE_LIMIT_WINDOW_SECONDS": (
                 settings.CONTACT_RATE_LIMIT_WINDOW_SECONDS
             ),
+            "ADMIN_UNLOCK_RATE_LIMIT": settings.ADMIN_UNLOCK_RATE_LIMIT,
+            "ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS": (
+                settings.ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS
+            ),
         }
         settings.JWT_SECRET = "hardening-test-jwt-secret-at-least-32-bytes"
         settings.INVITATION_CODES = "invite-alpha"
@@ -119,6 +123,8 @@ class AuthRateLimitTests(unittest.TestCase):
         settings.REGISTER_RATE_LIMIT_WINDOW_SECONDS = 60 * 60
         settings.CONTACT_IP_RATE_LIMIT = 5
         settings.CONTACT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60
+        settings.ADMIN_UNLOCK_RATE_LIMIT = 5
+        settings.ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 
         self.db = MagicMock()
 
@@ -481,6 +487,8 @@ class AuthRateLimitTests(unittest.TestCase):
         settings.REGISTER_RATE_LIMIT_WINDOW_SECONDS = 654
         settings.CONTACT_IP_RATE_LIMIT = 4
         settings.CONTACT_RATE_LIMIT_WINDOW_SECONDS = 123
+        settings.ADMIN_UNLOCK_RATE_LIMIT = 3
+        settings.ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS = 456
 
         trusted_login = self.limiter.login_buckets(
             "192.0.2.10",
@@ -489,6 +497,7 @@ class AuthRateLimitTests(unittest.TestCase):
         untrusted_login = self.limiter.login_buckets(None, "alice@example.com")
         registration = self.limiter.register_buckets("192.0.2.10")
         contact = self.limiter.contact_buckets("192.0.2.10")
+        admin_unlock = self.limiter.admin_unlock_buckets("192.0.2.10", 7)
 
         self.assertEqual(
             [(bucket.limit, bucket.window_seconds) for bucket in trusted_login],
@@ -506,10 +515,19 @@ class AuthRateLimitTests(unittest.TestCase):
             [(bucket.limit, bucket.window_seconds) for bucket in contact],
             [(4, 123)],
         )
+        self.assertEqual(
+            [(bucket.limit, bucket.window_seconds) for bucket in admin_unlock],
+            [(3, 456)],
+        )
+        self.assertNotIn("192.0.2.10", admin_unlock[0].key)
+        self.assertNotIn(":7", admin_unlock[0].key)
 
 
 class SecurityHeadersAndDocsTests(unittest.TestCase):
     expected_api_routes = {
+        ("GET", "/api/v1/admin/access"),
+        ("POST", "/api/v1/admin/unlock"),
+        ("POST", "/api/v1/admin/lock"),
         ("GET", "/api/v1/admin/me"),
         ("GET", "/api/v1/admin/overview"),
         ("GET", "/api/v1/admin/companies"),
@@ -863,6 +881,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         self.assertEqual(
             limited_routes,
             {
+                ("POST", "/api/v1/admin/unlock"),
                 ("POST", "/api/v1/auth/login"),
                 ("POST", "/api/v1/auth/register"),
                 ("POST", "/api/v1/contact"),
@@ -885,6 +904,7 @@ class SecurityHeadersAndDocsTests(unittest.TestCase):
         self.assertEqual(
             user_protected_routes,
             {
+                ("POST", "/api/v1/admin/lock"),
                 ("POST", "/api/v1/companies"),
                 ("GET", "/api/v1/companies/me"),
                 ("PATCH", "/api/v1/companies/me/settings"),

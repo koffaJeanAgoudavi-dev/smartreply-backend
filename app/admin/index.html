@@ -41,6 +41,29 @@
     </div>
   </section>
 
+  <section id="admin-code-gate" class="gate-screen" hidden>
+    <a class="brand" href="/" aria-label="SmartReply Agent — Accueil public">
+      <span class="brand-mark"><img src="/dashboard/assets/brand/smartreply-mark-standard.png" width="30" height="30" alt=""></span>
+      <span><strong>SmartReply</strong><small>Administration</small></span>
+    </a>
+    <form id="admin-code-form" class="gate-card admin-code-form">
+      <span class="gate-icon gate-icon-lock" aria-hidden="true">◆</span>
+      <p class="eyebrow">Double protection</p>
+      <h1>Code administrateur</h1>
+      <p>Le compte <strong id="admin-code-email">—</strong> est autorisé. Saisissez maintenant le code administrateur configuré dans Render.</p>
+      <label class="field" for="admin-access-code">
+        <span>Code administrateur</span>
+        <input id="admin-access-code" name="admin_access_code" type="password" minlength="16" maxlength="256" autocomplete="off" autocapitalize="none" spellcheck="false" required autofocus>
+      </label>
+      <p id="admin-code-error" class="form-error" role="alert" hidden>Code administrateur incorrect.</p>
+      <button id="admin-code-submit" class="button button-primary" type="submit">Déverrouiller l’administration</button>
+      <p class="admin-code-note">La session administrateur expire automatiquement après 30 minutes. Le code n’est jamais conservé dans ce navigateur.</p>
+      <div class="gate-actions">
+        <a class="button button-secondary" href="/dashboard/">Retour à l’espace utilisateur</a>
+      </div>
+    </form>
+  </section>
+
   <div id="admin-app" class="admin-app" hidden>
     <button id="admin-overlay" class="admin-overlay" type="button" aria-label="Fermer la navigation" tabindex="-1"></button>
 

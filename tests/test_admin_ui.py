@@ -27,6 +27,9 @@ class AdminUiTests(unittest.TestCase):
         self.assertIn("text/html", page.headers["content-type"])
         self.assertIn('lang="fr"', page.text)
         self.assertIn("Centre de pilotage", page.text)
+        self.assertIn("Code administrateur", page.text)
+        self.assertIn("expire automatiquement après 30 minutes", page.text)
+        self.assertIn('type="password"', page.text)
         self.assertIn("Vue d’ensemble", page.text)
         self.assertIn("Entreprises", page.text)
         self.assertIn("Incidents opérationnels", page.text)
@@ -51,6 +54,9 @@ class AdminUiTests(unittest.TestCase):
             javascript.text,
         )
         for endpoint in (
+            "/api/v1/admin/access",
+            "/api/v1/admin/unlock",
+            "/api/v1/admin/lock",
             "/api/v1/admin/me",
             "/api/v1/admin/overview",
             "/api/v1/admin/companies",
@@ -58,7 +64,9 @@ class AdminUiTests(unittest.TestCase):
         ):
             self.assertIn(endpoint, javascript.text)
         self.assertIn("navigator.clipboard.writeText", javascript.text)
+        self.assertIn('credentials: "same-origin"', javascript.text)
         self.assertIn("textContent", javascript.text)
+        self.assertNotIn("localStorage.setItem", javascript.text)
         self.assertNotIn("innerHTML", javascript.text)
         self.assertNotIn(".style.", javascript.text)
         self.assertNotIn("style=", page.text)

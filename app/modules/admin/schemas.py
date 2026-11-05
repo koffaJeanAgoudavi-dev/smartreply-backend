@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 ValidationStatus = Literal["pending", "validated"]
 ConfigurationStatus = Literal["ready", "incomplete"]
@@ -23,6 +23,20 @@ IncidentType = Literal[
 class AdminIdentityResponse(BaseModel):
     user_id: int = Field(ge=1)
     email: str = Field(max_length=255)
+
+
+class AdminAccessStatusResponse(AdminIdentityResponse):
+    unlocked: bool
+    expires_at: datetime | None
+
+
+class AdminUnlockRequest(BaseModel):
+    code: SecretStr = Field(min_length=1, max_length=256)
+
+
+class AdminUnlockResponse(BaseModel):
+    unlocked: bool = True
+    expires_at: datetime
 
 
 class AdminOverviewMetrics(BaseModel):

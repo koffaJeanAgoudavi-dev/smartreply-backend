@@ -3,6 +3,9 @@
 
   const TOKEN_STORAGE_KEY = "smartreply_access_token";
   const API = Object.freeze({
+    access: "/api/v1/admin/access",
+    unlock: "/api/v1/admin/unlock",
+    lock: "/api/v1/admin/lock",
     me: "/api/v1/admin/me",
     overview: "/api/v1/admin/overview",
     companies: "/api/v1/admin/companies",
@@ -39,6 +42,7 @@
     incidentsPage: 1,
     incidentsTotalPages: 0,
     currentCompanyId: null,
+    adminEmail: null,
   };
 
   class ApiError extends Error {
@@ -86,13 +90,21 @@
     }
   }
 
-  async function apiRequest(path) {
+  async function apiRequest(path, options = {}) {
     const token = getToken();
     if (!token) {
       throw new ApiError(401, "Session manquante");
     }
+    const headers = { Authorization: `Bearer ${token}` };
+    if (options.body) {
+      headers["Content-Type"] = "application/json";
+    }
     const response = await fetch(path, {
-      headers: { Authorization: `Bearer ${token}` },
+      method: options.method || "GET",
+      body: options.body || null,
+      headers,
+      credentials: "same-origin",
+      cache: "no-store",
     });
     let payload = null;
     try {
@@ -145,6 +157,7 @@
 
   function showGate(kind) {
     setHidden("admin-loading", true);
+    setHidden("admin-code-gate", true);
     setHidden("admin-app", true);
     setHidden("admin-access-message", false);
     if (kind === "forbidden") {
@@ -168,6 +181,72 @@
         "Connectez-vous d’abord à votre compte SmartReply autorisé.",
       );
       setText("gate-icon", "→");
+    }
+  }
+
+  function showCodeGate(email = null) {
+    if (email) {
+      state.adminEmail = email;
+    }
+    setHidden("admin-loading", true);
+    setHidden("admin-access-message", true);
+    setHidden("admin-app", true);
+    setHidden("admin-code-gate", false);
+    setHidden("admin-code-error", true);
+    setText("admin-code-email", state.adminEmail || "compte autorisé");
+    element("admin-access-code").value = "";
+    window.setTimeout(() => element("admin-access-code").focus(), 0);
+  }
+
+  function openAdmin(identity) {
+    state.adminEmail = identity.email;
+    setText("sidebar-admin-email", identity.email);
+    setHidden("admin-loading", true);
+    setHidden("admin-access-message", true);
+    setHidden("admin-code-gate", true);
+    setHidden("admin-app", false);
+    const requestedView = window.location.hash.replace("#", "");
+    navigate(requestedView || "overview");
+  }
+
+  async function unlockAdmin(event) {
+    event.preventDefault();
+    const input = element("admin-access-code");
+    const button = element("admin-code-submit");
+    const errorMessage = element("admin-code-error");
+    setHidden("admin-code-error", true);
+    button.disabled = true;
+    button.textContent = "Vérification…";
+    try {
+      await apiRequest(API.unlock, {
+        method: "POST",
+        body: JSON.stringify({ code: input.value }),
+      });
+      input.value = "";
+      const identity = await apiRequest(API.me);
+      openAdmin(identity);
+    } catch (error) {
+      input.value = "";
+      if (error instanceof ApiError && error.status === 401) {
+        clearToken();
+        showGate("login");
+        return;
+      }
+      if (error instanceof ApiError && error.status === 429) {
+        errorMessage.textContent = "Trop de tentatives. Réessayez après le délai indiqué.";
+      } else if (error instanceof ApiError && error.status === 503) {
+        errorMessage.textContent = "Le code administrateur n’est pas configuré correctement côté serveur.";
+      } else if (error instanceof ApiError && error.message === "Accès administrateur refusé") {
+        showGate("forbidden");
+        return;
+      } else {
+        errorMessage.textContent = "Code administrateur incorrect.";
+      }
+      setHidden("admin-code-error", false);
+      input.focus();
+    } finally {
+      button.disabled = false;
+      button.textContent = "Déverrouiller l’administration";
     }
   }
 
@@ -545,6 +624,10 @@
       showGate("forbidden");
       return true;
     }
+    if (error.status === 423) {
+      showCodeGate();
+      return true;
+    }
     return false;
   }
 
@@ -564,9 +647,16 @@
       element("admin-menu-button").setAttribute("aria-expanded", String(open));
     });
     element("admin-overlay").addEventListener("click", closeMobileMenu);
-    element("admin-logout").addEventListener("click", () => {
-      clearToken();
-      window.location.assign("/dashboard/");
+    element("admin-code-form").addEventListener("submit", unlockAdmin);
+    element("admin-logout").addEventListener("click", async () => {
+      try {
+        await apiRequest(API.lock, { method: "POST" });
+      } catch (_error) {
+        // Le JWT local est supprimé même si le verrouillage distant échoue.
+      } finally {
+        clearToken();
+        window.location.assign("/dashboard/");
+      }
     });
     element("refresh-overview").addEventListener("click", loadOverview);
     element("refresh-companies").addEventListener("click", loadCompanies);
@@ -623,13 +713,14 @@
       return;
     }
     try {
+      const access = await apiRequest(API.access);
+      state.adminEmail = access.email;
+      if (!access.unlocked) {
+        showCodeGate(access.email);
+        return;
+      }
       const identity = await apiRequest(API.me);
-      setText("sidebar-admin-email", identity.email);
-      setHidden("admin-loading", true);
-      setHidden("admin-access-message", true);
-      setHidden("admin-app", false);
-      const requestedView = window.location.hash.replace("#", "");
-      navigate(requestedView || "overview");
+      openAdmin(identity);
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
         showGate("forbidden");

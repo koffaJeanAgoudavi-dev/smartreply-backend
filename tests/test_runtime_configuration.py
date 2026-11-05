@@ -46,6 +46,9 @@ def valid_production_configuration() -> SimpleNamespace:
         TELEGRAM_BOT_TOKEN="",
         TELEGRAM_WEBHOOK_SECRET="",
         ACCESS_TOKEN_EXPIRE_MINUTES=1440,
+        ADMIN_ACCESS_CODE="admin-code-test-long",
+        ADMIN_UNLOCK_RATE_LIMIT=5,
+        ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS=900,
         LOGIN_IP_EMAIL_RATE_LIMIT=5,
         LOGIN_IP_RATE_LIMIT=20,
         LOGIN_EMAIL_RATE_LIMIT=5,
@@ -82,6 +85,9 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 "PIPELINE_RUN_TIME_BUDGET_SECONDS": 0,
                 "PIPELINE_ALLOWED_COMPANY_IDS": "1,invalid",
                 "ADMIN_ALLOWED_USER_IDS": "1,invalid",
+                "ADMIN_ACCESS_CODE": "short",
+                "ADMIN_UNLOCK_RATE_LIMIT": 0,
+                "ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS": 0,
             }
         )
         config = SimpleNamespace(**values)
@@ -99,6 +105,9 @@ class RuntimeConfigurationTests(unittest.TestCase):
             "PIPELINE_RUN_TIME_BUDGET_SECONDS",
             "PIPELINE_ALLOWED_COMPANY_IDS",
             "ADMIN_ALLOWED_USER_IDS",
+            "ADMIN_ACCESS_CODE",
+            "ADMIN_UNLOCK_RATE_LIMIT",
+            "ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS",
         ):
             self.assertIn(field_name, message)
         for secret_value in ("password", "secret=value", "do-not-log", "bot-token"):

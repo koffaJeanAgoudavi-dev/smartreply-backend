@@ -123,6 +123,22 @@ class RedisRateLimiter:
             ),
         )
 
+    def admin_unlock_buckets(
+        self,
+        client_ip: str,
+        user_id: int,
+    ) -> tuple[RateLimitBucket, ...]:
+        identity_digest = self._identity_digest(
+            f"admin-unlock\0{client_ip}\0{user_id}"
+        )
+        return (
+            RateLimitBucket(
+                key=f"smartreply:rl:v1:admin-unlock:{identity_digest}",
+                limit=settings.ADMIN_UNLOCK_RATE_LIMIT,
+                window_seconds=settings.ADMIN_UNLOCK_RATE_LIMIT_WINDOW_SECONDS,
+            ),
+        )
+
     def consume(self, buckets: Iterable[RateLimitBucket]) -> None:
         bucket_list = tuple(buckets)
         if not bucket_list:
